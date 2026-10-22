@@ -1,21 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 """Actual Blender scene mutations used by the pipeline fault tests."""
 import argparse
+import json
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
+
+def phase(name, **details):
+ print('HML_PHASE '+json.dumps({'phase':name,**details},sort_keys=True),flush=True)
+
+phase('script_started')
 from mathutils import Matrix,Vector
 import bpy
 from tools.blender_backend import SkeletonBackend,matrix
 from tools.prepared import read_prepared,write_json
 
 parser=argparse.ArgumentParser();parser.add_argument('--input',required=True);parser.add_argument('--output',required=True)
-a=parser.parse_args(sys.argv[sys.argv.index('--')+1:]);p=read_prepared(a.input);backend=SkeletonBackend(p)
+a=parser.parse_args(sys.argv[sys.argv.index('--')+1:]);p=read_prepared(a.input)
+phase('input_loaded',prepared_sha256=p['content_sha256'])
+backend=SkeletonBackend(p)
 
 def find(fixture,beat):
  return next(s for s in p['samples'] if s['fixture']==fixture and s['beat']['numerator']/s['beat']['denominator']==beat)
 
 rows=[]
+phase('fault_injection_started',fault_count=10)
 baseline={name:[v.co.copy() for v in obj.data.vertices] for name,obj in backend.meshes.items()}
 for fault,fixture,beat in [('frozen-scapula','arm-raise',1),('frozen-patella','squat',2),('wrong-side-sign','sweep-hip-bilateral-adduction',3),('stretched-shank','neutral',0),('undeclared-world-root','neutral',0),('uniform-ribs','neutral',0),('bony-costal-arch','sweep-thoracic-flexion',3),('stale-cartilage-midpoint','sweep-thoracic-flexion',3),('former-squat','squat',2),('rearward-upper-body','squat',2)]:
  sample=find(fixture,beat)
@@ -65,4 +74,8 @@ for fault,fixture,beat in [('frozen-scapula','arm-raise',1),('frozen-patella','s
  backend.meshes['tibia.R.geometry.0'].scale=(1,1,1)
  for name,points in baseline.items():
   for vertex,position in zip(backend.meshes[name].data.vertices,points):vertex.co=position
-write_json(a.output,{'prepared_sha256':p['content_sha256'],'metadata':backend.metadata(),'faults':rows})
+write_json(a.output,{'format':'blender-faults/v1','prepared_sha256':p['content_sha256'],
+                     'metadata':backend.metadata(),'faults':rows,
+                     'completion':{'status':'complete','prepared_sha256':p['content_sha256']}})
+phase('faults_written',prepared_sha256=p['content_sha256'],fault_count=len(rows))
+phase('script_complete',prepared_sha256=p['content_sha256'])

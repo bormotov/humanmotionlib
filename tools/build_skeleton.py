@@ -2,12 +2,17 @@
 """Factory-startup Blender construction from validated, prepared JSON."""
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from tools.prepared import read_prepared, write_json
 from tools.blender_backend import SkeletonBackend
+
+
+def phase(name, **details):
+    print("HML_PHASE " + json.dumps({"phase": name, **details}, sort_keys=True), flush=True)
 
 
 def main():
@@ -17,8 +22,11 @@ def main():
     parser.add_argument('--render-dir',type=Path,help='Internal review-pack fixed-camera PNG destination')
     parser.add_argument('--render-only',action='store_true',help='Build cleanly and render; full mesh measurements are a separate build')
     args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
+    phase('script_started')
     prepared=read_prepared(args.input)
+    phase('input_loaded', prepared_sha256=prepared['content_sha256'], sample_count=len(prepared['samples']))
     backend=SkeletonBackend(prepared)
+    phase('backend_ready', prepared_sha256=prepared['content_sha256'])
     samples=[]
     rendered=[]
     for index,sample in enumerate(prepared['samples']):
@@ -28,7 +36,8 @@ def main():
             record={'id':sample['id'],'images':backend.render(sample,args.render_dir)}
             if sample['fixture']=='squat':record['balance_evidence']=backend.balance_evidence()
             rendered.append(record)
-        if index%25==0:print(f"Sample {index+1}/{len(prepared['samples'])}: {sample['id']}",flush=True)
+        if index%25==0 or index+1==len(prepared['samples']):
+            phase('samples_progress', sample_id=sample['id'], index=index+1, count=len(prepared['samples']))
     args.output.mkdir(parents=True,exist_ok=True)
     write_json(args.output/'input.json',prepared)
     metadata=backend.metadata()
@@ -41,9 +50,11 @@ def main():
                         for name,obj in sorted(backend.meshes.items())}})
     if args.render_dir:write_json(args.output/'render-manifest.json',{'prepared_sha256':prepared['content_sha256'],'samples':rendered,'metadata':metadata})
     write_json(args.output/'build-metadata.json',metadata)
+    phase('outputs_written', prepared_sha256=prepared['content_sha256'])
     import bpy
     bpy.ops.wm.save_as_mainfile(filepath=str((args.output/'skeleton.blend').resolve()))
-    print(f'Built {len(backend.carriers)} bodies and {len(backend.meshes)} meshes; measured {len(samples)} samples')
+    phase('script_complete', prepared_sha256=prepared['content_sha256'], body_count=len(backend.carriers),
+          mesh_count=len(backend.meshes), measured_sample_count=len(samples))
 
 
 if __name__=='__main__':

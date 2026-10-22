@@ -7,7 +7,6 @@ import hashlib
 import html
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 if __package__ in (None,''):sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
@@ -15,7 +14,8 @@ from PIL import Image,ImageChops,ImageDraw
 from tools import math3d as m
 from tools.prepared import read_prepared,write_json
 from tools.review_graphics import gif,label,onion,sheet
-from tools.runtime import blender_executable,project_root
+from tools.runtime import (DEFAULT_RENDER_TIMEOUT, DEFAULT_SLOT_TIMEOUT, InvocationError,
+                           file_sha256, project_root, validate_timeout)
 
 
 def decoded_digest(path):
@@ -24,13 +24,129 @@ def decoded_digest(path):
         return hashlib.sha256(str(image.size).encode()+image.tobytes()).hexdigest()
 
 
-def render_pass(input_path,output,frames):
-    output.mkdir(parents=True,exist_ok=True)
-    command=[blender_executable(),'--background','--factory-startup','--python','tools/build_skeleton.py','--','--input',str(input_path),'--output',str(output),'--render-dir',str(frames),'--render-only']
-    with (output/'render.log').open('w') as log:
-        result=subprocess.run(command,cwd=project_root(),stdout=log,stderr=subprocess.STDOUT)
-    if result.returncode:raise ValueError('Clean render failed; see '+str(output/'render.log'))
-    return json.loads((output/'render-manifest.json').read_text())
+def _expected_views(prepared, sample):
+    views = {'front', 'side'}
+    if sample['fixture'] in ('neutral', 'rest'):
+        views.add('rear')
+        extra = {camera['id'] for camera in prepared['sources']['review-scene']['cameras']
+                 if camera['id'].startswith('thorax-')}
+        views.update(extra)
+        views.update(view + '-isolated' for view in extra)
+    return views
+
+
+def _validate_manifest(manifest, prepared, frames):
+    if manifest.get('prepared_sha256') != prepared['content_sha256']:
+        raise ValueError('Stale render manifest: prepared input hash does not match')
+    records = manifest.get('samples')
+    expected_samples = prepared['samples']
+    if (not isinstance(records, list) or any(not isinstance(record, dict) for record in records)
+            or [record.get('id') for record in records] != [sample['id'] for sample in expected_samples]):
+        raise ValueError('Render manifest sample inventory mismatch')
+    required_paths = [Path('input.json'), Path('build-metadata.json'), Path('skeleton.blend'),
+                      Path('render-manifest.json')]
+    for sample, record in zip(expected_samples, records):
+        if not isinstance(record, dict):
+            raise ValueError(f"Malformed render manifest sample record for {sample['id']}")
+        images = record.get('images')
+        expected_views = _expected_views(prepared, sample)
+        if not isinstance(images, dict) or set(images) != expected_views:
+            raise ValueError(f"Render manifest view inventory mismatch for {sample['id']}")
+        for view, relative in images.items():
+            expected_relative = Path(sample['fixture']) / view / f"{str(sample['frame_id']).zfill(5)}.png"
+            if not isinstance(relative, str) or Path(relative) != expected_relative:
+                raise ValueError(f"Render manifest image path mismatch for {sample['id']} / {view}")
+            image_path = (frames / relative).resolve()
+            try:
+                image_path.relative_to(frames.resolve())
+            except ValueError as error:
+                raise ValueError(f"Render manifest image escapes frame directory: {relative}") from error
+            if not image_path.is_file() or image_path.stat().st_size == 0:
+                raise ValueError(f"Missing or empty render image for {sample['id']} / {view}: {image_path}")
+            try:
+                with Image.open(image_path) as image:
+                    image.verify()
+            except (OSError, ValueError) as error:
+                raise ValueError(f"Unreadable render image for {sample['id']} / {view}: {image_path}") from error
+            required_paths.append(Path('frames') / expected_relative)
+    return required_paths
+
+
+def _receipt_files_unchanged(receipt, output, required_paths):
+    validation = receipt.get('output_validation', {})
+    files = validation.get('files')
+    if validation.get('status') != 'pass' or not isinstance(files, list) or not files:
+        raise ValueError('Render receipt has no successful output hash inventory')
+    expected = {str((output / path).resolve()) for path in required_paths}
+    observed = set()
+    for record in files:
+        if not isinstance(record, dict):
+            raise ValueError('Render receipt contains a malformed output hash entry')
+        path = Path(record.get('path', '')).resolve()
+        try:
+            path.relative_to(output.resolve())
+        except ValueError as error:
+            raise ValueError(f"Render receipt output escapes pass directory: {path}") from error
+        if not path.is_file() or path.stat().st_size != record.get('size_bytes') or file_sha256(path) != record.get('sha256'):
+            raise ValueError(f"Render receipt output is missing or changed: {path}")
+        observed.add(str(path))
+    if len(observed) != len(files) or observed != expected:
+        raise ValueError('Render receipt output inventory does not match the complete render output set')
+
+
+def _read_supervised_receipt(output, prepared, required_paths):
+    candidates = []
+    for path in (output / 'processes').glob('*/outcome.json'):
+        try:
+            receipt = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError(f"Unreadable render receipt: {path}") from error
+        if receipt.get('operation') == 'render-pass':
+            candidates.append((path, receipt))
+    if len(candidates) != 1:
+        raise ValueError(f"Expected one supervised render receipt in {output}; found {len(candidates)}")
+    path, receipt = candidates[0]
+    if (receipt.get('state') != 'succeeded' or receipt.get('outcome') != 'exit'
+            or receipt.get('return_code') != 0 or receipt.get('source_sha256') != prepared['content_sha256']
+            or receipt.get('last_script_phase') != 'script_complete'
+            or not any(phase.get('phase') == 'input_loaded'
+                       and phase.get('prepared_sha256') == prepared['content_sha256']
+                       for phase in receipt.get('phases', []))
+            or not any(phase.get('phase') == 'script_complete'
+                       and phase.get('prepared_sha256') == prepared['content_sha256']
+                       for phase in receipt.get('phases', []))):
+        raise ValueError(f"Render receipt is failed, incomplete, or stale: {path}")
+    _receipt_files_unchanged(receipt, output, required_paths)
+    return receipt
+
+
+def render_pass(input_path, output, frames, *, timeout_seconds=DEFAULT_RENDER_TIMEOUT,
+                slot_timeout_seconds=DEFAULT_SLOT_TIMEOUT):
+    # Use the same validated routine path as ordinary builds; it probes the
+    # pinned executable and records render outputs under this clean-pass run.
+    validate_timeout(timeout_seconds)
+    validate_timeout(slot_timeout_seconds, 'slot_timeout_seconds')
+    if Path(output).exists():
+        raise ValueError(f"Render pass output must be a fresh path: {output}")
+    from tools import run_blender
+    run_blender.run(input_path, output, render_dir=frames, render_only=True,
+                    timeout_seconds=timeout_seconds, slot_timeout_seconds=slot_timeout_seconds)
+    manifest = json.loads((output / 'render-manifest.json').read_text())
+    prepared = read_prepared(input_path)
+    required_paths = _validate_manifest(manifest, prepared, frames)
+    _read_supervised_receipt(output, prepared, required_paths)
+    return manifest
+
+
+def reuse_render_pass(input_path, output, prepared):
+    manifest_path = output / 'render-manifest.json'
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Missing or malformed render manifest: {manifest_path}") from error
+    required_paths = _validate_manifest(manifest, prepared, output / 'frames')
+    _read_supervised_receipt(output, prepared, required_paths)
+    return manifest
 
 
 def project(point,camera,resolution):
@@ -250,6 +366,10 @@ def main():
     parser.add_argument('--reuse-renders',action='store_true',help='Reassemble previously completed render passes after validating their input hash')
     parser.add_argument('--html-only-from',type=Path,help='Regenerate presentation HTML from an existing verified pack without rendering or re-encoding media')
     parser.add_argument('--output',required=True,type=Path)
+    parser.add_argument('--timeout-seconds',type=float,default=DEFAULT_RENDER_TIMEOUT,
+                        help='Finite deadline for each supervised render pass')
+    parser.add_argument('--slot-timeout-seconds',type=float,default=DEFAULT_SLOT_TIMEOUT,
+                        help='Finite wait for the checkout backend slot per invocation')
     args=parser.parse_args()
     if bool(args.input)==bool(args.html_only_from):
         parser.error('choose exactly one of --input or --html-only-from')
@@ -262,13 +382,20 @@ def main():
         return 0 if result['status']=='pass' else 1
     if not args.input:
         parser.error('--input is required for normal render-pack mode')
+    validate_timeout(args.timeout_seconds)
+    validate_timeout(args.slot_timeout_seconds, 'slot_timeout_seconds')
     prepared=read_prepared(args.input/'input.json')
     args.output.mkdir(parents=True,exist_ok=True)
     passes=[]
     for name in ('clean-a','clean-b'):
         directory=args.output/name
-        manifest=json.loads((directory/'render-manifest.json').read_text()) if args.reuse_renders else render_pass((args.input/'input.json').resolve(),directory.resolve(),(directory/'frames').resolve())
-        if manifest['prepared_sha256']!=prepared['content_sha256']:raise ValueError('Stale render manifest')
+        if args.reuse_renders:
+            manifest=reuse_render_pass((args.input/'input.json').resolve(),directory.resolve(),prepared)
+        else:
+            manifest=render_pass((args.input/'input.json').resolve(),directory.resolve(),
+                                 (directory/'frames').resolve(),
+                                 timeout_seconds=args.timeout_seconds,
+                                 slot_timeout_seconds=args.slot_timeout_seconds)
         passes.append(manifest)
         print('Completed '+name,flush=True)
     result=assemble(prepared,*passes,args.output)
@@ -277,4 +404,4 @@ def main():
 
 if __name__=='__main__':
     try:raise SystemExit(main())
-    except (ValueError,OSError,KeyError) as error:print(str(error),file=sys.stderr);raise SystemExit(1)
+    except (InvocationError,ValueError,OSError,KeyError) as error:print(str(error),file=sys.stderr);raise SystemExit(1)

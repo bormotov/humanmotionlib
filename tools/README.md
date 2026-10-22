@@ -17,11 +17,94 @@ not establish complete OpenSpec acceptance; the task list tracks the checks.
 ```sh
 uv run python tools/validate.py --profile adult-reference-v1
 uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
+uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
 uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
 uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
 uv run python -m unittest discover -s tests
 ```
+
+The runtime, wrapper, backend, and fault suites write all receipts and case
+artifacts below a flat caller-owned run root. For a reviewer run, allocate a
+fresh direct child of `build/` and point the suites at it; importing test
+modules alone creates no run directory. The suite keeps each module's cases
+under `cases/<module>/` and never rewrites another role's run. For example:
+
+```sh
+mkdir build/harden-backend-process-execution_r3_reviewer_try-1_checks
+HUMANMOTIONLIB_TEST_RUN_ROOT=build/harden-backend-process-execution_r3_reviewer_try-1_checks ./.venv/bin/python -m unittest tests.test_runtime tests.test_run_blender tests.test_blender_backend tests.test_pipeline_faults
+```
+
+When this variable is unset, each suite lazily allocates its own fresh
+developer-owned run root. A caller-supplied root must already exist and must be
+a direct child of `build/` with five valid identity components.
+
+### Supervised backend execution
+
+Routine build and render work goes through `tools/run_blender.py` or the
+review-pack command. The runner resolves Blender from `PATH`, records the
+resolved executable, and performs a pinned version/build probe before starting
+the script. It writes one `backend-invocation/v1` receipt per probe and child
+under `<run-root>/processes/<invocation-id>/outcome.json`, with separate stdout
+and stderr logs, command/cwd/platform/Python identity, source hash, deadline,
+process group, completion phases, exit or signal outcome, output hashes, and
+cleanup status. A receipt is updated atomically as the invocation progresses.
+Build scripts emit flushed `HML_PHASE` markers; `script_complete` is emitted
+only after required files, including `skeleton.blend`, are saved.
+
+The defaults are 30 seconds for the backend probe, 1800 seconds for a build,
+14400 seconds for a render, and 30 seconds to acquire the checkout-wide backend
+slot. Cancellation and timeout send TERM for up to 5 seconds, then KILL and
+reap for up to 5 seconds. All overrides must be finite, positive, and no more
+than 86400 seconds. The supervisor uses POSIX process groups and advisory file
+locks; the pinned backend contract names Darwin arm64 as its reference
+platform. The persistent lock file is `build/.backend-execution.lock`;
+ownership state is recorded in `build/.backend-execution-state.json`. A
+confirmed-dead owner can be recovered.
+On Darwin, bounded `ps` snapshots of PID, process-group ID and process state
+preserve the unreaped leader as an identity anchor where the reference Python
+does not expose `waitid`. Zombie-only groups have no live work; missing,
+malformed or unreadable observations remain ambiguous, and `EPERM` alone never
+proves that an owned group is absent.
+Unreadable or ambiguous state, or an unconfirmed cleanup, blocks later backend
+work for operator resolution rather than risking overlap. The lock file remains
+in place because unlinking an advisory lock can split ownership.
+
+Every supervised command that launches Blender needs a fresh, caller-owned flat
+run root under `build/`; its prepared `input.json` may be created in that same
+root as shown above. Runtime APIs require an explicit owning run root and check
+that it resolves beneath `build/` with a valid five-component run identity;
+callers still allocate a fresh root and keep independent input/output roots
+disjoint. Probe and script receipts/logs are written below that root.
+The build runner accepts `--timeout-seconds` (default 1800 seconds for its
+script child) and `--slot-timeout-seconds` (default 30 seconds per slot
+acquisition). Its version probe has its own 30-second deadline. For example,
+append `--timeout-seconds 2400 --slot-timeout-seconds 60` to the
+`tools/run_blender.py` command for an explicitly bounded longer build. The
+review-pack command accepts the same options; its 14400-second execution
+deadline applies to each render pass, not to the complete two-pass operation.
+All timeout values must be finite, positive, and at most 86400 seconds.
+
+The runner launches Blender with `--background --factory-startup
+--python-exit-code 1` and invokes `tools/build_skeleton.py` through the resolved
+PATH executable. Routine builds, renders, and automated checks use this
+supervised path. The runtime requires POSIX process groups and advisory locks;
+the pinned backend reference platform is Darwin arm64. It does not manage
+independent checkouts or interactive Blender sessions.
+
+Raw Blender invocation is reserved for an explicitly authorized low-level
+diagnostic, outside normal builds, renders, and tests. For example, the
+underlying build script can be invoked directly with
+`blender --background --factory-startup --python-exit-code 1 --python
+tools/build_skeleton.py -- --input <prepared-input.json> --output <run-root>`.
+This path does not provide the supervisor's deadline, checkout slot, receipt,
+or automatic output validation. Record the exact command and its output in the
+diagnostic hand-off, stop after a native failure, and do not automatically
+retry it.
+
+The supplied backend failure evidence and its bounded hypotheses are recorded
+in [backend-crash-triage.md](../docs/backend-crash-triage.md). That record keeps
+application and operating-system reports correlated by timestamps and hashes;
+it does not attribute the failures to a confirmed hardware or upstream cause.
 
 | Command | Inputs | Outputs |
 |---|---|---|
@@ -236,7 +319,7 @@ runs:
 
 ```text
 uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
+uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
 uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
 uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
 ```
@@ -472,9 +555,9 @@ also pass their own backend verifier run.
 
 ```sh
 uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
+uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
 uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
 uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
 uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
 ```
@@ -517,7 +600,7 @@ Produce the early squat-only preview through the established commands:
 
 ```sh
 uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
+uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
 uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
 uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
 ```

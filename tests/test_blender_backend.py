@@ -3,35 +3,72 @@
 
 from copy import deepcopy
 import json
-from pathlib import Path
-import subprocess
-import tempfile
 import unittest
 
 from tools import math3d as m
 from tools.backend_measurements import verify_backend
 from tools.prepare_skeleton import prepare
 from tools.prepared import write_json
-from tools.runtime import blender_executable, project_root
+from tools.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation
 from tools.verify_skeleton import verify_transforms
+from tests.run_roots import test_case_root, test_run_root
 
 
 class BlenderBackendTests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory()
-        cls.builds=[]
-        for index,height in enumerate((1.5,1.7,1.9,1.7)):
-            directory=Path(cls.temp.name)/str(index);directory.mkdir()
-            prepared=prepare('adult-reference-v1',height,fixtures=['neutral','rest'])
-            write_json(directory/'input.json',prepared)
-            result=subprocess.run([blender_executable(),'--background','--factory-startup','--python','tools/build_skeleton.py','--','--input',str(directory/'input.json'),'--output',str(directory)],cwd=project_root(),capture_output=True,text=True)
-            if result.returncode:raise RuntimeError(result.stdout+result.stderr)
-            evaluated=json.loads((directory/'evaluated.json').read_text())
-            cls.builds.append((prepared,evaluated))
+    def allocate_case(cls, name):
+        return test_case_root('blender-backend', name)
 
     @classmethod
-    def tearDownClass(cls):cls.temp.cleanup()
+    def build(cls, prepared, operation):
+        case_root = cls.allocate_case(operation)
+        run_root = test_run_root('blender-backend')
+        input_path = case_root / 'input.json'
+        output_dir = case_root / 'output'
+        output_dir.mkdir()
+        write_json(input_path, prepared)
+        identity = inspect_blender(run_root)
+        if not identity['version'] or not identity['build_hash']:
+            raise AssertionError('pinned Blender probe did not return a complete identity')
+        executable = identity['receipt']['executable']
+        result = invocation(
+            [executable, '--background', '--factory-startup', '--python-exit-code', '1',
+             '--python', 'tools/build_skeleton.py', '--', '--input', str(input_path),
+             '--output', str(output_dir)],
+            run_root=run_root, operation=operation, timeout_seconds=DEFAULT_BUILD_TIMEOUT,
+            source_sha256=prepared['content_sha256'],
+            expected_outputs=[output_dir / 'evaluated.json', output_dir / 'geometry-reference.json',
+                              output_dir / 'build-metadata.json', output_dir / 'skeleton.blend'])
+        cls.assert_receipt_outputs(result, [output_dir / 'evaluated.json',
+                                            output_dir / 'geometry-reference.json',
+                                            output_dir / 'build-metadata.json',
+                                            output_dir / 'skeleton.blend'])
+        evaluated = json.loads((output_dir / 'evaluated.json').read_text())
+        if evaluated['prepared_sha256'] != prepared['content_sha256']:
+            raise AssertionError('evaluated output does not match the prepared input')
+        return evaluated
+
+    @classmethod
+    def assert_receipt_outputs(cls, receipt, outputs):
+        if receipt['state'] != 'succeeded':
+            raise AssertionError(receipt)
+        if not receipt['source_sha256']:
+            raise AssertionError('invocation receipt is missing prepared-input identity')
+        if receipt['last_script_phase'] != 'script_complete':
+            raise AssertionError(receipt)
+        if receipt['output_validation']['status'] != 'pass':
+            raise AssertionError(receipt)
+        recorded = {entry['path'] for entry in receipt['output_validation']['files']}
+        if not {str(path.resolve()) for path in outputs} <= recorded:
+            raise AssertionError('invocation receipt does not validate every required output')
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builds=[]
+        for index,height in enumerate((1.5,1.7,1.9,1.7)):
+            prepared=prepare('adult-reference-v1',height,fixtures=['neutral','rest'])
+            evaluated=cls.build(prepared, f'backend-stature-{index}')
+            cls.builds.append((prepared,evaluated))
 
     def test_all_statures_have_valid_evaluated_geometry_frames_and_scene(self):
         for p,e in self.builds:
@@ -84,24 +121,20 @@ class BlenderBackendTests(unittest.TestCase):
         p=prepare('adult-reference-v1',fixtures=list(targets))
         p['samples']=[s for s in p['samples'] if Fraction(s['beat']['numerator'],s['beat']['denominator'])==targets[s['fixture']]]
         p=seal(p)
-        with tempfile.TemporaryDirectory() as temp:
-            directory=Path(temp);write_json(directory/'input.json',p)
-            result=subprocess.run([blender_executable(),'--background','--factory-startup','--python','tools/build_skeleton.py','--','--input',str(directory/'input.json'),'--output',str(directory)],cwd=project_root(),capture_output=True,text=True)
-            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-            e=json.loads((directory/'evaluated.json').read_text())
-            report=verify_backend(p,e,verify_transforms(p,e['samples']))
-            failed=[c['id'] for s in report['samples'] for c in s['checks'] if c['status']=='fail']
-            self.assertEqual(report['status'],'pass',str(failed[:10]))
+        e=self.build(p, 'backend-rigid-chains')
+        report=verify_backend(p,e,verify_transforms(p,e['samples']))
+        failed=[c['id'] for s in report['samples'] for c in s['checks'] if c['status']=='fail']
+        self.assertEqual(report['status'],'pass',str(failed[:10]))
 
     def test_isolated_subset_cannot_satisfy_complete_diagnostic_acceptance(self):
         from tools.verification_run import verify_collection
         p,e=self.builds[1]
-        with tempfile.TemporaryDirectory() as temp:
-            report=verify_collection(p,e,Path(temp)/'metrics.json',verify_transforms)
-            self.assertEqual(report['status'],'fail')
-            failed={c['id'] for c in report['checks'] if c['status']=='fail'}
-            self.assertIn('diagnostic_fixture_coverage',failed)
-            self.assertTrue(all(s['status']=='pass' for s in report['samples']))
+        metrics_case = self.allocate_case('collection-metrics')
+        report=verify_collection(p,e,metrics_case/'metrics.json',verify_transforms)
+        self.assertEqual(report['status'],'fail')
+        failed={c['id'] for c in report['checks'] if c['status']=='fail'}
+        self.assertIn('diagnostic_fixture_coverage',failed)
+        self.assertTrue(all(s['status']=='pass' for s in report['samples']))
 
     def test_native_rest_frame_scaling_in_deep_spinal_chains(self):
         base=self.builds[1][1]
