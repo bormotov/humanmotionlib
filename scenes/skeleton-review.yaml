@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: skeleton-review-scene
+id: skeleton-review
+description: Fixed front/rear/side orthographic skeleton review scene; Workbench flat material colors,
+  no shadows or cavity.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Project-authored diagnostic/reference scene from the approved numerical dossier; no external
+    motion or asset.
+  changes: Original verification intent; not measured gait or clinical validation.
+backend:
+  version: 5.2.2 LTS
+  build: d13f752e3b9c
+  renderer: BLENDER_WORKBENCH
+  reference_platform: Darwin-arm64
+cameras:
+- id: front
+  position_m:
+  - 0
+  - 8
+  - 0.95
+  look_at_m:
+  - 0
+  - 0
+  - 0.95
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 4
+- id: rear
+  position_m:
+  - 0
+  - -8
+  - 0.95
+  look_at_m:
+  - 0
+  - 0
+  - 0.95
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 4
+- id: side
+  position_m:
+  - 8
+  - 0
+  - 0.95
+  look_at_m:
+  - 0
+  - 0
+  - 0.95
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 4
+- id: thorax-front
+  position_m:
+  - 0
+  - 8
+  - 1.22
+  look_at_m:
+  - 0
+  - 0
+  - 1.22
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 0.8
+- id: thorax-side
+  position_m:
+  - 8
+  - 0
+  - 1.22
+  look_at_m:
+  - 0
+  - 0
+  - 1.22
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 0.8
+- id: thorax-three-quarter
+  position_m:
+  - 8
+  - 8
+  - 1.22
+  look_at_m:
+  - 0
+  - 0
+  - 1.22
+  up:
+  - 0
+  - 0
+  - 1
+  orthographic_scale_m: 0.8
+resolution:
+- 1024
+- 1024
+floor:
+  size_m: 6
+  z_m: 0
+  color:
+  - 0.35
+  - 0.37
+  - 0.4
+shading:
+  light: FLAT
+  color_type: MATERIAL
+  background:
+  - 0.94
+  - 0.95
+  - 0.96
+  bone_color:
+  - 0.8
+  - 0.76
+  - 0.64
+  outlines: true
+  outline_color:
+  - 0
+  - 0
+  - 0
+  shadows: false
+  cavity: false
+  transparent: false
+  antialiasing: 16
+overlays:
+  axis_length_h: 0.025
+  labels: stable_ids

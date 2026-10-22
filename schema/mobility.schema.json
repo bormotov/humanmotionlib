@@ -1,0 +1,939 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "skeleton-mobility"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "provenance": {
+      "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "units": {
+      "const": "degrees"
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "joint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "enum": [
+              "pelvis",
+              "torso",
+              "head_neck",
+              "arm_L",
+              "arm_R",
+              "leg_L",
+              "leg_R"
+            ]
+          },
+          "side": {
+            "enum": [
+              "L",
+              "R",
+              "midline"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "independent",
+              "coupled",
+              "fixed"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "frame": {
+            "type": "string",
+            "minLength": 1
+          },
+          "axis": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "neutral_deg": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "bounds_deg": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "provenance": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+          }
+        },
+        "required": [
+          "id",
+          "joint",
+          "group",
+          "side",
+          "mode",
+          "description",
+          "frame",
+          "axis",
+          "neutral_deg",
+          "bounds_deg",
+          "provenance"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "couplings": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "shoulder_girdle"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sc_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "ac_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "glenoid_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "clavicle_factors": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "scapula_factors": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                },
+                "required": [
+                  "sc_m",
+                  "ac_m",
+                  "glenoid_m",
+                  "clavicle_factors",
+                  "scapula_factors"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "forearm_rotation"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "axis_start_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "axis_end_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "neutral_deg": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  }
+                },
+                "required": [
+                  "axis_start_m",
+                  "axis_end_m",
+                  "neutral_deg"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "knee_tracking"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "twist_deg": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  },
+                  "transition_deg": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  },
+                  "translation_factors_h": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                },
+                "required": [
+                  "twist_deg",
+                  "transition_deg",
+                  "translation_factors_h"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "patella_tracking"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "flexion_factor": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  },
+                  "knots_deg": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2
+                  },
+                  "lateral_h": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2
+                  },
+                  "tilt_deg": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2
+                  }
+                },
+                "required": [
+                  "flexion_factor",
+                  "knots_deg",
+                  "lateral_h",
+                  "tilt_deg"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "spine_distribution"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "composition": {
+                    "const": "Rx(-f/N)*Ry(b/N)*Rz(r/N)"
+                  }
+                },
+                "required": [
+                  "count",
+                  "composition"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "hindfoot_oblique"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "axis": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "pivot_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                },
+                "required": [
+                  "axis",
+                  "pivot_m"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "forefoot_hinge"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "axis": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "pivot_m": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  }
+                },
+                "required": [
+                  "axis",
+                  "pivot_m"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "multiaxis_envelope"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "exponent": {
+                    "const": 2
+                  },
+                  "action_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 2
+                  }
+                },
+                "required": [
+                  "exponent",
+                  "action_ids"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "shoulder_sector"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "azimuth_deg": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2
+                  },
+                  "elevation_deg": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2
+                  },
+                  "gh_swing_max_deg": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  },
+                  "gh_twist_max_deg": {
+                    "type": "number",
+                    "minimum": -1e+100,
+                    "maximum": 1e+100
+                  }
+                },
+                "required": [
+                  "azimuth_deg",
+                  "elevation_deg",
+                  "gh_swing_max_deg",
+                  "gh_twist_max_deg"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "const": "spine_budget"
+              },
+              "action_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 2
+                  },
+                  "bounds_deg": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": -1e+100,
+                      "maximum": 1e+100
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                },
+                "required": [
+                  "action_ids",
+                  "bounds_deg"
+                ],
+                "additionalProperties": false
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "action_ids",
+              "parameters",
+              "provenance"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "reference_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cohort": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statistic": {
+            "const": "mean"
+          },
+          "female_deg": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "male_deg": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "provenance": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "cohort",
+          "statistic",
+          "female_deg",
+          "male_deg",
+          "provenance"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "conventions": {
+      "type": "object",
+      "properties": {
+        "spine_pelvis": {
+          "const": "Rx(-f)*Ry(b)*Rz(r)"
+        },
+        "shoulder": {
+          "const": "Rot(u,e)*Rz(-tau)"
+        },
+        "action_frame": {
+          "const": "anatomical-neutral; axes inherit proximal rotation; basis change explicit"
+        },
+        "hip": {
+          "const": "Rx(f)*Ry(b)*Rz(-r)"
+        },
+        "wrist": {
+          "const": "Rx(f)*Ry(b)"
+        }
+      },
+      "required": [
+        "spine_pelvis",
+        "shoulder",
+        "action_frame",
+        "hip",
+        "wrist"
+      ],
+      "additionalProperties": false
+    },
+    "placements": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "joint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "enum": [
+              "pelvis",
+              "torso",
+              "head_neck",
+              "arm_L",
+              "arm_R",
+              "leg_L",
+              "leg_R"
+            ]
+          },
+          "frame": {
+            "type": "string",
+            "minLength": 1
+          },
+          "axis": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/vector3"
+          },
+          "neutral_m": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "bounds_m": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "provenance": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+          }
+        },
+        "required": [
+          "id",
+          "joint",
+          "group",
+          "frame",
+          "axis",
+          "neutral_m",
+          "bounds_m",
+          "provenance"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "description",
+    "license",
+    "provenance",
+    "profile",
+    "units",
+    "actions",
+    "couplings",
+    "reference_observations",
+    "conventions",
+    "placements"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/mobility.schema.json"
+}

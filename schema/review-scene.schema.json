@@ -1,0 +1,250 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "skeleton-review-scene"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "provenance": {
+      "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "5.2.2 LTS"
+        },
+        "build": {
+          "const": "d13f752e3b9c"
+        },
+        "renderer": {
+          "const": "BLENDER_WORKBENCH"
+        },
+        "reference_platform": {
+          "const": "Darwin-arm64"
+        }
+      },
+      "required": [
+        "version",
+        "build",
+        "renderer",
+        "reference_platform"
+      ],
+      "additionalProperties": false
+    },
+    "cameras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "enum": [
+              "front",
+              "rear",
+              "side",
+              "thorax-front",
+              "thorax-side",
+              "thorax-three-quarter"
+            ]
+          },
+          "position_m": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "look_at_m": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "up": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "orthographic_scale_m": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "position_m",
+          "look_at_m",
+          "up",
+          "orthographic_scale_m"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 3
+    },
+    "resolution": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "floor": {
+      "type": "object",
+      "properties": {
+        "size_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "z_m": {
+          "const": 0
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "size_m",
+        "z_m",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "shading": {
+      "type": "object",
+      "properties": {
+        "light": {
+          "const": "FLAT"
+        },
+        "color_type": {
+          "const": "MATERIAL"
+        },
+        "background": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "bone_color": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "outlines": {
+          "const": true
+        },
+        "outline_color": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "shadows": {
+          "const": false
+        },
+        "cavity": {
+          "const": false
+        },
+        "transparent": {
+          "const": false
+        },
+        "antialiasing": {
+          "const": 16
+        }
+      },
+      "required": [
+        "light",
+        "color_type",
+        "background",
+        "bone_color",
+        "outlines",
+        "outline_color",
+        "shadows",
+        "cavity",
+        "transparent",
+        "antialiasing"
+      ],
+      "additionalProperties": false
+    },
+    "overlays": {
+      "type": "object",
+      "properties": {
+        "axis_length_h": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "labels": {
+          "const": "stable_ids"
+        }
+      },
+      "required": [
+        "axis_length_h",
+        "labels"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "description",
+    "license",
+    "provenance",
+    "backend",
+    "cameras",
+    "resolution",
+    "floor",
+    "shading",
+    "overlays"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/review-scene.schema.json"
+}

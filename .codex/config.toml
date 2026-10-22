@@ -1,0 +1,8 @@
+# Project-scoped Codex configuration. Multi-agent availability can depend on the
+# active Codex host/runtime; this file sets project-level concurrency limits.
+
+[agents]
+# Concurrent independent subagent threads; OpenSpec lifecycle ordering is defined in AGENTS.md.
+max_concurrent_threads_per_session = 3
+# V1 nesting limit only; V2 runtimes may ignore this setting.
+max_depth = 1

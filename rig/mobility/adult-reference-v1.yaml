@@ -1,0 +1,2760 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: skeleton-mobility
+id: adult-reference-v1
+description: Anatomical action model with bounded authored envelopes and explicit
+  approximate coupling; reference observations retained separately.
+license: CC-BY-4.0
+provenance:
+  kind: adapted
+  license: CC-BY-4.0
+  sources:
+  - material: hands-on-anatomy-2024
+    locator: Authored action/landmark text chapters 1–9; no figures
+  - material: faisal-2019-joint-monitoring
+    locator: Table 3, female/male mean magnitudes, ages 20–44
+  - material: moromizato-2016-rom
+    locator: Table 1 and passive measurement context
+  - material: beczkowska-2022-spine-rom
+    locator: Table 3 regional spine ranges
+  - material: bang-2025-shoulder-rhythm
+    locator: Section 2.1 abduction coordination text; other planes authored
+  - material: yu-2019-patellar-kinematics
+    locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+  - material: brockett-chapman-2016-ankle
+    locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+  - material: tovaruela-2025-hallux
+    locator: Introduction, MTP dorsiflexion role
+  - material: parallel-manipulator-2024-wrist
+    locator: Table 2 radial/ulnar wrist deviation
+  rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+    not an individual physiological maximum.
+  changes: Reduced authored operating envelope or approximate coupling; reference
+    observations remain separate and unchanged.
+profile: adult-reference-v1
+units: degrees
+conventions:
+  hip: Rx(f)*Ry(b)*Rz(-r)
+  wrist: Rx(f)*Ry(b)
+  spine_pelvis: Rx(-f)*Ry(b)*Rz(r)
+  shoulder: Rot(u,e)*Rz(-tau)
+  action_frame: anatomical-neutral; axes inherit proximal rotation; basis change explicit
+actions:
+- id: hip.R.flexion
+  joint: femur.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: hip R flexion anatomical action.
+  frame: pelvis
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 120
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.R.adduction
+  joint: femur.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: hip R adduction anatomical action.
+  frame: pelvis
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 10
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.R.external_rotation
+  joint: femur.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: hip R external_rotation anatomical action.
+  frame: pelvis
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 35
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.R.elevation
+  joint: humerus.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: shoulder R elevation anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 168
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.R.plane
+  joint: humerus.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: shoulder R plane anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -180
+  - 180
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.R.external_twist
+  joint: humerus.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: shoulder R external_twist anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -55
+  - 70
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.R.upward_rotation
+  joint: scapula.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: scapula R upward_rotation anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 56
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.R.posterior_tilt
+  joint: scapula.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: scapula R posterior_tilt anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 16.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.R.external_rotation
+  joint: scapula.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: scapula R external_rotation anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 12.6
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.R.elevation
+  joint: clavicle.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: clavicle R elevation anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - -1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 16.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.R.retraction
+  joint: clavicle.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: clavicle R retraction anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 10.5
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.R.axial_rotation
+  joint: clavicle.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: clavicle R axial_rotation anatomical action.
+  frame: T1
+  axis:
+  - 0.9736991874996672
+  - -0.19916574289765918
+  - 0.11064763494314482
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 21
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: glenohumeral.R.swing
+  joint: humerus.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: glenohumeral R swing anatomical action.
+  frame: scapula.R
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 125
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: glenohumeral.R.twist
+  joint: humerus.R
+  group: arm_R
+  side: R
+  mode: coupled
+  description: glenohumeral R twist anatomical action.
+  frame: scapula.R
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -100
+  - 100
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: elbow.R.flexion
+  joint: elbow.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: elbow R flexion anatomical action.
+  frame: humerus.R
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 140
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: forearm.R.pronation
+  joint: radius.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: forearm R pronation anatomical action.
+  frame: elbow.R
+  axis:
+  - 0.07306426627542377
+  - 0
+  - 0.9973272346595344
+  neutral_deg: -80
+  bounds_deg:
+  - -80
+  - 75
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.R.flexion
+  joint: wrist.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: wrist R flexion anatomical action.
+  frame: radius.R
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -60
+  - 70
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.R.ulnar_deviation
+  joint: wrist.R
+  group: arm_R
+  side: R
+  mode: independent
+  description: wrist R ulnar_deviation anatomical action.
+  frame: radius.R
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 25
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.R.axial_rotation
+  joint: wrist.R
+  group: arm_R
+  side: R
+  mode: fixed
+  description: wrist R axial_rotation anatomical action.
+  frame: radius.R
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.R.flexion
+  joint: knee.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: knee R flexion anatomical action.
+  frame: femur.R
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 130
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.R.tibial_twist
+  joint: knee.R
+  group: leg_R
+  side: R
+  mode: coupled
+  description: knee R tibial_twist anatomical action.
+  frame: femur.R
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -8
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.R.flexion
+  joint: patella.R
+  group: leg_R
+  side: R
+  mode: coupled
+  description: patella R flexion anatomical action.
+  frame: femur.R
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 84.5
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.R.tilt
+  joint: patella.R
+  group: leg_R
+  side: R
+  mode: coupled
+  description: patella R tilt anatomical action.
+  frame: femur.R
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -1
+  - 3
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: ankle.R.dorsiflexion
+  joint: talus.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: ankle R dorsiflexion anatomical action.
+  frame: tibia.R
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -40
+  - 20
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: R3 authored operating envelope; 20-degree positive ceiling informed
+      by Brockett/Chapman printed p.235 ROM text. Faisal means remain observations,
+      not maxima.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hindfoot.R.inversion
+  joint: hindfoot.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: hindfoot R inversion anatomical action.
+  frame: talus.R
+  axis:
+  - -0.29931740973281556
+  - 0.7051476278512911
+  - 0.6427876096865393
+  neutral_deg: 0
+  bounds_deg:
+  - -10
+  - 20
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: mtp.R.extension
+  joint: mtp.R
+  group: leg_R
+  side: R
+  mode: independent
+  description: mtp R extension anatomical action.
+  frame: hindfoot.R
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -10
+  - 45
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: tovaruela-2025-hallux
+      locator: Introduction, MTP dorsiflexion role
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: digits.R.rotation
+  joint: hand.R
+  group: arm_R
+  side: R
+  mode: fixed
+  description: digits R rotation anatomical action.
+  frame: wrist.R
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.L.flexion
+  joint: femur.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: hip L flexion anatomical action.
+  frame: pelvis
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 120
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.L.adduction
+  joint: femur.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: hip L adduction anatomical action.
+  frame: pelvis
+  axis:
+  - 0
+  - -1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 10
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.L.external_rotation
+  joint: femur.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: hip L external_rotation anatomical action.
+  frame: pelvis
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 35
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.L.elevation
+  joint: humerus.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: shoulder L elevation anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 168
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.L.plane
+  joint: humerus.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: shoulder L plane anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -180
+  - 180
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.L.external_twist
+  joint: humerus.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: shoulder L external_twist anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -55
+  - 70
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.L.upward_rotation
+  joint: scapula.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: scapula L upward_rotation anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 56
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.L.posterior_tilt
+  joint: scapula.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: scapula L posterior_tilt anatomical action.
+  frame: T1
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 16.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: scapula.L.external_rotation
+  joint: scapula.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: scapula L external_rotation anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 12.6
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.L.elevation
+  joint: clavicle.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: clavicle L elevation anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 16.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.L.retraction
+  joint: clavicle.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: clavicle L retraction anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 10.5
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: clavicle.L.axial_rotation
+  joint: clavicle.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: clavicle L axial_rotation anatomical action.
+  frame: T1
+  axis:
+  - 0.9736991874996672
+  - 0.19916574289765918
+  - -0.11064763494314482
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 21
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: glenohumeral.L.swing
+  joint: humerus.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: glenohumeral L swing anatomical action.
+  frame: scapula.L
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 125
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: glenohumeral.L.twist
+  joint: humerus.L
+  group: arm_L
+  side: L
+  mode: coupled
+  description: glenohumeral L twist anatomical action.
+  frame: scapula.L
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -100
+  - 100
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: elbow.L.flexion
+  joint: elbow.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: elbow L flexion anatomical action.
+  frame: humerus.L
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 140
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: forearm.L.pronation
+  joint: radius.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: forearm L pronation anatomical action.
+  frame: elbow.L
+  axis:
+  - 0.07306426627542377
+  - 0
+  - -0.9973272346595344
+  neutral_deg: -80
+  bounds_deg:
+  - -80
+  - 75
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.L.flexion
+  joint: wrist.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: wrist L flexion anatomical action.
+  frame: radius.L
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -60
+  - 70
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.L.ulnar_deviation
+  joint: wrist.L
+  group: arm_L
+  side: L
+  mode: independent
+  description: wrist L ulnar_deviation anatomical action.
+  frame: radius.L
+  axis:
+  - 0
+  - -1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 25
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.L.axial_rotation
+  joint: wrist.L
+  group: arm_L
+  side: L
+  mode: fixed
+  description: wrist L axial_rotation anatomical action.
+  frame: radius.L
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.L.flexion
+  joint: knee.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: knee L flexion anatomical action.
+  frame: femur.L
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 130
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.L.tibial_twist
+  joint: knee.L
+  group: leg_L
+  side: L
+  mode: coupled
+  description: knee L tibial_twist anatomical action.
+  frame: femur.L
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -8
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.L.flexion
+  joint: patella.L
+  group: leg_L
+  side: L
+  mode: coupled
+  description: patella L flexion anatomical action.
+  frame: femur.L
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 84.5
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.L.tilt
+  joint: patella.L
+  group: leg_L
+  side: L
+  mode: coupled
+  description: patella L tilt anatomical action.
+  frame: femur.L
+  axis:
+  - 0
+  - 0
+  - -1
+  neutral_deg: 0
+  bounds_deg:
+  - -1
+  - 3
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: ankle.L.dorsiflexion
+  joint: talus.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: ankle L dorsiflexion anatomical action.
+  frame: tibia.L
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -40
+  - 20
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: R3 authored operating envelope; 20-degree positive ceiling informed
+      by Brockett/Chapman printed p.235 ROM text. Faisal means remain observations,
+      not maxima.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hindfoot.L.inversion
+  joint: hindfoot.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: hindfoot L inversion anatomical action.
+  frame: talus.L
+  axis:
+  - -0.29931740973281556
+  - -0.7051476278512911
+  - -0.6427876096865393
+  neutral_deg: 0
+  bounds_deg:
+  - -10
+  - 20
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: mtp.L.extension
+  joint: mtp.L
+  group: leg_L
+  side: L
+  mode: independent
+  description: mtp L extension anatomical action.
+  frame: hindfoot.L
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -10
+  - 45
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: tovaruela-2025-hallux
+      locator: Introduction, MTP dorsiflexion role
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: digits.L.rotation
+  joint: hand.L
+  group: arm_L
+  side: L
+  mode: fixed
+  description: digits L rotation anatomical action.
+  frame: wrist.L
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: cervical.flexion
+  joint: C7
+  group: head_neck
+  side: midline
+  mode: independent
+  description: cervical flexion anatomical action.
+  frame: T1
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -50
+  - 50
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: cervical.lateral_flexion
+  joint: C7
+  group: head_neck
+  side: midline
+  mode: independent
+  description: cervical lateral_flexion anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 30
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: cervical.rotation
+  joint: C7
+  group: head_neck
+  side: midline
+  mode: independent
+  description: cervical rotation anatomical action.
+  frame: T1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -60
+  - 60
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: thoracic.flexion
+  joint: T12
+  group: torso
+  side: midline
+  mode: independent
+  description: thoracic flexion anatomical action.
+  frame: L1
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -25
+  - 35
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: thoracic.lateral_flexion
+  joint: T12
+  group: torso
+  side: midline
+  mode: independent
+  description: thoracic lateral_flexion anatomical action.
+  frame: L1
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -20
+  - 20
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: thoracic.rotation
+  joint: T12
+  group: torso
+  side: midline
+  mode: independent
+  description: thoracic rotation anatomical action.
+  frame: L1
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -25
+  - 25
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: lumbar.flexion
+  joint: L5
+  group: torso
+  side: midline
+  mode: independent
+  description: lumbar flexion anatomical action.
+  frame: sacrum
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 35
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: lumbar.lateral_flexion
+  joint: L5
+  group: torso
+  side: midline
+  mode: independent
+  description: lumbar lateral_flexion anatomical action.
+  frame: sacrum
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 15
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: lumbar.rotation
+  joint: L5
+  group: torso
+  side: midline
+  mode: independent
+  description: lumbar rotation anatomical action.
+  frame: sacrum
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -10
+  - 10
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: pelvis.pitch
+  joint: pelvis
+  group: pelvis
+  side: midline
+  mode: independent
+  description: pelvis pitch anatomical action.
+  frame: world
+  axis:
+  - -1
+  - 0
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 30
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: pelvis.lateral_tilt
+  joint: pelvis
+  group: pelvis
+  side: midline
+  mode: independent
+  description: pelvis lateral_tilt anatomical action.
+  frame: world
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_deg: 0
+  bounds_deg:
+  - -15
+  - 15
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: pelvis.yaw
+  joint: pelvis
+  group: pelvis
+  side: midline
+  mode: independent
+  description: pelvis yaw anatomical action.
+  frame: world
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - -30
+  - 30
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: jaw.rotation
+  joint: mandible
+  group: head_neck
+  side: midline
+  mode: fixed
+  description: jaw rotation anatomical action.
+  frame: skull
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_deg: 0
+  bounds_deg:
+  - 0
+  - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+placements:
+- id: pelvis.x
+  joint: pelvis
+  group: pelvis
+  frame: world
+  axis:
+  - 1
+  - 0
+  - 0
+  neutral_m: 0.0
+  bounds_m:
+  - -0.425
+  - 0.425
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored body placement bounds; not physiological joint ROM.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: pelvis.y
+  joint: pelvis
+  group: pelvis
+  frame: world
+  axis:
+  - 0
+  - 1
+  - 0
+  neutral_m: 0.0
+  bounds_m:
+  - -0.425
+  - 0.425
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored body placement bounds; not physiological joint ROM.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: pelvis.z
+  joint: pelvis
+  group: pelvis
+  frame: world
+  axis:
+  - 0
+  - 0
+  - 1
+  neutral_m: 0.83215
+  bounds_m:
+  - 0.34
+  - 1.02
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored body placement bounds; not physiological joint ROM.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+couplings:
+- id: hip.R.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - hip.R.flexion
+  - hip.R.adduction
+  - hip.R.external_rotation
+  parameters:
+    exponent: 2
+    action_ids:
+    - hip.R.flexion
+    - hip.R.adduction
+    - hip.R.external_rotation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.R.girdle
+  type: shoulder_girdle
+  action_ids:
+  - shoulder.R.elevation
+  - shoulder.R.plane
+  - shoulder.R.external_twist
+  parameters:
+    sc_m:
+    - 0.0204
+    - 0.030600000000000013
+    - -0.015300000000000091
+    ac_m:
+    - 0.17
+    - 1.7336549026802815e-17
+    - 0.0017000000000000348
+    glenoid_m:
+    - 0.1785
+    - 1.7336549026802815e-17
+    - 0.0017000000000000348
+    clavicle_factors:
+    - -0.0625
+    - -0.1
+    - 0.125
+    scapula_factors:
+    - 0.3333333333333333
+    - 0.1
+    - -0.075
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: SC, AC and glenoid points in neutral T1 action frame; 2:1 abduction
+      reference extrapolated as an authored animation approximation.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.R.sector
+  type: shoulder_sector
+  action_ids:
+  - shoulder.R.elevation
+  - shoulder.R.plane
+  - shoulder.R.external_twist
+  parameters:
+    azimuth_deg:
+    - -180
+    - -90
+    - 0
+    - 90
+    - 180
+    elevation_deg:
+    - 40
+    - 20
+    - 168
+    - 160
+    - 40
+    gh_swing_max_deg: 125
+    gh_twist_max_deg: 100
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: forearm.R.rotation
+  type: forearm_rotation
+  action_ids:
+  - forearm.R.pronation
+  parameters:
+    axis_start_m:
+    - 0.0085
+    - 0.0
+    - 0.0
+    axis_end_m:
+    - -0.0085
+    - 0.0
+    - -0.23205
+    neutral_deg: -80
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.R.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - wrist.R.flexion
+  - wrist.R.ulnar_deviation
+  parameters:
+    exponent: 2
+    action_ids:
+    - wrist.R.flexion
+    - wrist.R.ulnar_deviation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.R.tracking
+  type: knee_tracking
+  action_ids:
+  - knee.R.flexion
+  parameters:
+    twist_deg: -8
+    transition_deg: 30
+    translation_factors_h:
+    - 0
+    - -0.003
+    - -0.001
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.R.tracking
+  type: patella_tracking
+  action_ids:
+  - knee.R.flexion
+  parameters:
+    flexion_factor: 0.65
+    knots_deg:
+    - 0
+    - 15
+    - 30
+    - 90
+    - 130
+    lateral_h:
+    - 0
+    - -0.0004
+    - 0.0003
+    - 0.0006
+    - 0.0004
+    tilt_deg:
+    - 0
+    - -1
+    - 0
+    - 3
+    - 2
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hindfoot.R.oblique
+  type: hindfoot_oblique
+  action_ids:
+  - hindfoot.R.inversion
+  parameters:
+    axis:
+    - -0.29931740973281556
+    - 0.7051476278512911
+    - 0.6427876096865393
+    pivot_m:
+    - 0
+    - 0
+    - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: mtp.R.hinge
+  type: forefoot_hinge
+  action_ids:
+  - mtp.R.extension
+  parameters:
+    axis:
+    - 1
+    - 0
+    - 0
+    pivot_m:
+    - 0.0
+    - 0.1275
+    - -0.051
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: tovaruela-2025-hallux
+      locator: Introduction, MTP dorsiflexion role
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hip.L.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - hip.L.flexion
+  - hip.L.adduction
+  - hip.L.external_rotation
+  parameters:
+    exponent: 2
+    action_ids:
+    - hip.L.flexion
+    - hip.L.adduction
+    - hip.L.external_rotation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.L.girdle
+  type: shoulder_girdle
+  action_ids:
+  - shoulder.L.elevation
+  - shoulder.L.plane
+  - shoulder.L.external_twist
+  parameters:
+    sc_m:
+    - -0.0204
+    - 0.030600000000000013
+    - -0.015300000000000091
+    ac_m:
+    - -0.17
+    - 1.7336549026802815e-17
+    - 0.0017000000000000348
+    glenoid_m:
+    - -0.1785
+    - 1.7336549026802815e-17
+    - 0.0017000000000000348
+    clavicle_factors:
+    - -0.0625
+    - -0.1
+    - 0.125
+    scapula_factors:
+    - 0.3333333333333333
+    - 0.1
+    - -0.075
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: SC, AC and glenoid points in neutral T1 action frame; 2:1 abduction
+      reference extrapolated as an authored animation approximation.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: shoulder.L.sector
+  type: shoulder_sector
+  action_ids:
+  - shoulder.L.elevation
+  - shoulder.L.plane
+  - shoulder.L.external_twist
+  parameters:
+    azimuth_deg:
+    - -180
+    - -90
+    - 0
+    - 90
+    - 180
+    elevation_deg:
+    - 40
+    - 20
+    - 168
+    - 160
+    - 40
+    gh_swing_max_deg: 125
+    gh_twist_max_deg: 100
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: bang-2025-shoulder-rhythm
+      locator: Section 2.1 abduction coordination text; other planes authored
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: forearm.L.rotation
+  type: forearm_rotation
+  action_ids:
+  - forearm.L.pronation
+  parameters:
+    axis_start_m:
+    - -0.0085
+    - 0.0
+    - 0.0
+    axis_end_m:
+    - 0.0085
+    - 0.0
+    - -0.23205
+    neutral_deg: -80
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: wrist.L.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - wrist.L.flexion
+  - wrist.L.ulnar_deviation
+  parameters:
+    exponent: 2
+    action_ids:
+    - wrist.L.flexion
+    - wrist.L.ulnar_deviation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: moromizato-2016-rom
+      locator: Table 1 and passive measurement context
+    - material: parallel-manipulator-2024-wrist
+      locator: Table 2 radial/ulnar wrist deviation
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: knee.L.tracking
+  type: knee_tracking
+  action_ids:
+  - knee.L.flexion
+  parameters:
+    twist_deg: -8
+    transition_deg: 30
+    translation_factors_h:
+    - 0
+    - -0.003
+    - -0.001
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: patella.L.tracking
+  type: patella_tracking
+  action_ids:
+  - knee.L.flexion
+  parameters:
+    flexion_factor: 0.65
+    knots_deg:
+    - 0
+    - 15
+    - 30
+    - 90
+    - 130
+    lateral_h:
+    - 0
+    - -0.0004
+    - 0.0003
+    - 0.0006
+    - 0.0004
+    tilt_deg:
+    - 0
+    - -1
+    - 0
+    - 3
+    - 2
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: yu-2019-patellar-kinematics
+      locator: Sections 3.2–3.6 and 4.3; qualitative tracking trends
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: hindfoot.L.oblique
+  type: hindfoot_oblique
+  action_ids:
+  - hindfoot.L.inversion
+  parameters:
+    axis:
+    - -0.29931740973281556
+    - -0.7051476278512911
+    - -0.6427876096865393
+    pivot_m:
+    - 0
+    - 0
+    - 0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: mtp.L.hinge
+  type: forefoot_hinge
+  action_ids:
+  - mtp.L.extension
+  parameters:
+    axis:
+    - 1
+    - 0
+    - 0
+    pivot_m:
+    - 0.0
+    - 0.1275
+    - -0.051
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: tovaruela-2025-hallux
+      locator: Introduction, MTP dorsiflexion role
+    - material: brockett-chapman-2016-ankle
+      locator: Printed pp. 234–235 motion-axis and ROM text; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: cervical.distribution
+  type: spine_distribution
+  action_ids:
+  - cervical.flexion
+  - cervical.lateral_flexion
+  - cervical.rotation
+  parameters:
+    count: 7
+    composition: Rx(-f/N)*Ry(b/N)*Rz(r/N)
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: cervical.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - cervical.flexion
+  - cervical.lateral_flexion
+  - cervical.rotation
+  parameters:
+    exponent: 2
+    action_ids:
+    - cervical.flexion
+    - cervical.lateral_flexion
+    - cervical.rotation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: thoracic.distribution
+  type: spine_distribution
+  action_ids:
+  - thoracic.flexion
+  - thoracic.lateral_flexion
+  - thoracic.rotation
+  parameters:
+    count: 12
+    composition: Rx(-f/N)*Ry(b/N)*Rz(r/N)
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: thoracic.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - thoracic.flexion
+  - thoracic.lateral_flexion
+  - thoracic.rotation
+  parameters:
+    exponent: 2
+    action_ids:
+    - thoracic.flexion
+    - thoracic.lateral_flexion
+    - thoracic.rotation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: lumbar.distribution
+  type: spine_distribution
+  action_ids:
+  - lumbar.flexion
+  - lumbar.lateral_flexion
+  - lumbar.rotation
+  parameters:
+    count: 5
+    composition: Rx(-f/N)*Ry(b/N)*Rz(r/N)
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    - material: hands-on-anatomy-2024
+      locator: Authored action/landmark text chapters 1–9; no figures
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: lumbar.envelope
+  type: multiaxis_envelope
+  action_ids:
+  - lumbar.flexion
+  - lumbar.lateral_flexion
+  - lumbar.rotation
+  parameters:
+    exponent: 2
+    action_ids:
+    - lumbar.flexion
+    - lumbar.lateral_flexion
+    - lumbar.rotation
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: trunk.flexion.budget
+  type: spine_budget
+  action_ids:
+  - lumbar.flexion
+  - thoracic.flexion
+  parameters:
+    action_ids:
+    - lumbar.flexion
+    - thoracic.flexion
+    bounds_deg:
+    - -30
+    - 50
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: trunk.lateral_flexion.budget
+  type: spine_budget
+  action_ids:
+  - lumbar.lateral_flexion
+  - thoracic.lateral_flexion
+  parameters:
+    action_ids:
+    - lumbar.lateral_flexion
+    - thoracic.lateral_flexion
+    bounds_deg:
+    - -25
+    - 25
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: trunk.rotation.budget
+  type: spine_budget
+  action_ids:
+  - lumbar.rotation
+  - thoracic.rotation
+  parameters:
+    action_ids:
+    - lumbar.rotation
+    - thoracic.rotation
+    bounds_deg:
+    - -35
+    - 35
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: beczkowska-2022-spine-rom
+      locator: Table 3 regional spine ranges
+    rationale: Authored operating envelope/coupling, frozen in design sections 4–5;
+      not an individual physiological maximum.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+reference_observations:
+- id: faisal.20-44.hip.extension
+  action: hip.extension
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 18.1
+  male_deg: 17.4
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.hip.flexion
+  action: hip.flexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 133.8
+  male_deg: 130.4
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.knee.flexion
+  action: knee.flexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 141.9
+  male_deg: 137.7
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.knee.hyperextension
+  action: knee.hyperextension
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 1.6
+  male_deg: 1.0
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.ankle.dorsiflexion
+  action: ankle.dorsiflexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 13.8
+  male_deg: 12.7
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.ankle.plantarflexion
+  action: ankle.plantarflexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 62.1
+  male_deg: 54.6
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.shoulder.total_flexion
+  action: shoulder.total_flexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 172
+  male_deg: 168.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.elbow.flexion
+  action: elbow.flexion
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 150
+  male_deg: 144.6
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.elbow.hyperextension
+  action: elbow.hyperextension
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 4.7
+  male_deg: 0.8
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.forearm.pronation
+  action: forearm.pronation
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 82
+  male_deg: 76.9
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.
+- id: faisal.20-44.forearm.supination
+  action: forearm.supination
+  cohort: Reported female and male adults aged 20–44; not the DXA proportion cohort.
+  statistic: mean
+  female_deg: 90.6
+  male_deg: 85
+  provenance:
+    kind: adapted
+    license: CC-BY-4.0
+    sources:
+    - material: faisal-2019-joint-monitoring
+      locator: Table 3, female/male mean magnitudes, ages 20–44
+    rationale: Unchanged selected Table 3 mean observations, not individual maxima
+      or exercise bounds.
+    changes: Reduced authored operating envelope or approximate coupling; reference
+      observations remain separate and unchanged.

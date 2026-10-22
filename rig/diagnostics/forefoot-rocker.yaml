@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: skeleton-diagnostic
+format: skeleton-diagnostic/v1
+profile: adult-reference-v1
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Project-authored diagnostic/reference scene from the approved numerical dossier; no external
+    motion or asset.
+  changes: Original verification intent; not measured gait or clinical validation.
+duration_beats: 4
+controls:
+- pelvis
+- leg_L
+- leg_R
+rest_policy:
+  policy: base
+  base_fixture: neutral
+tracks: []
+world_root:
+  mode: identity
+  translation_m:
+  - 0
+  - 0
+  - 0
+  orientation:
+  - 1
+  - 0
+  - 0
+  - 0
+  clearance_h: 0
+contacts:
+- foot: L
+  start_beat: 0
+  end_beat: 4
+  state: ball
+  anchors:
+  - contact.medial_ball.L
+  - contact.lateral_ball.L
+  targets_m:
+  - - -0.06290000000000001
+    - 0.1275
+    - 0
+  - - -0.1275
+    - 0.1275
+    - 0
+- foot: R
+  start_beat: 0
+  end_beat: 4
+  state: ball
+  anchors:
+  - contact.medial_ball.R
+  - contact.lateral_ball.R
+  targets_m:
+  - - 0.06290000000000001
+    - 0.1275
+    - 0
+  - - 0.1275
+    - 0.1275
+    - 0
+- foot: L
+  start_beat: 4
+  end_beat: 4
+  state: flat
+  anchors:
+  - contact.heel.L
+  - contact.medial_ball.L
+  - contact.lateral_ball.L
+  targets_m:
+  - - -0.0935
+    - -0.0425
+    - 0
+  - - -0.06290000000000001
+    - 0.1275
+    - 0
+  - - -0.1275
+    - 0.1275
+    - 0
+- foot: R
+  start_beat: 4
+  end_beat: 4
+  state: flat
+  anchors:
+  - contact.heel.R
+  - contact.medial_ball.R
+  - contact.lateral_ball.R
+  targets_m:
+  - - 0.0935
+    - -0.0425
+    - 0
+  - - 0.06290000000000001
+    - 0.1275
+    - 0
+  - - 0.1275
+    - 0.1275
+    - 0
+terminal_contacts:
+- foot: L
+  state: flat
+- foot: R
+  state: flat
+procedural:
+  noise: false
+  follow_through: false
+id: forefoot-rocker
+description: Four-beat bilateral forefoot rocker; permanent ball witnesses, released heels, terminal flat
+  support.
+construction:
+  type: forefoot_rocker
+  side: bilateral
+  start_beat: 0
+  end_beat: 4
+  reference_knots:
+  - beat: 0
+    value: 0
+  - beat: 1
+    value: 15
+  - beat: 2
+    value: 30
+  - beat: 3
+    value: 15
+  - beat: 4
+    value: 0

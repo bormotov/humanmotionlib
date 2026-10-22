@@ -1,0 +1,18 @@
+SPDX-License-Identifier: CC-BY-4.0
+
+Copyright 2026 humanmotionlib contributors.
+
+Except for separately identified third-party material, the library's authored
+skeletal data, geometry, diagnostic fixtures, poses, segments, motions, baked
+clips, and renders are licensed under the Creative Commons Attribution 4.0
+International License:
+
+https://creativecommons.org/licenses/by/4.0/
+https://creativecommons.org/licenses/by/4.0/legalcode.en
+
+Attribution: humanmotionlib contributors, humanmotionlib, the accompanying
+source identifiers and revision, this license, and an indication of changes.
+Retain the source-specific credits and conditions in docs/used-materials.md
+and THIRD-PARTY-NOTICES.md with informed outputs. Do not imply endorsement.
+Third-party material retains its original license. Project code is covered
+separately by LICENSE-CODE (Apache-2.0).

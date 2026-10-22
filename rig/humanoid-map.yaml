@@ -1,0 +1,333 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: humanoid-map
+id: adult-reference-v1-humanoid
+description: Explicit VRMC_vrm 1.0 semantic adapter; detailed anatomical frames remain internal; not an
+  export or round-trip claim.
+license: CC-BY-4.0
+provenance:
+  kind: adapted
+  license: CC-BY-4.0
+  sources:
+  - material: three-vrm-humanoid-vocabulary
+    locator: VRMHumanBoneName.ts and VRMRequiredHumanBoneName.ts identifiers; MIT notice retained in THIRD-PARTY-NOTICES.md
+  rationale: Explicit adapter to the selected VRMC_vrm 1.0 vocabulary.
+  changes: Authored mapping and loss report; no upstream runtime code imported.
+semantic_version: VRMC_vrm-1.0
+profile: adult-reference-v1
+required:
+- hips
+- spine
+- head
+- leftUpperLeg
+- leftLowerLeg
+- leftFoot
+- rightUpperLeg
+- rightLowerLeg
+- rightFoot
+- leftUpperArm
+- leftLowerArm
+- leftHand
+- rightUpperArm
+- rightLowerArm
+- rightHand
+entries:
+- humanoid: hips
+  target: pelvis
+  group: pelvis
+- humanoid: spine
+  target: L1
+  group: torso
+- humanoid: chest
+  target: T6
+  group: torso
+- humanoid: upperChest
+  target: T1
+  group: torso
+- humanoid: neck
+  target: C3
+  group: head_neck
+- humanoid: head
+  target: skull
+  group: head_neck
+- humanoid: leftShoulder
+  target: clavicle.L
+  group: arm_L
+- humanoid: leftUpperArm
+  target: humerus.L
+  group: arm_L
+- humanoid: leftLowerArm
+  target: elbow.L
+  group: arm_L
+- humanoid: leftHand
+  target: wrist.L
+  group: arm_L
+- humanoid: leftUpperLeg
+  target: femur.L
+  group: leg_L
+- humanoid: leftLowerLeg
+  target: knee.L
+  group: leg_L
+- humanoid: leftFoot
+  target: hindfoot.L
+  group: leg_L
+- humanoid: leftToes
+  target: mtp.L
+  group: leg_L
+- humanoid: rightShoulder
+  target: clavicle.R
+  group: arm_R
+- humanoid: rightUpperArm
+  target: humerus.R
+  group: arm_R
+- humanoid: rightLowerArm
+  target: elbow.R
+  group: arm_R
+- humanoid: rightHand
+  target: wrist.R
+  group: arm_R
+- humanoid: rightUpperLeg
+  target: femur.R
+  group: leg_R
+- humanoid: rightLowerLeg
+  target: knee.R
+  group: leg_R
+- humanoid: rightFoot
+  target: hindfoot.R
+  group: leg_R
+- humanoid: rightToes
+  target: mtp.R
+  group: leg_R
+omissions:
+- humanoid: leftEye
+  reason: Eyes are absent or jaw is fixed; no independent humanoid channel is supplied.
+- humanoid: rightEye
+  reason: Eyes are absent or jaw is fixed; no independent humanoid channel is supplied.
+- humanoid: jaw
+  reason: Eyes are absent or jaw is fixed; no independent humanoid channel is supplied.
+- humanoid: leftThumbMetacarpal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftThumbProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftThumbDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftIndexProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftIndexIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftIndexDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftMiddleProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftMiddleIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftMiddleDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftRingProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftRingIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftRingDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftLittleProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftLittleIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: leftLittleDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightThumbMetacarpal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightThumbProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightThumbDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightIndexProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightIndexIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightIndexDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightMiddleProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightMiddleIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightMiddleDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightRingProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightRingIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightRingDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightLittleProximal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightLittleIntermediate
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+- humanoid: rightLittleDistal
+  reason: 'Optional finger semantic omitted: authored digit geometry is fixed under the hand in this change.'
+losses:
+- 'Many-to-one spinal mapping: L1, T6, T1, and C3 proxies do not retain every vertebral action.'
+- Knee rollback and moving joint-center translations are internal; VRMA permits animated translation only
+  on hips, so survival is not assumed.
+- Radioulnar separation and moving radiocarpal midpoint require internal radius/ulna frames; the hand
+  proxy does not encode them independently.
+- Scapulae, patellae, ribs, and cartilage guides are internal, not public humanoid helper bones.
+- Optional eyes, jaw, and individual finger channels are unavailable or fixed/grouped as documented.
+- MPFB and Rigify are not used; no mapping to uninspected backend bones is asserted.
+- FK baking, distribution export, and reconstruction/error round trips belong to a later change and have
+  not been performed.
+internal_only:
+- C1
+- C2
+- C4
+- C5
+- C6
+- C7
+- L2
+- L3
+- L4
+- L5
+- T10
+- T11
+- T12
+- T2
+- T3
+- T4
+- T5
+- T7
+- T8
+- T9
+- calcaneus.L
+- calcaneus.R
+- cartilage.1.L
+- cartilage.1.R
+- cartilage.10.L
+- cartilage.10.R
+- cartilage.2.L
+- cartilage.2.R
+- cartilage.3.L
+- cartilage.3.R
+- cartilage.4.L
+- cartilage.4.R
+- cartilage.5.L
+- cartilage.5.R
+- cartilage.6.L
+- cartilage.6.R
+- cartilage.7.L
+- cartilage.7.R
+- cartilage.8.L
+- cartilage.8.R
+- cartilage.9.L
+- cartilage.9.R
+- coccyx
+- fibula.L
+- fibula.R
+- glenoid_rim.L
+- glenoid_rim.R
+- hand.L
+- hand.R
+- innominate.L
+- innominate.R
+- innominate.neck_opening.L
+- innominate.neck_opening.R
+- innominate.socket_rim.L
+- innominate.socket_rim.R
+- mandible
+- metacarpal.index.L
+- metacarpal.index.R
+- metacarpal.little.L
+- metacarpal.little.R
+- metacarpal.middle.L
+- metacarpal.middle.R
+- metacarpal.ring.L
+- metacarpal.ring.R
+- metacarpal.thumb.L
+- metacarpal.thumb.R
+- metatarsal.1.L
+- metatarsal.1.R
+- metatarsal.2.L
+- metatarsal.2.R
+- metatarsal.3.L
+- metatarsal.3.R
+- metatarsal.4.L
+- metatarsal.4.R
+- metatarsal.5.L
+- metatarsal.5.R
+- midfoot.L
+- midfoot.R
+- patella.L
+- patella.R
+- phalanx.index.1.L
+- phalanx.index.1.R
+- phalanx.index.2.L
+- phalanx.index.2.R
+- phalanx.index.3.L
+- phalanx.index.3.R
+- phalanx.little.1.L
+- phalanx.little.1.R
+- phalanx.little.2.L
+- phalanx.little.2.R
+- phalanx.little.3.L
+- phalanx.little.3.R
+- phalanx.middle.1.L
+- phalanx.middle.1.R
+- phalanx.middle.2.L
+- phalanx.middle.2.R
+- phalanx.middle.3.L
+- phalanx.middle.3.R
+- phalanx.ring.1.L
+- phalanx.ring.1.R
+- phalanx.ring.2.L
+- phalanx.ring.2.R
+- phalanx.ring.3.L
+- phalanx.ring.3.R
+- phalanx.thumb.1.L
+- phalanx.thumb.1.R
+- phalanx.thumb.2.L
+- phalanx.thumb.2.R
+- radius.L
+- radius.R
+- rib.1.L
+- rib.1.R
+- rib.10.L
+- rib.10.R
+- rib.11.L
+- rib.11.R
+- rib.12.L
+- rib.12.R
+- rib.2.L
+- rib.2.R
+- rib.3.L
+- rib.3.R
+- rib.4.L
+- rib.4.R
+- rib.5.L
+- rib.5.R
+- rib.6.L
+- rib.6.R
+- rib.7.L
+- rib.7.R
+- rib.8.L
+- rib.8.R
+- rib.9.L
+- rib.9.R
+- sacrum
+- scapula.L
+- scapula.R
+- sternum
+- talus.L
+- talus.R
+- tibia.L
+- tibia.R
+- toe.1.L
+- toe.1.R
+- toe.2.L
+- toe.2.R
+- toe.3.L
+- toe.3.R
+- toe.4.L
+- toe.4.R
+- toe.5.L
+- toe.5.R
+- ulna.L
+- ulna.R

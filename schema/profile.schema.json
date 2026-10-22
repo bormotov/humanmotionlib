@@ -1,0 +1,725 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "skeleton-profile"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "provenance": {
+      "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+    },
+    "units": {
+      "const": "m"
+    },
+    "stature_m": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "space": {
+      "type": "object",
+      "properties": {
+        "handedness": {
+          "const": "right"
+        },
+        "right": {
+          "const": "+X"
+        },
+        "anterior": {
+          "const": "+Y"
+        },
+        "superior": {
+          "const": "+Z"
+        },
+        "floor_z_m": {
+          "const": 0
+        },
+        "quaternion_order": {
+          "const": "wxyz"
+        },
+        "composition": {
+          "const": "q_local=q_rest*q_delta;q_world=q_parent*q_local"
+        }
+      },
+      "required": [
+        "handedness",
+        "right",
+        "anterior",
+        "superior",
+        "floor_z_m",
+        "quaternion_order",
+        "composition"
+      ],
+      "additionalProperties": false
+    },
+    "proportions": {
+      "type": "object",
+      "properties": {
+        "upper_arm": {
+          "type": "number",
+          "minimum": -1e+100,
+          "maximum": 1e+100
+        },
+        "forearm": {
+          "type": "number",
+          "minimum": -1e+100,
+          "maximum": 1e+100
+        },
+        "thigh": {
+          "type": "number",
+          "minimum": -1e+100,
+          "maximum": 1e+100
+        },
+        "shank": {
+          "type": "number",
+          "minimum": -1e+100,
+          "maximum": 1e+100
+        }
+      },
+      "required": [
+        "upper_arm",
+        "forearm",
+        "thigh",
+        "shank"
+      ],
+      "additionalProperties": false
+    },
+    "landmarks": {
+      "type": "array",
+      "items": {
+        "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/landmark"
+      },
+      "minItems": 1
+    },
+    "structures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "anatomical",
+              "articulation",
+              "helper"
+            ]
+          },
+          "representation": {
+            "enum": [
+              "individual",
+              "fused",
+              "grouped",
+              "omitted"
+            ]
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rigid": {
+            "type": "boolean"
+          },
+          "origin_m": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "basis": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/matrix3"
+          },
+          "rest_translation_m": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "rest_orientation": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/quaternion"
+          },
+          "landmarks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "geometry": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "ellipsoid"
+                    },
+                    "center_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1e+100,
+                        "maximum": 1e+100
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    },
+                    "radii_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "center_m",
+                    "radii_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "sphere"
+                    },
+                    "center_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1e+100,
+                        "maximum": 1e+100
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    },
+                    "radius_m": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "center_m",
+                    "radius_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "tube"
+                    },
+                    "points_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1e+100,
+                          "maximum": 1e+100
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "minItems": 2
+                    },
+                    "radius_m": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "bindings": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "point_index": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "structure": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "position_m": {
+                                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/vector3"
+                              }
+                            },
+                            "required": [
+                              "point_index",
+                              "structure",
+                              "position_m"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "point_index": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "kind": {
+                                "const": "guide_point"
+                              },
+                              "guide": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "control_index": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "point_index",
+                              "kind",
+                              "guide",
+                              "control_index"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "point_index": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "kind": {
+                                "const": "midpoint"
+                              },
+                              "endpoints": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "uniqueItems": true
+                              },
+                              "offset_frame": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "offset_m": {
+                                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/vector3"
+                              }
+                            },
+                            "required": [
+                              "point_index",
+                              "kind",
+                              "endpoints",
+                              "offset_frame",
+                              "offset_m"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "points_m",
+                    "radius_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "shell"
+                    },
+                    "points_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number",
+                          "minimum": -1e+100,
+                          "maximum": 1e+100
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "minItems": 3
+                    },
+                    "faces": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "minItems": 3
+                      },
+                      "minItems": 1
+                    },
+                    "thickness_m": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "points_m",
+                    "faces",
+                    "thickness_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "block"
+                    },
+                    "center_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1e+100,
+                        "maximum": 1e+100
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    },
+                    "dimensions_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "center_m",
+                    "dimensions_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "recess"
+                    },
+                    "target": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "center_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": -1e+100,
+                        "maximum": 1e+100
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    },
+                    "radii_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "target",
+                    "center_m",
+                    "radii_m"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "const": "elliptic_capsule"
+                    },
+                    "points_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "radii_m": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "points_m",
+                    "radii_m"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 0
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/attachment"
+            },
+            "minItems": 0
+          },
+          "provenance": {
+            "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "kind",
+          "representation",
+          "parent",
+          "rigid",
+          "origin_m",
+          "basis",
+          "rest_translation_m",
+          "rest_orientation",
+          "landmarks",
+          "geometry",
+          "attachments",
+          "provenance"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "resolution": {
+      "type": "object",
+      "properties": {
+        "ellipsoid_longitudes": {
+          "const": 24
+        },
+        "ellipsoid_latitudes": {
+          "const": 12
+        },
+        "shaft_sides": {
+          "const": 16
+        },
+        "curve_intervals": {
+          "const": 16
+        }
+      },
+      "required": [
+        "ellipsoid_longitudes",
+        "ellipsoid_latitudes",
+        "shaft_sides",
+        "curve_intervals"
+      ],
+      "additionalProperties": false
+    },
+    "mass_model": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "adult-reference-point-masses-v1"
+        },
+        "assessment": {
+          "const": "static"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "weight_kg": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1e+100
+              },
+              "male_weight_kg": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1e+100
+              },
+              "female_weight_kg": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1e+100
+              },
+              "position_m": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": -1e+100,
+                  "maximum": 1e+100
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "provenance": {
+                "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+              }
+            },
+            "required": [
+              "id",
+              "body",
+              "description",
+              "weight_kg",
+              "male_weight_kg",
+              "female_weight_kg",
+              "position_m",
+              "provenance"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 16,
+          "maxItems": 16
+        }
+      },
+      "required": [
+        "id",
+        "assessment",
+        "description",
+        "provenance",
+        "segments"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "description",
+    "license",
+    "provenance",
+    "units",
+    "stature_m",
+    "space",
+    "proportions",
+    "landmarks",
+    "structures",
+    "resolution",
+    "mass_model"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/profile.schema.json"
+}

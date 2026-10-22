@@ -1,0 +1,455 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "skeleton-diagnostic"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "provenance": {
+      "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+    },
+    "format": {
+      "const": "skeleton-diagnostic/v1"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "duration_beats": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "controls": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "pelvis",
+          "torso",
+          "head_neck",
+          "arm_L",
+          "arm_R",
+          "leg_L",
+          "leg_R"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "rest_policy": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "enum": [
+            "base",
+            "hold",
+            "free"
+          ]
+        },
+        "base_fixture": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "policy",
+        "base_fixture"
+      ],
+      "additionalProperties": false
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "easing": {
+            "enum": [
+              "linear",
+              "ease_in_out",
+              "half_wave"
+            ]
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "beat": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "value": {
+                  "type": "number",
+                  "minimum": -1e+100,
+                  "maximum": 1e+100
+                }
+              },
+              "required": [
+                "beat",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "channel",
+          "easing",
+          "keys"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "construction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "rest",
+            "neutral",
+            "action_sweep",
+            "squat_closed",
+            "walking_flat",
+            "forefoot_rocker"
+          ]
+        },
+        "side": {
+          "enum": [
+            "L",
+            "R",
+            "bilateral",
+            "midline"
+          ]
+        },
+        "start_beat": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_beat": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reference_knots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": {
+                "type": "number",
+                "minimum": 0
+              },
+              "value": {
+                "type": "number",
+                "minimum": -1e+100,
+                "maximum": 1e+100
+              }
+            },
+            "required": [
+              "beat",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "knee_peak_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "ankle_peak_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "arm_forward_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "arm_backward_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "elbow_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "forearm_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "backward_plane_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            },
+            "forward_plane_deg": {
+              "type": "number",
+              "minimum": -1e+100,
+              "maximum": 1e+100
+            }
+          },
+          "required": [
+            "knee_peak_deg",
+            "ankle_peak_deg",
+            "arm_forward_deg",
+            "arm_backward_deg",
+            "elbow_deg",
+            "forearm_deg",
+            "backward_plane_deg",
+            "forward_plane_deg"
+          ],
+          "additionalProperties": false
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": {
+                "enum": [
+                  "L",
+                  "R"
+                ]
+              },
+              "start_beat": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_beat": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "side",
+              "start_beat",
+              "end_beat"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "type",
+        "side",
+        "start_beat",
+        "end_beat",
+        "reference_knots"
+      ],
+      "additionalProperties": false
+    },
+    "world_root": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "identity",
+            "clearance_stage"
+          ]
+        },
+        "translation_m": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "orientation": {
+          "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/quaternion"
+        },
+        "clearance_h": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mode",
+        "translation_m",
+        "orientation",
+        "clearance_h"
+      ],
+      "additionalProperties": false
+    },
+    "contacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "foot": {
+            "enum": [
+              "L",
+              "R"
+            ]
+          },
+          "start_beat": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_beat": {
+            "type": "number",
+            "minimum": 0
+          },
+          "state": {
+            "enum": [
+              "flat",
+              "ball",
+              "heel"
+            ]
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "targets_m": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1e+100,
+                "maximum": 1e+100
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "foot",
+          "start_beat",
+          "end_beat",
+          "state",
+          "anchors",
+          "targets_m"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "terminal_contacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "foot": {
+            "enum": [
+              "L",
+              "R"
+            ]
+          },
+          "state": {
+            "enum": [
+              "flat",
+              "ball",
+              "heel",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "foot",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "procedural": {
+      "type": "object",
+      "properties": {
+        "noise": {
+          "const": false
+        },
+        "follow_through": {
+          "const": false
+        }
+      },
+      "required": [
+        "noise",
+        "follow_through"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "description",
+    "license",
+    "provenance",
+    "format",
+    "profile",
+    "duration_beats",
+    "controls",
+    "rest_policy",
+    "tracks",
+    "construction",
+    "world_root",
+    "contacts",
+    "terminal_contacts",
+    "procedural"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/diagnostic.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "construction": {
+            "properties": {
+              "type": {
+                "const": "walking_flat"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "construction": {
+            "required": [
+              "parameters",
+              "phases"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
