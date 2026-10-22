@@ -16,10 +16,10 @@ not establish complete OpenSpec acceptance; the task list tracks the checks.
 
 ```sh
 uv run python tools/validate.py --profile adult-reference-v1
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --output build/skeleton/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/skeleton/input.json --output build/skeleton
-uv run python tools/verify_skeleton.py --input build/skeleton --output build/review/anatomical-human-skeleton/metrics.json
-uv run python tools/review_pack.py --input build/skeleton --output build/review/anatomical-human-skeleton
+uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
+blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
+uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
 uv run python -m unittest discover -s tests
 ```
 
@@ -27,11 +27,54 @@ uv run python -m unittest discover -s tests
 |---|---|---|
 | `validate.py` | Selected profile, mobility, mapping, groups, fixtures, scene, schemas, source register | Validation diagnostics; nonzero status on invalid input |
 | `prepare_skeleton.py` | Validated sources and pinned backend contract | JSON with solved transforms, exact timing, source/schema hashes, metadata |
-| `build_skeleton.py` | Prepared JSON, factory-startup Blender | Generated skeleton, evaluated geometry/transform measurements, build metadata under `build/skeleton/` |
+| `build_skeleton.py` | Prepared JSON, factory-startup Blender | Generated skeleton, evaluated geometry/transform measurements, build metadata inside the selected build run root |
 | `verify_skeleton.py` | Evaluated build measurements and canonical dossier | Per-metric measured/expected/bound/status records and coverage in `metrics.json`; nonzero status on failure |
 | `review_pack.py` | Build outputs and fixed review scene | Clean renders, labeled sheets, GIFs, overlays, attribution/limitations, metadata and HTML index |
 | `review_pack.py --html-only-from` | Complete verified review pack and a fresh output directory | Diagnostic HTML, presentation provenance, scoped HTML/link/hash verification; no Blender process or media rewrite |
 | `unittest` | Repository tests | Automated developer checks; nonzero status on failure |
+
+### Flat run roots and cleanup
+
+Every independently managed build, check or review run is a direct child of
+`build/` named `<change>_<revision>_<role>_<attempt>_<kind>/`. Split the basename
+on `_` to recover exactly five components. Each component uses lowercase
+kebab-case matching `[a-z0-9]+(?:-[a-z0-9]+)*`; `_` joins components only. For
+example, `build/anatomical-human-skeleton_r1_dev_try-1_build/` has the components
+`anatomical-human-skeleton`, `r1`, `dev`, `try-1`, `build`. A retry or independent
+review gets a new sibling identity, never a nested run directory or reused root.
+Tool-required content such as `frames/`, `assets/`, `reference/` and `clean-a/`
+may remain inside its owning run. Preparation and construction may share one
+build root. Distinct input/output roots must not coincide or contain one another,
+including after symlink resolution. Existing protected historical paths may be
+read as explicitly labeled legacy inputs; do not relocate them as part of a new run.
+
+After checks finish, including failure or interruption:
+
+1. Inventory only the run roots owned by this work and identify the accepted result,
+   its linked-media/timing/provenance/numeric dependency closure, active work and
+   explicitly protected history.
+2. Check every local reference and required dependency before deletion. Remove
+   obsolete whole run roots, including logs/JSON without a concrete continuing need;
+   do not follow symlinks outside `build/`, delete active runs, or remove another
+   agent's output. Reviewers clean only their own roots and hand exact developer-owned
+   cleanup paths to the developer.
+3. Recheck retained links/dependencies and record removed paths and bytes, retained
+   paths with specific reasons, dependency-check results and pending cleanup in the
+   existing review or hand-off record. A failed or interrupted cleanup is pending;
+   do not claim completion until it is resolved. Keep JSON/log diagnostics only for
+   a named dependency, explicit history, active/resumable work, or unresolved finding,
+   and state when their retention should be reconsidered.
+
+Compact hand-off record example:
+
+```markdown
+### Cleanup
+- Removed: `build/anatomical-human-skeleton_r1_dev_try-0_pack/` — 1234 bytes.
+- Retained: `build/anatomical-human-skeleton_r1_dev_try-1_pack/` — accepted pack and referenced media/provenance.
+- Retained: `build/anatomical-human-skeleton_r1_dev_try-1_checks/fault.json` — unresolved finding `F-1`; reconsider after fix.
+- Dependency check: accepted links resolve; protected history and active runs unchanged.
+- Pending cleanup: none.
+```
 
 `tools.runtime.inspect_blender()` checks the executable version/build before
 backend work. Automated runtime tests also check intentional mismatches.
@@ -46,12 +89,13 @@ groups every available preview variant by BPM and pairs Front/Side, including
 the shoulder-plane detail GIFs. The input
 must contain its retained `reference/input.json`, all 32 diagnostic HTML pages,
 linked media, render/timing records, and numeric evidence. The destination must
-be new or empty. For example:
+be a fresh flat run root. The example input is a protected historical R3 pack
+and is explicitly a legacy input; it is not a new-run output path:
 
 ```sh
 uv run python tools/review_pack.py \
   --html-only-from build/review/anatomical-human-skeleton/squat-r3-final/independent/retention-fix \
-  --output build/review/anatomical-human-skeleton/presentation-r1/developer-linked-assets
+  --output build/anatomical-human-skeleton_r1_dev_html-derivative_pack
 ```
 
 This mode reads retained page content and metadata, writes HTML plus
@@ -186,14 +230,15 @@ backend must supply actual evaluated frames/geometry for the final reports.
 ### Focused thoracic preview
 
 Before regenerating full diagnostic packs, prepare just the two structural
-poses in a fresh directory, then build, measure and render them using the same
-entry points:
+poses in a fresh flat build run, then build, measure and render them using the
+same entry points. The verifier report and preview pack use separate sibling
+runs:
 
 ```text
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures neutral rest --output build/thorax-preview/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/thorax-preview/input.json --output build/thorax-preview
-uv run python tools/verify_skeleton.py --input build/thorax-preview --output build/review/anatomical-human-skeleton/thorax-preview/metrics.json --thorax-preview
-uv run python tools/review_pack.py --input build/thorax-preview --output build/review/anatomical-human-skeleton/thorax-preview
+uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
+blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
+uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
 ```
 
 The preview verifies evaluated native geometry but does not assert complete
@@ -251,7 +296,7 @@ they do not establish geometric or visual correctness.
 Before backend construction, the explicit transform-only command is useful:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/skeleton/input.json --output build/skeleton/prepared-metrics.json --transforms-only --action-coverage
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
 ```
 
 The verifier reconstructs angles/couplings from supplied matrices and compares
@@ -402,7 +447,7 @@ the complete change-level diagnostic coverage gate.
 For the full delivered and dense geometry report use:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/skeleton --output build/review/anatomical-human-skeleton/metrics.json --action-coverage --dense-floor
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
 ```
 
 The native anatomical hierarchy also uses computed world-frame adapter targets
@@ -415,13 +460,24 @@ mutate these actual scene targets and still must fail independent measurements.
 To include actual cross-stature vertex/topology and native rest-frame comparison:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/skeleton --output build/review/anatomical-human-skeleton/metrics.json --action-coverage --dense-floor --stature-builds build/stature-1.5 build/skeleton build/stature-1.9
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
 ```
 
 Generate the additional stature builds with the same preparation/build commands,
-adding `--stature 1.5` or `--stature 1.9` to preparation and choosing isolated
-`build/stature-1.5/` or `build/stature-1.9/` output directories. All delivered
-samples at each stature must also pass their own backend verifier run.
+adding `--stature 1.5` or `--stature 1.9` to preparation and using sibling roots
+`build/anatomical-human-skeleton_r1_dev_stature-1-5_build/` and
+`build/anatomical-human-skeleton_r1_dev_stature-1-9_build/`. Each verifier output
+belongs in its own flat checks run. All delivered samples at each stature must
+also pass their own backend verifier run.
+
+```sh
+uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
+blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
+uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
+blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
+```
 
 Approved action-direction refinement (2026-10-21): hip and wrist conventions are separate closed fields. Right hip is `Rx(f)*Ry(b)*Rz(-r)`; forearm rotation is positive about `normalize(proximal_radius-distal_ulna)`; knee dependent z uses distal -Z, hence `Rx(-k)*Rz(-z(k))`. Left sides use axial reflection. Rebuild all prepared inputs and outputs; old source hashes cannot establish acceptance. Absolute bilateral witness checks in the action-coverage report measure lateral toes, thumb-up midrotation with elbow 90, palm-down pronation and medial tibial turn independently of action-angle decoders.
 
@@ -460,15 +516,15 @@ stability, force, muscle or speed-dependent balance claim is made.
 Produce the early squat-only preview through the established commands:
 
 ```sh
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures squat --output build/squat-r3-preview/input.json
-blender --background --factory-startup --python tools/build_skeleton.py -- --input build/squat-r3-preview/input.json --output build/squat-r3-preview
-uv run python tools/verify_skeleton.py --input build/squat-r3-preview --output build/review/anatomical-human-skeleton/squat-r3-preview/metrics.json --squat-preview
-uv run python tools/review_pack.py --input build/squat-r3-preview --output build/review/anatomical-human-skeleton/squat-r3-preview
+uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
+blender --background --factory-startup --python tools/build_skeleton.py -- --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
+uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
+uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
 ```
 
 The preview is development evidence only. It cannot satisfy full fixture/action,
 three-stature, independent or human acceptance. Regenerate the complete set
-using the ordinary commands into a new `squat-r3` directory after the preview.
+using the ordinary commands into a new flat full-build run after the preview.
 Do not reuse R2 inputs or renders: hashes intentionally changed.
 
 `squat-balance.json` records actual native render-pass mass/support observations,

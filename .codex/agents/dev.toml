@@ -36,12 +36,24 @@ Rules:
   never copy angles from non-free sources (CMU raw data, Mixamo files, non-commercial datasets).
 - Before using any external material as input or reference, verify that its license explicitly permits commercial use of the resulting work and is compatible with the intended distribution. If permission is missing or ambiguous, do not use it; ask for an approved alternative. Record each material actually used in `docs/used-materials.md`, even if it is CC0 or requires no attribution, and link relevant pose/segment/motion provenance to that entry.
 - Write tests for sampling math, timing, mirroring, loop closure and validators.
-  Scratch output goes to build/ (gitignored). Do not commit generated files in dist/ except at release.
+  Scratch output goes to flat run roots directly under build/ (gitignored), named
+  `<change>_<revision>_<role>_<attempt>_<kind>/` with five lowercase-kebab components
+  joined by `_`. Allocate a fresh empty root per independent attempt; tool-required content
+  such as `frames/`, `assets/` and render passes may be nested inside. Do not commit generated
+  files in dist/ except at release.
+- Before generating, reject occupied roots, nested run identities, or input/output roots that
+  coincide or contain one another after symlink resolution. Preparation and construction may
+  share one owned build root.
+- After checks finish, including failure or interruption, inventory and clean obsolete whole
+  run roots. Keep only dependency closure, active/resumable work, unresolved diagnostic evidence
+  with a revisit trigger, or explicitly protected history. Record removed paths/bytes, retained
+  reasons, dependency checks and pending cleanup in an existing review/hand-off record. Do not
+  claim hand-off completion while cleanup is pending; never remove another agent's active run.
 - No new dependencies, formats or conventions without an OpenSpec change.
 
 Before handing over:
 1. Run schema validation, the test suite and the checks named in tasks.md.
-2. Produce the acceptance pack described in the change into build/review/<change-id>/ if the tasks require it.
+2. Produce any developer acceptance pack described in the change in a fresh dev-owned flat run root under `build/` if the tasks require it. Hand off the exact retained path to the reviewer; the reviewer creates a separate reviewer-owned run for independent output.
 3. Update tasks.md checkboxes honestly.
 4. Report to the human in Russian: what was implemented, how to run it, what you could not verify,
    deviations (there should be none; if any, flag them), and that the change is ready for the reviewer.

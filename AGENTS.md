@@ -104,7 +104,8 @@ scenes/                       # fixed camera/floor/light definitions
 tools/                        # python: validate, sample, render, bake, contacts
 tests/
 dist/                         # baked outputs (committed only at release)
-build/                        # scratch renders and review packs (gitignored)
+build/                        # generated scratch and review runs (gitignored)
+  <change>_<revision>_<role>_<attempt>_<kind>/  # every new independent run is a direct child
 docs/
   used-materials.md          # verified external materials used as references or inputs
 LICENSE-DATA  LICENSE-CODE
@@ -153,7 +154,7 @@ Codex spawns subagents for specific tasks
 1. Human states the task (any level of detail, in Russian is fine).
 2. **architect** drafts the change. **Human gate 1**: approve or adjust the spec before any implementation.
 3. **dev** implements; marks tasks done; runs its own checks. Independent tasks in the approved change may be delegated concurrently when their file ownership does not conflict; the change-level gates remain ordered.
-4. **reviewer** verifies from a clean state and writes `review.md` in the change folder plus a review pack in `build/review/<change-id>/`.
+4. **reviewer** verifies from a clean state and writes `review.md` in the change folder plus its review pack in one owned flat run root directly under `build/`.
 5. **Human gate 2 (visual)**: the human looks at the review pack (contact sheets, GIF, onion-skin overlays) and approves or rejects with notes. Nothing is archived without this for changes that affect poses, motions, scene or rendering.
 6. Fixes loop back to dev (or to architect if the spec changes). Then `openspec archive`.
 
@@ -162,6 +163,15 @@ Rules of the process:
 - Tasks are small and verifiable. A task without a way to check it is a spec defect.
 - The dev never marks a requirement as met because it "looks fine"; the reviewer checks against scenarios.
 - Findings reference the spec requirement/scenario they violate.
+
+### Build run names and cleanup
+
+- Every new independently managed build, check or review run is a direct child of `build/` named `<change>_<revision>_<role>_<attempt>_<kind>/`. Split on `_` to recover exactly five components; each component uses lowercase kebab-case matching `[a-z0-9]+(?:-[a-z0-9]+)*`. Underscores join components only.
+- Allocate a fresh, empty run root for each attempt. Do not represent retries or separate review/developer runs as nested identity directories. Tool-required content such as `frames/`, `assets/`, `reference/`, and `clean-a/` may remain inside its owning run.
+- Preparation and construction may share one build run root. Independently managed input and output roots must be distinct and disjoint, including after resolving symlinks.
+- Existing accepted or expressly protected historical paths may be read as legacy inputs and must remain unchanged; do not relocate them under this convention.
+- After checks finish, inventory outputs and dependencies before cleanup. Remove obsolete whole run roots, including residual logs/JSON, unless a concrete dependency, active/resumable work item, unresolved diagnostic, or explicit preservation requirement justifies retention. Check links and dependencies before and after deletion, never follow symlinks outside `build/`, and never remove another agent's active or owned run.
+- Record removed paths and bytes, retained roots/files with reasons, dependency-check results, and pending cleanup in an existing durable review or hand-off record. A failed or interrupted cleanup remains pending; do not report completion until resolved.
 
 ---
 
@@ -205,6 +215,7 @@ Visual judgement (is it readable, does it look like the exercise) stays with the
 - Do not rely on Blender GUI state. Scenes and rigs come from files in the repo.
 - Rigify gives FK/IK controls; arms are normally posed in FK, legs in IK (feet planted). Property names depend on the Rigify version: inspect the actual rig rather than assuming.
 - Keep binary artifacts out of git except releases in `dist/`; scratch goes to `build/`.
+- Give each new build/check/review attempt its own flat five-component run root under `build/`; keep only tool-managed content directories inside it. Complete dependency-aware cleanup before hand-off, including after failed checks.
 - Never use browser/global state, absolute paths, or machine-specific settings in tools.
 
 ---

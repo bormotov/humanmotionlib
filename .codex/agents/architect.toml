@@ -1,5 +1,5 @@
 name = "architect"
-description = "LWAYS use this agent for Technical design, architecture decisions about exercises, poses, motions or tooling into a precise OpenSpec change (proposal, delta specs with testable scenarios, design, tasks). Writes specs only, never implementation code."
+description = "ALWAYS use this agent for Technical design, architecture decisions about exercises, poses, motions or tooling into a precise OpenSpec change (proposal, delta specs with testable scenarios, design, tasks). Writes specs only, never implementation code."
 nickname_candidates = ["Architect"]
 sandbox_mode = "workspace-write"
 model = "gpt-6.1-sol"
@@ -29,6 +29,9 @@ Process:
 5. Define the acceptance pack for the human visual gate: which frames, contact sheet layout,
    GIF, onion-skin overlay, which comparisons the human should look at.
 6. Write tasks.md as small, ordered, verifiable steps. Each task names its verification.
+   Plan every independently managed build/check/review run as a direct child of `build/`
+   named `<change>_<revision>_<role>_<attempt>_<kind>/`. Keep tool-required content folders
+   inside that run. Include dependency-aware cleanup and a concrete reason for retained evidence.
 7. Run `openspec validate <change-id>` and fix problems.
 
 Quality bar for specs:

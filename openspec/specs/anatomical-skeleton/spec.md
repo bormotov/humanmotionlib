@@ -177,7 +177,7 @@ Every external reference used for anatomy, dimensions, geometry, or backend cons
 
 ### Requirement: Structural visual review pack
 
-The build SHALL produce a structural review pack under `build/review/anatomical-human-skeleton/` containing labeled front, rear, and side orthographic views, rest and anatomical-neutral comparisons, local-axis overlays, and measurement and simplification reports. The pack SHALL support independent numeric checks and human visual judgment.
+The build SHALL produce a structural review pack in a direct child of `build/` named according to `build-artifact-lifecycle`, containing labeled front, rear, and side orthographic views, rest and anatomical-neutral comparisons, local-axis overlays, and measurement and simplification reports. The pack SHALL support independent numeric checks and human visual judgment. Existing accepted and expressly protected historical packs SHALL retain their established paths.
 
 #### Scenario: Review the skeleton before muscles
 - **WHEN** the reviewer rebuilds the pack from sources
@@ -191,6 +191,12 @@ The build SHALL produce a structural review pack under `build/review/anatomical-
 - **AND** rib numbers, posterior angles, bone/cartilage distinctions, sternal regions and insertions, and lower cartilage-arch connections are inspectable alongside their shape metrics
 - **AND** the full-body diagnostic cameras remain unchanged and inspection cameras are never fitted separately to a pose or stature
 - **AND** a human rejection of the thoracic silhouette remains unresolved until revised source geometry has renewed independent review and explicit human visual approval; the previous source snapshot's numeric verdict does not satisfy this gate
+
+#### Scenario: Locate a future structural pack without migrating history
+- **Verification:** path and documentation audit.
+- **WHEN** a new structural pack is generated after adoption of the flat convention
+- **THEN** its run root is a direct child of `build/` with the five identifying components required by `build-artifact-lifecycle`
+- **AND** the previously accepted `build/review/anatomical-human-skeleton/` history remains at its established location, with its preservation requirements unchanged
 
 ## Reference basis
 
