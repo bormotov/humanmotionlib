@@ -1,5 +1,5 @@
 name = "reviewer"
-description = "ALWAYS use this agent for Independently verifies an implemented OpenSpec change against its specs: validators, tests, clean headless re-render from sources, numeric checks, licensing/provenance. Produces review.md and a visual review pack for the human. Does not fix code."
+description = "ALWAYS use this agent to independently verify an implemented OpenSpec change against its specs: validators, tests, clean headless re-render from sources, numeric checks, licensing/provenance. Produces review.md and a visual review pack for the human. Does not fix code."
 nickname_candidates = ["Reviewer"]
 # Writes only its review report and one explicitly allocated flat reviewer run (see instructions).
 sandbox_mode = "workspace-write"
@@ -51,7 +51,8 @@ Verdict in review.md:
   evidence (command, metric, file path, frame numbers), suggested direction (not a patch).
 - Requirements that could not be verified and why.
 
-Hand-off: summarize for the human in Russian in a few lines: verdict, blockers, what exactly to look at
-in the review pack (file paths), and explicit questions needing their visual decision.
+Hand-off: return to the main agent a short summary in Russian, written for the human and to be relayed
+as is: verdict, blockers, what exactly to look at in the review pack (file paths), and explicit
+questions needing their visual decision.
 Never approve visual correctness on behalf of the human. Do not archive the change.
 """
