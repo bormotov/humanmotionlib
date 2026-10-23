@@ -139,12 +139,18 @@ def _raw_group_state(pgid):
 
 
 def _group_state(pgid, *, anchor_pid=None, ps_timeout=2.0):
-    # On Darwin, use a bounded process-table snapshot as the primary live-state
-    # source. killpg(pgid, 0) can return EPERM for a zombie-only group even when
-    # ps can prove that every matching process is non-executable.
-    if platform.system() == "Darwin":
+    # Darwin's reference Python omits waitid and killpg can return EPERM for
+    # zombie-only groups. On Linux, waitid(WNOWAIT) leaves the leader zombie
+    # as the PGID anchor, so killpg alone would report an empty group present.
+    # A bounded process-table snapshot distinguishes zombies from live work on
+    # both systems while preserving the unreaped anchor until cleanup is safe.
+    if platform.system() in ("Darwin", "Linux"):
+        ps_executable = next((path for path in ("/bin/ps", "/usr/bin/ps")
+                              if Path(path).is_file()), None)
+        if ps_executable is None:
+            return "ambiguous"
         try:
-            listing = subprocess.run(["/bin/ps", "-Ao", "pid=,pgid=,stat="], check=True,
+            listing = subprocess.run([ps_executable, "-Ao", "pid=,pgid=,stat="], check=True,
                                      capture_output=True, text=True, timeout=max(0.01, ps_timeout))
         except (OSError, subprocess.SubprocessError):
             return "ambiguous"

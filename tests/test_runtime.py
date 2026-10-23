@@ -35,6 +35,50 @@ def read_receipt(error):
     return json.loads(Path(error.receipt).read_text())
 
 
+class ProcessGroupStateTests(unittest.TestCase):
+    def ps_snapshot(self, text):
+        return subprocess.CompletedProcess(["ps"], 0, stdout=text, stderr="")
+
+    def test_process_table_classification_on_darwin_and_linux(self):
+        cases = (
+            ("zombie leader", "410 410 Z", 410, "present", "absent"),
+            ("live descendant", "410 410 Z\n411 410 S", 410, "present", "present"),
+            ("missing anchor", "411 410 S", 410, "present", "ambiguous"),
+        )
+        for system in ("Darwin", "Linux"):
+            for name, snapshot, anchor, raw_state, expected in cases:
+                with self.subTest(system=system, case=name), \
+                     mock.patch("tools.runtime.platform.system", return_value=system), \
+                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
+                     mock.patch("tools.runtime.subprocess.run", return_value=self.ps_snapshot(snapshot)), \
+                     mock.patch("tools.runtime._raw_group_state", return_value=raw_state):
+                    self.assertEqual(_group_state(410, anchor_pid=anchor), expected)
+
+    def test_empty_process_table_requires_kernel_absence_without_anchor(self):
+        for system in ("Darwin", "Linux"):
+            for raw_state, expected in (("absent", "absent"),
+                                        ("present", "ambiguous"),
+                                        ("ambiguous", "ambiguous")):
+                with self.subTest(system=system, raw_state=raw_state), \
+                     mock.patch("tools.runtime.platform.system", return_value=system), \
+                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
+                     mock.patch("tools.runtime.subprocess.run", return_value=self.ps_snapshot("")), \
+                     mock.patch("tools.runtime._raw_group_state", return_value=raw_state):
+                    self.assertEqual(_group_state(410), expected)
+
+    def test_unreadable_or_malformed_process_table_is_ambiguous(self):
+        for system in ("Darwin", "Linux"):
+            for result in (self.ps_snapshot("not-a-process-row"), OSError("ps unavailable"),
+                           subprocess.TimeoutExpired("ps", 0.01)):
+                with self.subTest(system=system, result=result), \
+                     mock.patch("tools.runtime.platform.system", return_value=system), \
+                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
+                     mock.patch("tools.runtime.subprocess.run",
+                                side_effect=result if isinstance(result, BaseException) else None,
+                                return_value=result if not isinstance(result, BaseException) else None):
+                    self.assertEqual(_group_state(410, anchor_pid=410), "ambiguous")
+
+
 class BackendContractTests(unittest.TestCase):
     def test_documented_finite_runtime_defaults(self):
         self.assertEqual((DEFAULT_PROBE_TIMEOUT, DEFAULT_BUILD_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
