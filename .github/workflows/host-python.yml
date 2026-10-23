@@ -1,0 +1,122 @@
+name: Host Python
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-python:
+    name: CPython 3.14 host checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+
+      - name: Allocate fresh CI check run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_root="build/upgrade-host-python-314_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}_checks"
+          mkdir -p build
+          test ! -e "$run_root"
+          mkdir "$run_root"
+          {
+            echo "HUMANMOTIONLIB_TEST_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
+            echo "UV_PROJECT_ENVIRONMENT=$GITHUB_WORKSPACE/$run_root/environment"
+            echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$run_root/cache"
+            echo "HML_CI_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
+          } >> "$GITHUB_ENV"
+          echo "Candidate commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
+
+      - name: Verify lock and install locked dependencies
+        id: lock-and-sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            uv --version
+            python --version
+            uv lock --check
+            uv sync --locked
+          } 2>&1 | tee "$HML_CI_RUN_ROOT/setup.log"
+
+      - name: Check host interpreter and dependency metadata
+        id: host-environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python tools/check_host.py --check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
+
+      - name: Check installed dependency consistency
+        id: dependency-consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python" 2>&1 | tee "$HML_CI_RUN_ROOT/dependency-check.log"
+
+      - name: Validate canonical sources
+        id: source-validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python tools/validate.py --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
+
+      - name: Run host-only test suite
+        id: host-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python tools/check_host.py 2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
+
+      - name: Record CI outcome
+        if: always()
+        shell: bash
+        env:
+          LOCK_SYNC_OUTCOME: ${{ steps.lock-and-sync.outcome }}
+          HOST_ENVIRONMENT_OUTCOME: ${{ steps.host-environment.outcome }}
+          DEPENDENCY_CHECK_OUTCOME: ${{ steps.dependency-consistency.outcome }}
+          SOURCE_VALIDATION_OUTCOME: ${{ steps.source-validation.outcome }}
+          HOST_TESTS_OUTCOME: ${{ steps.host-tests.outcome }}
+        run: |
+          {
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Commit: $GITHUB_SHA"
+            echo "Python: $(python --version 2>&1 || true)"
+            echo "uv: $(uv --version 2>&1 || true)"
+            echo "Lock check and locked sync: $LOCK_SYNC_OUTCOME"
+            echo "Host interpreter/metadata check: $HOST_ENVIRONMENT_OUTCOME"
+            echo "Dependency consistency check: $DEPENDENCY_CHECK_OUTCOME"
+            echo "Source validation: $SOURCE_VALIDATION_OUTCOME"
+            echo "Host-only tests: $HOST_TESTS_OUTCOME"
+            echo "Host-only scope excludes tests.test_blender_backend and tests.test_pipeline_faults; see host-tests.log."
+          } >> "$HML_CI_RUN_ROOT/summary.txt"
+          cat "$HML_CI_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload check evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-python-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HML_CI_RUN_ROOT }}
+          if-no-files-found: error
+          retention-days: 90

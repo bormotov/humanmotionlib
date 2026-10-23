@@ -1,13 +1,42 @@
 # Skeleton tooling
 
-Run commands from the repository root. Python is managed by uv; `uv sync --locked`
-creates the Python 3.12 environment with exact dependencies from `uv.lock`.
+Run commands from the repository root. HML's host Python is managed by uv;
+`.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
+`>=3.14,<3.15`. `uv sync --locked` creates the environment with exact
+dependencies from `uv.lock`. Blender supplies its own embedded Python; it is
+selected and verified through the pinned Blender executable and is not required
+to match the HML host Python version.
 Blender must be available as `blender` on PATH. The backend contract lives in
 `pyproject.toml`: Blender 5.2.2 LTS, build `d13f752e3b9c`, reference platform
 Darwin arm64. A different Blender version or build is an error. MPFB and Rigify
 are not used. No tool requires a workstation-specific executable path or GUI state.
 
 ## Command contract
+
+For a fresh local host check, create an empty run root directly under `build/`
+with a five-part run identity, then keep its environment and uv cache inside it.
+The example below is a single developer host-check attempt:
+
+```sh
+mkdir build/upgrade-host-python-314_r1_dev_try-1_host
+export UV_PROJECT_ENVIRONMENT=build/upgrade-host-python-314_r1_dev_try-1_host/environment
+export UV_CACHE_DIR=build/upgrade-host-python-314_r1_dev_try-1_host/cache
+uv lock --check
+uv sync --locked
+uv run --locked python tools/check_host.py --check-environment
+uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
+uv run --locked python tools/validate.py --profile adult-reference-v1
+uv run --locked python tools/check_host.py
+```
+
+The host check reports the selected test total, skips and the only two modules
+excluded because they require real Blender: `tests.test_blender_backend` and
+`tests.test_pipeline_faults`. It fails on an interpreter/metadata mismatch,
+dependency import error, discovery error, empty selection or failed test. The
+full reference command below remains unfiltered and must run with the pinned
+Blender on the Darwin arm64 reference platform. The CI uv version is pinned in
+`.github/workflows/host-python.yml`; local uv should use that same version for
+reproducible lock operations. The workflow pins uv 0.13.5.
 
 The following entry points are approved by the change design. Validation,
 preparation, headless construction, numeric verification, render-pack assembly,
