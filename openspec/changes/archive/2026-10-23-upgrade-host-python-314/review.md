@@ -6,7 +6,7 @@
 
 Review date: 2026-10-23. `/AGENTS.md` is absent; repository `AGENTS.md`, reviewer instructions, apply instructions, proposal, delta spec, design (including corrective §5a), tasks and applicable backend/lifecycle specifications were read. No implementation, source, spec or test was edited by the reviewer.
 
-Evidence roots below are repository-relative. [Final evidence index](../../../build/upgrade-host-python-314_r2_reviewer_try-1_reference/index.md).
+Evidence roots below are repository-relative. [Final evidence index](../../../../build/upgrade-host-python-314_r3_reviewer_try-1_archive/index.md).
 
 ## Requirement/scenario checklist
 
