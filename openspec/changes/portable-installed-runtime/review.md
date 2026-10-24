@@ -1,6 +1,6 @@
 # Independent review
 
-Verdict: PASS WITH NOTES. All required automated acceptance and cleanup checks pass. Human visual Gate 2 remains pending; no archive approval is given.
+Verdict: PASS WITH NOTES. All required automated acceptance and cleanup checks pass. Human visual Gate 2 was accepted on 2026-10-24. The change is ready for OpenSpec finalization.
 
 ## Immutable identity and scope
 
@@ -152,11 +152,11 @@ Entry point: `R/visual-pack/index.md`. It links:
 
 The Markdown pack links resolve; `visual-pack-link-audit.json` records the final count and targets. The reviewer inspected every-view contact sheet, neutral/rest overview, both count/animation panels and both onions. **Visual opinion only:** floor and body position appear fixed, feet appear planted, and arms move symmetrically forward and overhead. No new body crossing or visible penetration was observed. Front-view arms are foreshortened at counts 1/3; side view clarifies direction. Coincident counts 0/4 and 1/3 cause later onion colors to cover earlier ones. Pixel equality establishes unchanged rendering, not human approval of anatomy or exercise readability.
 
-- [ ] [H] Human Gate 2: accept unchanged silhouette/stature/framing, count alignment, forward arm movement/readability, contact appearance and HTML presentation. The reviewer does not decide this for the human and does not archive the change.
+- [x] [H] Human Gate 2: accepted by the human on 2026-10-24: "визуально проблем не замечено, принимается." Acceptance covers the delivered visual pack, including silhouette/stature/framing, count alignment, forward arm movement/readability, contact appearance and HTML presentation. Recorded by the orchestrator from the human's explicit approval; the reviewer does not decide this for the human.
 
 ## Unverified or intentionally excluded scope
 
-All delta requirements/scenarios were verified within the declared scope. Human visual correctness remains unapproved. Native scope is the approved neutral/rest/four-beat arm-raise regression, not all 32 fixtures, dense-floor/full-domain or three-stature native anatomical acceptance. Those unchanged optional algorithms and writer paths have host coverage; this review does not claim their complete real-backend rerun. Circular via sweeps and new export/bake formats are outside this change.
+All delta requirements/scenarios were verified within the declared scope. The human accepted the delivered visual pack on 2026-10-24. Native scope is the approved neutral/rest/four-beat arm-raise regression, not all 32 fixtures, dense-floor/full-domain or three-stature native anatomical acceptance. Those unchanged optional algorithms and writer paths have host coverage; this review does not claim their complete real-backend rerun. Circular via sweeps and new export/bake formats are outside this change.
 
 ## Cleanup and retained dependency closure
 
