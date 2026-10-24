@@ -1,6 +1,6 @@
 # Independent review — package-humanmotionlib
 
-Verdict: **PASS WITH NOTES** for automated/package acceptance. **Human Gate 2 is pending**; this report does not approve visual correctness or authorize archiving.
+Verdict: **PASS WITH NOTES** for automated/package acceptance. **Human Gate 2 is APPROVED** by the human's explicit response “одобряю” on 2026-10-24 after presentation of the independent visual pack. Archiving remains a separate workflow action.
 
 Reviewed final commit: `e5f36cfd19fc273079467710e8c0781a78a3e7e5`. Package source payload is unchanged from frozen developer try-6 wheel SHA-256 `4953912362473e56d42783b0593f148f1dd70cd25813c65c6f2d8d1c45bf2ed5`. Reviewer independently rebuilt both distributions, installed them, ran checks, and generated the native build and two clean render passes from sources. Developer logs were not substituted for reviewer checks.
 
@@ -53,7 +53,7 @@ A = automatable check; N = numeric metric; H = human visual judgement. Every del
 | Verify and reject prepared identities | A | PASS: canonical installed identity accepted; five resealed legacy/release/manifest/implementation/schema mismatch variants rejected with regeneration guidance. `install-audit.json`. |
 | Audit commercial redistribution and output attribution | A | PASS: exact code/data license bytes, resource provenance, direct/transitive runtime/build/action licenses and generated attribution checked. `distribution-license-audit.json`, pack/attribution-and-limitations.md. |
 | Check the actual wheel in CI | A | PASS: real GitHub Actions run and downloaded installed artifact independently audited. `ci-remote-run.json`, `ci-artifact-audit.json`. |
-| Compare the package regression pack | N + H | Numeric PASS: exact evaluated geometry and all 76 decoded image pairs against verified baseline; required counts, GIFs, onions, all-frame/comparison sheets delivered. Human visual decision PENDING. |
+| Compare the package regression pack | N + H | Numeric PASS: exact evaluated geometry and all 76 decoded image pairs against verified baseline; required counts, GIFs, onions, all-frame/comparison sheets delivered. Human visual decision APPROVED on 2026-10-24. |
 
 ## Independent execution and distribution evidence
 
@@ -110,7 +110,7 @@ Start at **pack/index.md**. It links all 76 delivered images, neutral/rest three
 
 Reviewer visual opinion after directly viewing contact sheets, count/animation panels, side onion and baseline difference sheet: framing/floor appear stable; no new silhouette or visible penetration change is apparent versus baseline. Front beats 1 and 3 foreshorten the arms over the upper thorax; side views clearly reveal forward raise and return. The skeleton remains thin/pale at full-body framing, as in baseline. This observation is not a human visual decision.
 
-**Human question:** are silhouette/stature, fixed framing/floor, forward arm direction/readability, count alignment and planted-contact appearance acceptable and unchanged against baseline? Gate 2 is the only remaining acceptance decision.
+**Human decision:** APPROVED on 2026-10-24. In response to the explicit request to approve the independent visual pack, the human replied “одобряю”. This closes Gate 2 for silhouette/stature, fixed framing/floor, forward arm direction/readability, count alignment and planted-contact appearance within the reviewed packaging regression scope. The main orchestrator records this human decision separately from the reviewer's technical verdict.
 
 ## Cleanup and dependency closure
 
@@ -127,4 +127,4 @@ Retained roots and concrete reasons:
 - **build**: native source/input/evaluated geometry/blend and receipts used by the final pack and numeric audit.
 - **pack**: complete human Gate 2 bundle with baseline and generated sources, frame/metric/attribution/evidence closure.
 
-Dependency checks before and after cleanup passed; final **481 HTML/Markdown local links** resolve and remain inside the pack, including all comparison originals, images, metric links and copied evidence. All 31 referenced metric shards and their 33 distinct image references were separately resolved inside the pack (`metric-dependency-audit.json`). No developer, main, accepted-history or unrelated root was edited or removed. No reviewer cleanup is pending. Main/developer cleanup remains their responsibility and is not claimed here. Human visual decision remains pending; do not archive this change on the basis of this technical verdict.
+Dependency checks before and after cleanup passed; final **481 HTML/Markdown local links** resolve and remain inside the pack, including all comparison originals, images, metric links and copied evidence. All 31 referenced metric shards and their 33 distinct image references were separately resolved inside the pack (`metric-dependency-audit.json`). No developer, main, accepted-history or unrelated root was edited or removed. No reviewer cleanup is pending. Main/developer cleanup remains their responsibility and is not claimed here. Human visual approval is recorded above; the change has not been archived.
