@@ -8,7 +8,7 @@ Keep generated build and verification runs identifiable and removable without lo
 
 ### Requirement: Run identity is encoded in a flat directory name
 
-Every new independently managed build, check or review run SHALL occupy a direct child of the selected workspace's `build/`. For repository use the checkout SHALL be that workspace; installed use SHALL select a writable caller-owned workspace independently of package resources. Its basename SHALL encode change, revision, role, attempt and kind in that order, separated by single underscores. Each component SHALL match `[a-z0-9]+(?:-[a-z0-9]+)*`. A new attempt SHALL use a fresh identity rather than overwrite an existing run.
+Every new independently managed build, check or review run SHALL occupy a direct child of the selected workspace's `build/`. All writing callers SHALL explicitly select an absolute writable workspace independently of package resources; repository use SHALL explicitly select its checkout when intended. Its basename SHALL encode change, revision, role, attempt and kind in that order, separated by single underscores. Each component SHALL match `[a-z0-9]+(?:-[a-z0-9]+)*`. A new attempt SHALL use a fresh identity rather than overwrite an existing run.
 
 #### Scenario: Allocate an identifiable review attempt
 - **Verification:** documented-path audit and filesystem inspection.
@@ -29,6 +29,21 @@ Every new independently managed build, check or review run SHALL occupy a direct
 - **THEN** its run is a direct child of that workspace's build directory using the same five-component identity
 - **AND** output ownership, input/output separation, symlink checks, fresh attempts and dependency-aware cleanup follow the same rules as repository runs
 - **AND** selecting a different workspace does not relocate or modify accepted/protected legacy inputs, and no run is allocated beneath installed resources.
+
+#### Scenario: Validate destinations before creating filesystem state
+- **Verification:** CLI/API matrix with traversal, symlink escape, occupied run, overlapping input/output and invalid workspace cases.
+- **WHEN** a caller requests a new independently managed run or numerical report output
+- **THEN** relative operands are resolved against the explicit workspace and all generated artifacts are confined to its permitted build runs after symlink resolution
+- **AND** the input and independent output roots are disjoint, fresh run allocation retains its five-component convention and report content may live inside its owning run
+- **AND** invalid destinations fail before HML creates temporary files, logs, lock state or output directories.
+
+#### Scenario: Read protected predecessors without lexical checkout inference
+- **Verification:** installed HTML-only and reuse tests with protected external predecessor paths, missing build components and multiple ancestor build components.
+- **WHEN** a caller explicitly identifies a compatible existing predecessor outside the output workspace
+- **THEN** HML checks its required identity, hashes, evidence and dependency links using the actual predecessor location and evidence
+- **AND** it does not infer a checkout or workspace from the first path component named build or from a neighboring directory
+- **AND** missing or incompatible evidence still fails closed and HTML-only operation launches no Blender
+- **AND** historical inputs remain unchanged, the independent output run remains disjoint, and existing presentation asset/link rules apply.
 
 ### Requirement: Artifact content is distinct from independently managed runs
 

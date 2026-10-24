@@ -36,7 +36,7 @@ The wheel and source distribution SHALL contain the complete HML-owned resource 
 
 ### Requirement: Installed commands cover the supported workflow
 
-Installed HML SHALL expose documented commands through the `hml` console entry point for source validation, skeleton preparation, supervised Blender construction/rendering, numeric verification and all existing review-pack modes. Module invocation through `python -m humanmotionlib` SHALL offer the same command contract. Python imports SHALL remain under `humanmotionlib.*`. Existing options, exit failures, numerical limits, contact checks and beat sampling SHALL retain their meanings.
+Installed HML SHALL expose documented commands through the `hml` console entry point for source validation, skeleton preparation, supervised Blender construction/rendering, numeric verification and all existing review-pack modes. Module invocation through `python -m humanmotionlib` SHALL offer the same command contract. Python imports SHALL remain under `humanmotionlib.*`. Except for the explicit workspace and workspace-relative path contract, existing options, exit failures, numerical limits, contact checks and beat sampling SHALL retain their meanings.
 
 #### Scenario: Use installed host commands
 - **Verification:** clean wheel subprocess smoke tests with unset `PYTHONPATH` from a directory outside the checkout.
@@ -53,9 +53,16 @@ Installed HML SHALL expose documented commands through the `hml` console entry p
 - **AND** HTML-only regeneration launches no Blender and preserves the existing local-asset and predecessor-evidence contract
 - **AND** a full-fixture host inventory/prepare check and focused real-backend pack are labeled with their respective scopes.
 
+#### Scenario: Apply the same workspace contract to every writer
+- **Verification:** console/module parity and public API tests for preparation, construction, numeric reports/dossiers, normal review, render reuse and HTML-only regeneration.
+- **WHEN** a caller requests a filesystem-writing operation
+- **THEN** both entry points and the corresponding public writing API require the same explicit workspace and enforce the same write containment
+- **AND** omission or a relative workspace fails before allocating a run, lock or temporary file or launching Blender
+- **AND** help, version, environment inspection, validation and pure in-memory computations remain usable without a workspace and create no HML filesystem state.
+
 ### Requirement: Installed resources are independent of writable workspaces
 
-Generation SHALL read immutable package resources and write only to a selected caller-owned workspace and its designated outputs. Default workspace selection SHALL be the invocation working directory; explicit selection SHALL be supported. Installed resources SHALL remain usable without write permission. Resource lookup SHALL NOT depend on the current directory.
+Filesystem-writing operations SHALL require an explicit absolute caller-owned workspace. HML-controlled results, temporary files, logs, receipts, caches and locks SHALL stay in its `build/` tree. Relative workflow operands SHALL resolve against that workspace. Runtime resources SHALL come only from the immutable installed package, independent of invocation directory or nearby checkout. Read-only operations SHALL need no workspace.
 
 #### Scenario: Generate with a read-only installation
 - **Verification:** read-only installation subprocess run, before/after hashes and filesystem write audit.
@@ -63,6 +70,14 @@ Generation SHALL read immutable package resources and write only to a selected c
 - **THEN** all HML state, receipts and generated outputs stay within that workspace's allowed build runs
 - **AND** the package tree remains byte-identical, with no lock, cache, generated script or output written into site-packages
 - **AND** no Git checkout or project configuration is created or required.
+
+#### Scenario: Invoke the same pipeline from unrelated directories
+- **Verification:** installed subprocess matrix with unset PYTHONPATH, read-only invocation directories, misleading checkout-shaped siblings and filesystem snapshots.
+- **WHEN** the same installed workflow is invoked from two unrelated directories with identical explicit workspace and workflow operands
+- **THEN** it selects the same resources, resolves the same paths and applies the same validation and ownership rules without reading neighboring checkout files
+- **AND** no HML-controlled state is created in the invocation directory, installation, neighboring checkout or global temporary directory
+- **AND** relative file operands resolve from the workspace; absolute external inputs remain read-only and outputs remain confined after resolving symlinks
+- **AND** path escapes or writes through escaping symlinks fail before output creation or backend spawn.
 
 ### Requirement: Runtime integrity uses distribution-owned identity
 
@@ -75,6 +90,13 @@ Prepared-input and output evidence SHALL identify the installed package version,
 - **AND** readers verify every declared source hash against the active packaged inventory
 - **AND** modified content, mismatched resource identities and incompatible legacy inputs fail with an explicit regeneration instruction
 - **AND** accepted historical outputs remain unchanged and remain eligible as read-only inputs for the existing HTML-only presentation mode.
+
+#### Scenario: Preserve fail-closed integrity outside the checkout
+- **Verification:** isolated wheel copies with missing/corrupt resources or implementation files, altered prepared content and stale/mismatched predecessor evidence.
+- **WHEN** an installed external-workspace workflow encounters altered data or identity while a neighboring checkout contains apparently valid replacements
+- **THEN** it fails the affected integrity or reuse check without substituting checkout content or accepting stale output
+- **AND** diagnostics identify the failed logical identity and required regeneration without using installation or invocation paths as canonical content identity
+- **AND** relocating an unchanged installation or workspace alone does not invalidate otherwise compatible input evidence.
 
 ### Requirement: Distribution licenses and provenance are complete
 
@@ -100,6 +122,15 @@ Push and pull-request GitHub Actions SHALL build the wheel and source distributi
 - **AND** a missing resource, namespace leak, metadata mismatch, failed install or failed smoke command makes the job fail
 - **AND** the uploaded wheel checksum, commit, workflow run, interpreter/build-tool versions and scoped results identify exactly the checked artifact
 - **AND** existing locked host tests still run and host-only success does not imply real Blender acceptance.
+
+#### Scenario: Prove the installed artifact has no checkout dependency
+- **Verification:** CI external installed-workflow matrix and retained machine-readable results tied to the wheel checksum.
+- **WHEN** CI validates the non-editably installed wheel
+- **THEN** invocation directories and explicitly selected workspaces are outside the source checkout and wheel installation, with checkout imports disabled
+- **AND** host coverage includes all-fixture validation/preparation, numeric report writing and available presentation-only modes using controlled evidence
+- **AND** missing-workspace, workspace-relative path, write-escape, misleading-neighbor and integrity-tampering cases are exercised
+- **AND** assertions prove runtime imports/resources come from the installation and HML writes stay under each caller-selected workspace's build tree
+- **AND** synthetic presentation evidence and host-only checks are explicitly distinguished from real Blender and human visual acceptance.
 
 ### Requirement: Packaging preserves generation output
 

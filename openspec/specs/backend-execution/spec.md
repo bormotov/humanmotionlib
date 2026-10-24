@@ -30,6 +30,14 @@ Documented routine builds, render passes, backend probes and Blender integration
 - **AND** neither the checkout nor host site-packages is added to Blender's import path, and the host Python version is not imposed on Blender
 - **AND** Blender remains an explicit external prerequisite, with the unchanged version/build/reference-platform pins and no automatic executable or asset download.
 
+#### Scenario: Keep backend working state in the caller workspace
+- **Verification:** launcher argument/environment assertions, child write audit and pinned installed-backend execution outside the checkout.
+- **WHEN** installed HML starts a probe, construction or render with an explicit workspace
+- **THEN** it supplies the required package script/import closure for the child's lifetime without resolving it from the invocation directory or neighboring checkout
+- **AND** HML-directed temporary, cache, configuration, extracted-resource and log locations are within the owning workspace's build tree
+- **AND** no host site-packages injection, backend pin bypass or global temporary-file fallback occurs
+- **AND** missing or invalid workspace/path inputs fail before lock allocation, probing or child launch.
+
 ### Requirement: Backend execution and cancellation are bounded
 
 Every supervised invocation SHALL have a finite positive execution deadline. Timeout, caller cancellation and failure cleanup SHALL terminate only the invocation's owned child process tree, finish within documented bounds and return failure. Missing executables and spawn errors SHALL also produce controlled failures. Unconfirmed termination SHALL remain explicit pending cleanup, never success.
@@ -50,7 +58,7 @@ Every supervised invocation SHALL have a finite positive execution deadline. Tim
 
 ### Requirement: Checkout-owned backend work does not overlap
 
-At most one supervised Blender child SHALL be active per selected workspace across independent callers, including callers using different installations. The checkout SHALL serve as a workspace for repository use. Waiting for the execution slot SHALL have a finite deadline and be cancellable. Abandoned ownership records SHALL NOT block later work after the actual owner has exited, and another caller SHALL NOT release or replace a live owner's slot. Slot state SHALL reside in the workspace's `build/`, outside immutable package resources.
+At most one supervised Blender child SHALL be active per selected workspace across independent callers, including callers using different installations. Every caller SHALL explicitly select an absolute workspace; repository use SHALL explicitly select its checkout when that is the intended workspace. Waiting for the execution slot SHALL have a finite deadline and be cancellable. Abandoned ownership records SHALL NOT block later work after the actual owner has exited, and another caller SHALL NOT release or replace a live owner's slot. Slot state SHALL reside in the workspace's `build/`, outside immutable package resources.
 
 #### Scenario: Contend for a running backend
 - **Verification:** two-supervisor integration test with child lifetime intervals and bounded wait assertions.
@@ -72,6 +80,13 @@ At most one supervised Blender child SHALL be active per selected workspace acro
 - **THEN** they contend for the same persistent workspace lock/state and cannot overlap
 - **AND** distinct workspaces use distinct ownership state without modifying either installation
 - **AND** source-tree commands selecting the checkout retain its existing `build/.backend-execution.lock` and state-file locations.
+
+#### Scenario: Ignore invocation and installation location for lock ownership
+- **Verification:** independent installed callers with different invocation directories and symlink aliases of one workspace.
+- **WHEN** callers explicitly target the same resolved workspace from unrelated invocation directories
+- **THEN** they share its persistent lock and state under build and obey existing bounded contention and abandoned-owner rules
+- **AND** distinct resolved workspaces have independent ownership state even when callers share an installation or invocation directory
+- **AND** neither invocation-directory state nor package-local state acts as an alternate execution slot.
 
 ### Requirement: Invocation evidence survives failures
 
@@ -97,6 +112,13 @@ Each invocation SHALL retain a machine-readable outcome and captured output with
 - **THEN** its prepared input, receipt and build/render metadata identify the same installed release and source/implementation inventory
 - **AND** machine-specific command/workspace paths remain diagnostic evidence rather than canonical source identity
 - **AND** collecting identity requires neither Git nor a development `uv.lock` or `pyproject.toml`.
+
+#### Scenario: Identify explicit workspace ownership after an external invocation
+- **Verification:** successful and failed installed invocation receipt/log audit.
+- **WHEN** a pipeline starts an invocation outside the checkout with an explicit workspace
+- **THEN** initial and finalized evidence identify the resolved workspace, owning run and HML-directed temporary/log locations
+- **AND** failure or cancellation evidence remains in that run and preserves existing cleanup status
+- **AND** absolute execution paths remain diagnostics and do not enter canonical resource or prepared-content hashes.
 
 ### Requirement: Successful execution requires complete fresh evidence
 
