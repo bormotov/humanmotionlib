@@ -43,6 +43,11 @@ def test_run_root(module):
     return root
 
 
+def test_workspace(module):
+    """Return this suite's isolated direct-child run root as its HML workspace."""
+    return test_run_root(module)
+
+
 def test_case_root(module, name):
     root = test_run_root(module)
     case = root / "cases" / module / name
@@ -50,11 +55,18 @@ def test_case_root(module, name):
     return case
 
 
-def fresh_test_run_root(kind):
-    """Allocate one fresh flat developer run under the checkout build/ tree."""
-    build = (project_root() / "build").resolve()
-    prefix = f"portable-installed-runtime_e3dcbf_dev_try-"
-    attempt = _FRESH_ATTEMPTS.get(kind, 0)
+def fresh_test_run_root(kind, *, module="runtime"):
+    """Allocate one fresh flat test-output run under its isolated workspace/build."""
+    workspace = test_workspace(module).resolve()
+    build = (workspace / "build").resolve()
+    if not build.is_relative_to(workspace):
+        raise ValueError("test workspace build directory must remain inside its run root")
+    build.mkdir(parents=True, exist_ok=True)
+    prefix = "versioned-releases_r1_dev_try-"
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)_{re.escape(kind)}$")
+    existing = [int(match.group(1)) for entry in build.iterdir()
+                if (match := pattern.fullmatch(entry.name))]
+    attempt = max(_FRESH_ATTEMPTS.get(kind, 0), max(existing, default=0))
     while True:
         attempt += 1
         root = build / f"{prefix}{attempt}_{kind}"

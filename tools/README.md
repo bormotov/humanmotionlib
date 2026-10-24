@@ -1,5 +1,40 @@
 # Skeleton tooling
 
+## Versioned GitHub releases
+
+Each newly archived OpenSpec change on `main` triggers the serialized release
+workflow. Closely spaced accepted changes may share a release. The contributor
+helper treats an archived change directory with `.openspec.yaml` as the
+acceptance marker, compares canonical `openspec/specs/**/spec.md` file bytes to
+the last published release boundary, and selects the next `0.x` version:
+
+- Any canonical specification path or byte change increments MINOR and resets
+  PATCH, including editorial corrections.
+- With no canonical specification change, PATCH increments.
+- Invalid, non-`0.x`, conflicting, or missing release history fails closed.
+
+`tools/release-config.toml` pins the pre-automation bootstrap commit at version
+`0.2.0`; historical archives at or before that commit are not published. The
+workflow reserves a version-only commit on `main`, runs the locked host and
+package checks against that exact commit, and publishes its checked wheel and
+`SHA256SUMS` to an immutable `vX.Y.Z` GitHub Release. It records covered change
+and acceptance commits in release notes. It never publishes to PyPI.
+
+Inspect a proposed selection without writing a commit or calling GitHub:
+
+```sh
+uv run --locked --no-sync python tools/release.py plan \
+  --boundary <published-release-commit> --target main
+```
+
+The GitHub workflow owns version reservation and publication. To recover a
+failed run, rerun the failed workflow or start `Versioned release` with
+`workflow_dispatch`; it reconciles the reserved commit, tag, draft and checksums
+before selecting another version. It requires Actions write access to `main`
+for the version-only commit and `contents: write` for the tag and release.
+Branch rules must permit the workflow identity to make those commits; the
+workflow does not bypass branch protection or use a permanent token.
+
 HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
 `>=3.14,<3.15`. `uv sync --locked --no-editable` creates the environment with exact

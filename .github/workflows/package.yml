@@ -3,6 +3,12 @@ name: Python package
 on:
   push:
   pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit or ref to check from a caller workflow
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -19,6 +25,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
 
       - name: Set up CPython
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -37,8 +46,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          package_root="build/package-humanmotionlib_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_package"
-          sdist_root="build/package-humanmotionlib_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_sdist"
+          source_sha=$(git rev-parse HEAD)
+          package_root="build/package-humanmotionlib_commit-${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_package"
+          sdist_root="build/package-humanmotionlib_commit-${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_sdist"
           test ! -e "$package_root"
           test ! -e "$sdist_root"
           mkdir "$package_root" "$sdist_root"
@@ -56,6 +66,8 @@ jobs:
             echo "HML_ACCEPTANCE_RUN_ROOT=$acceptance_root"
             echo "HML_ACCEPTANCE_WORKSPACE=$workspace"
             echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$package_root/uv-cache"
+            echo "HML_SOURCE_SHA=$source_sha"
+            echo "HML_EXPECTED_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           } >> "$GITHUB_ENV"
           {
             echo "Candidate commit: $GITHUB_SHA"
@@ -82,6 +94,64 @@ jobs:
           test "${#sdist[@]}" -eq 1
           sha256sum "${wheel[0]}" | tee "$HML_PACKAGE_RUN_ROOT/wheel.sha256"
           printf '%s\n' "HML_DIRECT_WHEEL=${wheel[0]}" "HML_DIRECT_SDIST=${sdist[0]}" >> "$GITHUB_ENV"
+
+      - name: Build and install a second declared-version wheel
+        id: version-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix_root="$HML_PACKAGE_RUN_ROOT/version-matrix"
+          source="$matrix_root/source"
+          output="$matrix_root/wheel"
+          mkdir "$matrix_root" "$source" "$output"
+          git archive "$HML_SOURCE_SHA" | tar -x -C "$source"
+          python "$source/tools/release.py" set-version 0.91.7 --repo "$source"
+          (cd "$source" && uv build --wheel --out-dir "$output") 2>&1 | tee "$matrix_root/build.log"
+          second_wheel=("$output"/*.whl)
+          test "${#second_wheel[@]}" -eq 1
+          second_venv="$matrix_root/venv"
+          python -m venv "$second_venv"
+          uv pip install --python "$second_venv/bin/python" "${second_wheel[0]}" 2>&1 | tee "$matrix_root/install.log"
+          uv pip check --python "$second_venv/bin/python" 2>&1 | tee "$matrix_root/dependency-check.log"
+          (
+            cd "$matrix_root"
+            env -u PYTHONPATH "$second_venv/bin/python" - "$HML_EXPECTED_VERSION" "${second_wheel[0]}" "$HML_DIRECT_WHEEL" <<'PY'
+          import hashlib
+          import importlib.metadata
+          import json
+          import pathlib
+          import sys
+          import zipfile
+
+          expected, wheel, first_wheel = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+          def resource_hashes(path):
+              with zipfile.ZipFile(path) as archive:
+                  return {
+                      name: hashlib.sha256(archive.read(name)).hexdigest()
+                      for name in archive.namelist()
+                      if name.startswith("humanmotionlib/resources/") and not name.endswith("/")
+                      and name != "humanmotionlib/resources/runtime-manifest.json"
+                  }
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+              metadata = archive.read(metadata_name).decode()
+              assert f"Version: 0.91.7\n" in metadata
+              runtime_version = archive.read("humanmotionlib/_version.py").decode()
+              assert runtime_version == '__version__ = "0.91.7"\n'
+              manifest = json.loads(archive.read("humanmotionlib/resources/runtime-manifest.json"))
+              assert manifest["version"] == "0.91.7"
+              second_resources = resource_hashes(wheel)
+          assert second_resources == resource_hashes(first_wheel)
+          assert importlib.metadata.version("humanmotionlib") == "0.91.7"
+          import humanmotionlib
+          assert humanmotionlib.__version__ == "0.91.7"
+          print(json.dumps({"version": "0.91.7", "resource_files": len(second_resources)}, sort_keys=True))
+          PY
+            env -u PYTHONPATH "$second_venv/bin/python" -m humanmotionlib --version | tee "$matrix_root/module-version.log"
+            env -u PYTHONPATH "$second_venv/bin/hml" --version | tee "$matrix_root/cli-version.log"
+          )
+          grep -Fx "humanmotionlib 0.91.7" "$matrix_root/module-version.log"
+          grep -Fx "humanmotionlib 0.91.7" "$matrix_root/cli-version.log"
 
       - name: Rebuild wheel from extracted source distribution and compare payloads
         id: sdist-rebuild
@@ -166,15 +236,19 @@ jobs:
           import importlib.resources
           import json
           import pathlib
+          import os
           import humanmotionlib
 
           dist = importlib.metadata.distribution("humanmotionlib")
           package = pathlib.Path(humanmotionlib.__file__).resolve()
-          assert dist.version == "0.2.0", dist.version
+          expected = os.environ["HML_EXPECTED_VERSION"]
+          assert dist.version == expected, (dist.version, expected)
+          assert humanmotionlib.__version__ == expected
           assert "humanmotionlib" in str(package), package
           assert not (package.parent.parent / "tools").exists()
           resources = importlib.resources.files("humanmotionlib").joinpath("resources")
           manifest = json.loads(resources.joinpath("runtime-manifest.json").read_text())
+          assert manifest["version"] == expected
           print(json.dumps({
               "distribution_version": dist.version,
               "package_origin": str(package),
@@ -183,9 +257,11 @@ jobs:
           }, sort_keys=True))
           PY
             env -u PYTHONPATH "$install_root/venv/bin/hml" --version | tee "$HML_PACKAGE_RUN_ROOT/cli-version.log"
+            grep -Fx "humanmotionlib $HML_EXPECTED_VERSION" "$HML_PACKAGE_RUN_ROOT/cli-version.log"
             env -u PYTHONPATH "$install_root/venv/bin/hml" --help > "$HML_PACKAGE_RUN_ROOT/cli-help.log"
             env -u PYTHONPATH "$install_root/venv/bin/hml" check-environment | tee "$HML_PACKAGE_RUN_ROOT/installed-environment.log"
             env -u PYTHONPATH "$install_root/venv/bin/python" -m humanmotionlib --version | tee "$HML_PACKAGE_RUN_ROOT/module-version.log"
+            grep -Fx "humanmotionlib $HML_EXPECTED_VERSION" "$HML_PACKAGE_RUN_ROOT/module-version.log"
             env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" validate --profile adult-reference-v1 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/source-validation.log"
             env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" prepare-skeleton --profile adult-reference-v1 --output "$workspace/build/package-humanmotionlib_ci_installed_try-${GITHUB_RUN_ATTEMPT}_prepare/input.json" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/all-fixture-preparation.log"
           )
@@ -244,7 +320,7 @@ jobs:
           {
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "Attempt: $GITHUB_RUN_ATTEMPT"
-            echo "Commit: $GITHUB_SHA"
+            echo "Commit: $HML_SOURCE_SHA"
             echo "Python: $(python --version 2>&1 || true)"
             echo "uv: $(uv --version 2>&1 || true)"
             echo "Direct wheel/sdist build: $DIRECT_BUILD_OUTCOME"
@@ -261,7 +337,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: humanmotionlib-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: humanmotionlib-${{ inputs.source_ref || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.HML_PACKAGE_RUN_ROOT }}/direct/*.whl
             ${{ env.HML_PACKAGE_RUN_ROOT }}/summary.txt

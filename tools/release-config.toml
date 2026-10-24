@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+# Immutable pre-release bootstrap; replace only through an OpenSpec change.
+bootstrap_commit = "35aa4bb8aa8c196dc3da2d5f7653ec5e817aa23e"
+bootstrap_version = "0.2.0"

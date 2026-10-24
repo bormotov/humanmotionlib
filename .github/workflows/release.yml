@@ -1,0 +1,225 @@
+name: Versioned release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "openspec/changes/archive/**"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [hml-release-pending]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: humanmotionlib-versioned-release
+  cancel-in-progress: false
+
+jobs:
+  reserve:
+    name: Reserve next release candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      candidate: ${{ steps.reserve.outputs.candidate }}
+      has_release: ${{ steps.reserve.outputs.has_release }}
+    steps:
+      - name: Check out current main history
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - name: Set up CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Allocate fresh reservation run
+        id: allocate
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_root="build/versioned-releases_${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_reserve"
+          mkdir -p build
+          test ! -e "$run_root"
+          mkdir "$run_root"
+          echo "HML_RELEASE_RUN_ROOT=$GITHUB_WORKSPACE/$run_root" >> "$GITHUB_ENV"
+          echo "Trigger commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
+
+      - name: Reserve version with fast-forward retry
+        id: reserve
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          attempt=1
+          while [ "$attempt" -le 5 ]; do
+            git fetch origin main --tags
+            git reset --hard origin/main
+            input_sha=$(git rev-parse origin/main)
+            plan_path="$HML_RELEASE_RUN_ROOT/reservation-$attempt.json"
+            python tools/release.py reserve --repo "$GITHUB_WORKSPACE" \
+              --repository "$GITHUB_REPOSITORY" --target "$input_sha" > "$plan_path"
+            has_release=$(python -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["has_release"]).lower())' "$plan_path")
+            if [ "$has_release" != "true" ]; then
+              echo "candidate=none" >> "$GITHUB_OUTPUT"
+              echo "has_release=false" >> "$GITHUB_OUTPUT"
+              echo "No pending accepted changes at $input_sha." | tee -a "$HML_RELEASE_RUN_ROOT/summary.txt"
+              exit 0
+            fi
+            candidate=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["candidate"])' "$plan_path")
+            if git merge-base --is-ancestor "$candidate" origin/main; then
+              echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+              echo "has_release=true" >> "$GITHUB_OUTPUT"
+              echo "Resuming reserved candidate $candidate." | tee -a "$HML_RELEASE_RUN_ROOT/summary.txt"
+              exit 0
+            fi
+            if git push origin "$candidate:refs/heads/main" > "$HML_RELEASE_RUN_ROOT/push-$attempt.log" 2>&1; then
+              echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+              echo "has_release=true" >> "$GITHUB_OUTPUT"
+              echo "Reserved release candidate $candidate from $input_sha." | tee -a "$HML_RELEASE_RUN_ROOT/summary.txt"
+              exit 0
+            fi
+            if rg -qi 'protected branch|permission denied|access denied|hook declined' "$HML_RELEASE_RUN_ROOT/push-$attempt.log"; then
+              cat "$HML_RELEASE_RUN_ROOT/push-$attempt.log"
+              exit 1
+            fi
+            if ! rg -qi 'non-fast-forward|fetch first|rejected' "$HML_RELEASE_RUN_ROOT/push-$attempt.log"; then
+              cat "$HML_RELEASE_RUN_ROOT/push-$attempt.log"
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+          done
+          echo "main advanced during five release reservation attempts" >&2
+          exit 1
+
+      - name: Record reservation identity
+        if: always()
+        shell: bash
+        run: cat "$HML_RELEASE_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain reservation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-reservation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HML_RELEASE_RUN_ROOT }}
+          if-no-files-found: error
+          retention-days: 90
+
+  host-checks:
+    name: Reuse locked host verification
+    needs: reserve
+    if: needs.reserve.outputs.has_release == 'true'
+    uses: ./.github/workflows/host-python.yml
+    with:
+      source_ref: ${{ needs.reserve.outputs.candidate }}
+
+  package-checks:
+    name: Reuse locked package verification
+    needs: reserve
+    if: needs.reserve.outputs.has_release == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      source_ref: ${{ needs.reserve.outputs.candidate }}
+
+  publish:
+    name: Publish verified wheel
+    needs: [reserve, host-checks, package-checks]
+    if: needs.reserve.outputs.has_release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out reserved release commit
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.reserve.outputs.candidate }}
+          fetch-depth: 0
+
+      - name: Set up CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+
+      - name: Allocate fresh publication run
+        id: allocate
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_root="build/versioned-releases_${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_publish"
+          mkdir -p build
+          test ! -e "$run_root"
+          mkdir "$run_root"
+          echo "HML_PUBLISH_RUN_ROOT=$GITHUB_WORKSPACE/$run_root" >> "$GITHUB_ENV"
+          echo "Candidate commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
+
+      - name: Download exact package-check artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: humanmotionlib-${{ needs.reserve.outputs.candidate }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HML_PUBLISH_RUN_ROOT }}/package-artifact
+
+      - name: Publish immutable GitHub release
+        id: publish
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ needs.reserve.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          mapfile -t wheels < <(find "$HML_PUBLISH_RUN_ROOT/package-artifact" -type f -name 'humanmotionlib-*.whl' -print)
+          mapfile -t checksums < <(find "$HML_PUBLISH_RUN_ROOT/package-artifact" -type f -name 'wheel.sha256' -print)
+          test "${#wheels[@]}" -eq 1
+          test "${#checksums[@]}" -eq 1
+          workflow_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          python tools/release.py publish --repo "$GITHUB_WORKSPACE" --repository "$GITHUB_REPOSITORY" \
+            --candidate "$CANDIDATE" --wheel "${wheels[0]}" --checksum "${checksums[0]}" \
+            --workflow-url "$workflow_url" | tee "$HML_PUBLISH_RUN_ROOT/publish.json"
+          sha256sum "${wheels[0]}" > "$HML_PUBLISH_RUN_ROOT/published-wheel.sha256"
+          echo "GitHub release publication succeeded." | tee -a "$HML_PUBLISH_RUN_ROOT/summary.txt"
+
+      - name: Queue any changes accepted during this release
+        if: steps.publish.outcome == 'success'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          pending="$HML_PUBLISH_RUN_ROOT/pending.json"
+          python tools/release.py pending --repo "$GITHUB_WORKSPACE" --repository "$GITHUB_REPOSITORY" \
+            --target refs/remotes/origin/main > "$pending"
+          if python -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["has_release"]).lower())' "$pending" | grep -Fxq true; then
+            python tools/release.py dispatch-pending --repository "$GITHUB_REPOSITORY"
+            echo "Queued a follow-up evaluation for accepted changes after the reserved snapshot." | tee -a "$HML_PUBLISH_RUN_ROOT/summary.txt"
+          fi
+
+      - name: Summarize publication
+        if: always()
+        shell: bash
+        run: cat "$HML_PUBLISH_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain publication evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-publication-${{ needs.reserve.outputs.candidate }}-${{ github.run_attempt }}
+          path: ${{ env.HML_PUBLISH_RUN_ROOT }}
+          if-no-files-found: error
+          retention-days: 90

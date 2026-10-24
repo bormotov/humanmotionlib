@@ -3,6 +3,12 @@ name: Host Python
 on:
   push:
   pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit or ref to check from a caller workflow
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -19,6 +25,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
 
       - name: Set up CPython
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -35,7 +44,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          run_root="build/upgrade-host-python-314_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}_checks"
+          source_sha=$(git rev-parse HEAD)
+          run_root="build/upgrade-host-python-314_commit-${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}_checks"
           mkdir -p build
           test ! -e "$run_root"
           mkdir "$run_root"
@@ -45,8 +55,9 @@ jobs:
             echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$run_root/cache"
             echo "HML_CI_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
             echo "HUMANMOTIONLIB_SOURCE_ROOT=$GITHUB_WORKSPACE"
+            echo "HML_SOURCE_SHA=$source_sha"
           } >> "$GITHUB_ENV"
-          echo "Candidate commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
+          echo "Candidate commit: $source_sha" | tee "$run_root/summary.txt"
 
       - name: Verify lock and install locked dependencies
         id: lock-and-sync
@@ -101,7 +112,7 @@ jobs:
           {
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "Attempt: $GITHUB_RUN_ATTEMPT"
-            echo "Commit: $GITHUB_SHA"
+            echo "Commit: $HML_SOURCE_SHA"
             echo "Python: $(python --version 2>&1 || true)"
             echo "uv: $(uv --version 2>&1 || true)"
             echo "Lock check and locked sync: $LOCK_SYNC_OUTCOME"
@@ -117,7 +128,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: host-python-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: host-python-${{ inputs.source_ref || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.HML_CI_RUN_ROOT }}
           if-no-files-found: error
           retention-days: 90

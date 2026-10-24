@@ -12,35 +12,38 @@ import time
 import unittest
 from unittest import mock
 
+from humanmotionlib import __version__
 from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
                            DEFAULT_SLOT_TIMEOUT, KILL_REAP_SECONDS, TERMINATE_GRACE_SECONDS,
                            MAX_TIMEOUT_SECONDS, InvocationError, SlotTimeout, backend_contract, check_blender_version,
                            inspect_blender as _inspect_blender, invocation as _invocation,
                            project_root, validate_managed_pass_root, validate_operation_root,
                            validate_timeout, _group_state)
-from tests.run_roots import fresh_test_run_root, test_case_root, test_cases_directory, test_run_root
+from tests.run_roots import fresh_test_run_root, test_run_root, test_workspace
 
 
 def invocation(*args, **kwargs):
-    kwargs.setdefault("workspace", project_root())
+    kwargs.setdefault("workspace", test_workspace("runtime"))
     return _invocation(*args, **kwargs)
 
 
 def inspect_blender(*args, **kwargs):
-    kwargs.setdefault("workspace", project_root())
+    kwargs.setdefault("workspace", test_workspace("runtime"))
     return _inspect_blender(*args, **kwargs)
 
 
 def setUpModule():
     test_run_root("runtime")
+    global _CHECKS_ROOT
+    _CHECKS_ROOT = fresh_test_run_root("runtime-checks", module="runtime")
 
 
 def checks_root():
-    return test_run_root("runtime")
+    return _CHECKS_ROOT
 
 
 def case(name):
-    return test_case_root("runtime", name)
+    return fresh_test_run_root(f"runtime-{name}", module="runtime")
 
 
 def read_receipt(error):
@@ -107,7 +110,7 @@ class BackendContractTests(unittest.TestCase):
                     check_blender_version(version, build)
 
     def test_supervision_test_imports_do_not_allocate_roots(self):
-        build = project_root() / "build"
+        build = test_workspace("runtime") / "build"
         before = {entry.name for entry in build.iterdir()}
         environment = os.environ.copy()
         environment.pop("HUMANMOTIONLIB_TEST_RUN_ROOT", None)
@@ -167,20 +170,21 @@ class ProbeTests(unittest.TestCase):
              mock.patch.object(run_blender, "inspect_blender", side_effect=InvocationError("probe failed", "receipt")), \
              mock.patch.object(run_blender, "invocation") as launch:
             with self.assertRaises(InvocationError):
-                run_blender.run(input_path, output, workspace=project_root())
+                run_blender.run(input_path, output, workspace=test_workspace("runtime"))
         launch.assert_not_called()
 
     def test_runner_requires_flat_owned_run_identity_for_nested_tool_content(self):
         from humanmotionlib.run_blender import owning_run_root
-        nested = test_cases_directory("runtime") / "runner-identity" / "clean-a"
-        self.assertEqual(owning_run_root(nested, project_root()), checks_root())
+        owner = checks_root()
+        nested = owner / "clean-a"
+        self.assertEqual(owning_run_root(nested, test_workspace("runtime")), owner)
         with self.assertRaisesRegex(ValueError, "five-component"):
-            owning_run_root(project_root() / "build" / "bad-run", project_root())
+            owning_run_root(test_workspace("runtime") / "build" / "bad-run", test_workspace("runtime"))
         with self.assertRaisesRegex(ValueError, "outside build"):
-            owning_run_root(checks_root().parent, project_root())
+            owning_run_root(checks_root().parent, test_workspace("runtime"))
         nested_identity = checks_root() / "nested-run_r3_dev_try-1_pack" / "clean-a"
         with self.assertRaisesRegex(ValueError, "nested run identity"):
-            owning_run_root(nested_identity, project_root())
+            owning_run_root(nested_identity, test_workspace("runtime"))
 
 
 class InvocationTests(unittest.TestCase):
@@ -188,13 +192,13 @@ class InvocationTests(unittest.TestCase):
         owner = fresh_test_run_root("managed-pass")
         pass_root = owner / "clean-a"
         pass_root.mkdir()
-        self.assertEqual(validate_managed_pass_root(pass_root, owner, project_root()), pass_root)
-        self.assertEqual(validate_operation_root(pass_root, project_root(), owner), pass_root)
+        self.assertEqual(validate_managed_pass_root(pass_root, owner, test_workspace("runtime")), pass_root)
+        self.assertEqual(validate_operation_root(pass_root, test_workspace("runtime"), owner), pass_root)
         for invalid in (owner / "other", owner / "clean-a" / "nested_run_r1_dev_try-1_pack"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                validate_operation_root(invalid, project_root(), owner)
+                validate_operation_root(invalid, test_workspace("runtime"), owner)
 
-        package_identity = {"version": "0.2.0", "resources": {},
+        package_identity = {"version": __version__, "resources": {},
                             "backend_contract": "b" * 64, "implementation": {}}
         with mock.patch("humanmotionlib.package_resources.verify_runtime_integrity",
                         return_value=package_identity), \
@@ -225,7 +229,7 @@ class InvocationTests(unittest.TestCase):
     def test_runtime_rejects_evidence_without_valid_build_owner(self):
         with self.assertRaisesRegex(ValueError, "five-component"):
             invocation([sys.executable, "-c", "print('must not spawn')"],
-                       run_root=project_root() / "build" / "invalid-run",
+                run_root=test_workspace("runtime") / "build" / "invalid-run",
                        operation="invalid-run-root", timeout_seconds=2)
         with self.assertRaisesRegex(ValueError, "nested run identity"):
             invocation([sys.executable, "-c", "print('must not spawn')"],
@@ -242,8 +246,8 @@ class InvocationTests(unittest.TestCase):
             self.assertEqual(receipt["state"], "failed")
             self.assertTrue(Path(receipt["stdout_log"]).is_file())
             self.assertTrue(Path(receipt["stderr_log"]).is_file())
-            self.assertEqual(receipt["workspace"], str(project_root()))
-            self.assertEqual(receipt["package_version"], "0.2.0")
+            self.assertEqual(receipt["workspace"], str(test_workspace("runtime")))
+            self.assertEqual(receipt["package_version"], __version__)
             self.assertEqual(len(receipt["runtime_manifest_sha256"]), 64)
             self.assertTrue(receipt["resource_hashes"])
             self.assertEqual(len(receipt["backend_contract_sha256"]), 64)
@@ -336,13 +340,13 @@ class InvocationTests(unittest.TestCase):
             sentinel.wait(timeout=2)
 
     def test_sigint_and_sigterm_while_queued_cancel_only_the_caller(self):
-        state_path = project_root() / "build/.backend-execution-state.json"
+        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
         for signum in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signum=signum):
                 owner_code = (
                     "from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},'-c','import time; time.sleep(1.5)'], "
-                    f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2, workspace={str(project_root())!r})"
+                    f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2, workspace={str(test_workspace('runtime'))!r})"
                 )
                 owner = subprocess.Popen([sys.executable, "-c", owner_code], cwd=project_root(),
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -368,7 +372,7 @@ class InvocationTests(unittest.TestCase):
                         f"threading.Timer(.4,lambda: os.kill(os.getpid(),{int(signum)})).start(); "
                         f"invocation([{sys.executable!r},'-c','print(\"must not spawn\")'], "
                         f"run_root={str(checks_root())!r}, operation='queued-cancel-{signum}', "
-                        f"timeout_seconds=3, slot_timeout_seconds=4, workspace={str(project_root())!r})"
+                        f"timeout_seconds=3, slot_timeout_seconds=4, workspace={str(test_workspace('runtime'))!r})"
                     )
                     contender = subprocess.Popen([sys.executable, "-c", script], cwd=project_root(),
                                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -432,10 +436,10 @@ class InvocationTests(unittest.TestCase):
         root = case("unfinished-receipt")
         child_code = ("from humanmotionlib.runtime import invocation; "
                       f"invocation([{sys.executable!r},'-c','import time; time.sleep(30)'], "
-                      f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2, workspace={str(project_root())!r})")
+                      f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2, workspace={str(test_workspace('runtime'))!r})")
         parent = subprocess.Popen([sys.executable, "-c", child_code], cwd=project_root(),
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        state_path = project_root() / "build/.backend-execution-state.json"
+        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
         parent_invocation_id = None
         pgid = None
         deadline = time.monotonic() + 5
@@ -492,7 +496,7 @@ class InvocationTests(unittest.TestCase):
     def test_ambiguous_owner_blocks_without_signalling_sentinel(self):
         root = case("ambiguous-owner")
         sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
-        state_path = project_root() / "build/.backend-execution-state.json"
+        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
         state_path.write_text(json.dumps({"state": "preparing", "invocation_id": "synthetic-ambiguous"}))
         try:
             with self.assertRaises(InvocationError) as caught:
@@ -520,7 +524,7 @@ class InvocationTests(unittest.TestCase):
             run_root.mkdir()
             code = ("import sys; from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},{str(child_script)!r},{str(shared)!r}], "
-                    f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5,workspace={str(project_root())!r})")
+                    f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5,workspace={str(test_workspace('runtime'))!r})")
             callers.append(subprocess.Popen([sys.executable, "-c", code], cwd=project_root(),
                                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE))
         for caller in callers:
@@ -534,7 +538,7 @@ class InvocationTests(unittest.TestCase):
         root = case("slot-contention")
         # Use exec form because a compound statement cannot follow a semicolon in -c.
         holder_code = ("from humanmotionlib.runtime import backend_slot\nimport time\n"
-                       f"with backend_slot(2,workspace={str(project_root())!r}): time.sleep(.8)\n")
+                       f"with backend_slot(2,workspace={str(test_workspace('runtime'))!r}): time.sleep(.8)\n")
         holder = subprocess.Popen([sys.executable, "-c", holder_code], cwd=project_root())
         time.sleep(.1)
         with self.assertRaises(InvocationError) as caught:

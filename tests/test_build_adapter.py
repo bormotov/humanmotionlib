@@ -21,12 +21,12 @@ class BuildAdapterTests(unittest.TestCase):
     def test_stages_explicit_resources_and_generated_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             package = self._package(Path(temporary))
-            hml_build_backend._stage_resources(hml_build_backend._ROOT, package, "0.2.0")
+            hml_build_backend._stage_resources(hml_build_backend._ROOT, package, "0.91.7")
 
             resources = package / "resources"
             manifest = json.loads((resources / "runtime-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["format"], "humanmotionlib-runtime-manifest/v1")
-            self.assertEqual(manifest["version"], "0.2.0")
+            self.assertEqual(manifest["version"], "0.91.7")
             self.assertEqual(len(manifest["resources"]), 50)
             self.assertIn("rig/diagnostics/walking-in-place.yaml", manifest["resources"])
             self.assertIn("schema/profile.schema.json", manifest["resources"])
@@ -52,20 +52,20 @@ class BuildAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             extracted_package = self._package(root)
-            hml_build_backend._stage_resources(hml_build_backend._ROOT, extracted_package, "0.2.0")
+            hml_build_backend._stage_resources(hml_build_backend._ROOT, extracted_package, "0.91.7")
 
             # The adapter should consume the already staged closure; the extracted root
             # deliberately has no rig/, schema/, scenes/ or docs/ authoring directories.
             manifest_path = extracted_package / "resources" / "runtime-manifest.json"
             original_manifest = manifest_path.read_bytes()
-            hml_build_backend._stage_resources(root, extracted_package, "0.2.0")
+            hml_build_backend._stage_resources(root, extracted_package, "0.91.7")
             self.assertEqual(manifest_path.read_bytes(), original_manifest)
 
             (extracted_package / "resources" / "rig" / "body-groups.yaml").write_text(
                 "tampered\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(RuntimeError, "runtime manifest"):
-                hml_build_backend._stage_resources(root, extracted_package, "0.2.0")
+                hml_build_backend._stage_resources(root, extracted_package, "0.91.7")
 
     def test_sdist_staging_carries_locked_contributor_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

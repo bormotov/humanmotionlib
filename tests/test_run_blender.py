@@ -9,9 +9,9 @@ import types
 import unittest
 from unittest import mock
 
-from humanmotionlib import run_blender
+from humanmotionlib import __version__, run_blender
 from humanmotionlib.runtime import InvocationError, file_sha256, project_root
-from tests.run_roots import fresh_test_run_root
+from tests.run_roots import fresh_test_run_root, test_run_root, test_workspace
 
 
 def _prepared():
@@ -24,7 +24,9 @@ def _prepared():
 
 class RunBlenderContractTests(unittest.TestCase):
     def setUp(self):
-        self.case = fresh_test_run_root("run-blender")
+        test_run_root("run_blender")
+        self.workspace = test_workspace("run_blender")
+        self.case = fresh_test_run_root("run-blender", module="run_blender")
         self.output = self.case
         self.input_path = self.output / "input.json"
         self.input_path.write_text("prepared input\n")
@@ -67,7 +69,7 @@ class RunBlenderContractTests(unittest.TestCase):
              mock.patch.object(run_blender, "invocation",
                                side_effect=invocation_side_effect or self._successful_invocation), \
              mock.patch.object(run_blender, "update_receipt"):
-            result = run_blender.run(self.input_path, self.output, workspace=project_root(),
+            result = run_blender.run(self.input_path, self.output, workspace=self.workspace,
                                      timeout_seconds=17.5, slot_timeout_seconds=4.25)
         return result
 
@@ -78,13 +80,13 @@ class RunBlenderContractTests(unittest.TestCase):
             "/resolved/blender", "--background", "--factory-startup", "--python-exit-code", "1",
             "--python", str(Path(run_blender.__file__).with_name("build_skeleton.py").resolve()),
             "--", "--input", str(self.input_path), "--output", str(self.output),
-            "--workspace", str(project_root()),
+            "--workspace", str(self.workspace),
         ])
         self.assertEqual(self.invocation_kwargs["timeout_seconds"], 17.5)
         self.assertEqual(self.invocation_kwargs["slot_timeout_seconds"], 4.25)
         self.assertEqual(self.invocation_kwargs["source_sha256"], self.prepared["content_sha256"])
         self.assertEqual(self.invocation_kwargs["operation"], "build")
-        self.assertEqual(self.invocation_kwargs["workspace"], project_root())
+        self.assertEqual(self.invocation_kwargs["workspace"], self.workspace)
         self.assertEqual(self.expected_outputs[0]["allow_existing_sha256"],
                          file_sha256(self.input_path))
 
@@ -97,22 +99,22 @@ class RunBlenderContractTests(unittest.TestCase):
                                            "mathutils": fake_mathutils}):
             build_skeleton = importlib.import_module("humanmotionlib.build_skeleton")
         sys.dont_write_bytecode = saved_bytecode
-        owner = fresh_test_run_root("embedded-owner")
+        owner = fresh_test_run_root("embedded-owner", module="run_blender")
         pass_root = owner / "clean-a"
         pass_root.mkdir()
         args = ["blender", "--", "--input", str(self.input_path), "--output", str(pass_root),
-                "--workspace", str(project_root()), "--owner-run", str(owner), "--render-only",
+                "--workspace", str(self.workspace), "--owner-run", str(owner), "--render-only",
                 "--render-dir", str(pass_root / "frames")]
         with mock.patch("sys.argv", args), \
              mock.patch.object(build_skeleton, "verify_runtime_integrity",
-                               return_value={"version": "0.2.0", "resources": {}}), \
+                               return_value={"version": __version__, "resources": {}}), \
              mock.patch.object(build_skeleton, "read_prepared", return_value=self.prepared), \
              mock.patch.object(build_skeleton, "SkeletonBackend", side_effect=RuntimeError("backend sentinel")) as backend:
             with self.assertRaisesRegex(RuntimeError, "backend sentinel"):
                 build_skeleton.main()
         backend.assert_called_once()
 
-        wrong_owner = fresh_test_run_root("wrong-owner")
+        wrong_owner = fresh_test_run_root("wrong-owner", module="run_blender")
         with mock.patch("sys.argv", args[:-5] + ["--owner-run", str(wrong_owner), *args[-3:]]), \
              mock.patch.object(build_skeleton, "verify_runtime_integrity") as integrity:
             with self.assertRaisesRegex(ValueError, "managed render pass"):
@@ -125,7 +127,7 @@ class RunBlenderContractTests(unittest.TestCase):
              mock.patch.object(run_blender, "inspect_blender") as probe, \
              mock.patch.object(run_blender, "invocation") as launch:
             with self.assertRaisesRegex(ValueError, "stale output preflight"):
-                run_blender.run(self.input_path, self.output, workspace=project_root())
+                run_blender.run(self.input_path, self.output, workspace=self.workspace)
         probe.assert_not_called()
         launch.assert_not_called()
 

@@ -1,9 +1,24 @@
 # HumanMotionLib usage
 
-HumanMotionLib is distributed as the `humanmotionlib` Python package, version
-`0.2.0`. Python imports use the `humanmotionlib.*` namespace. The installed
+HumanMotionLib is distributed as versioned `humanmotionlib` Python package
+releases. Python imports use the `humanmotionlib.*` namespace. The installed
 command is `hml`; `python -m humanmotionlib` exposes the same command dispatcher.
 The supported host interpreter is CPython `>=3.14,<3.15`.
+
+## Install a release
+
+Download the wheel for the version you want from the project's GitHub Release,
+then install that file with a supported CPython:
+
+```sh
+python -m pip install ./humanmotionlib-X.Y.Z-py3-none-any.whl
+```
+
+Check the installed version with `hml --version`. During `0.x` development,
+PATCH releases (`0.MINOR.PATCH`) contain fixes and small compatible changes;
+MINOR releases (`0.MINOR.0`) contain new capabilities or incompatible changes.
+Published releases are immutable; install the desired wheel rather than
+expecting an existing version to change.
 
 ## Install and inspect
 
