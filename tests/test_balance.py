@@ -176,7 +176,7 @@ class BalanceTests(unittest.TestCase):
     def test_independent_scalar_squat_closure(self):
         # Independent test arithmetic; no production FK/articulation/flat-leg
         # solver is used to derive these expected leg matrices and positions.
-        from tests.test_walking_dossier import multiply,transform,rx,rz,transpose,axis_rotation
+        from test_walking_dossier import multiply,transform,rx,rz,transpose,axis_rotation
         evaluator=DiagnosticEvaluator(self.sources)
         axis=[-math.sin(math.radians(23))*math.cos(math.radians(40)),
               math.cos(math.radians(23))*math.cos(math.radians(40)),math.sin(math.radians(40))]

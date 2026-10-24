@@ -36,9 +36,10 @@ metadata and packaged resources. The explicit `humanmotionlib.check_host`
 contributor command reports the selected test total, skips and the only two
 modules excluded because they require real Blender: `tests.test_blender_backend`
 and `tests.test_pipeline_faults`. It fails on an interpreter/metadata mismatch,
-dependency import error, discovery error, empty selection or failed test. The
-full reference command below remains unfiltered and must run with the pinned
-Blender on the Darwin arm64 reference platform. The CI uv version is pinned in
+dependency import error, discovery error, empty selection or failed test. This
+host-suite command applies only the two explicit Blender-module exclusions
+listed above. Real-backend acceptance runs separately with the pinned Blender
+on the Darwin arm64 reference platform. The CI uv version is pinned in
 `.github/workflows/host-python.yml`; local uv should use that same version for
 reproducible lock operations. The workflow pins uv 0.13.5.
 
