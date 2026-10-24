@@ -2,21 +2,20 @@
 import math
 import unittest
 
-from tools import math3d as m
-from tools.actions import ActionError
-from tools.kinematics import KinematicModel
-from tools.mirror import mirror_pose, swap_side
-from tools.poses import neutral_pose, rest_pose
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.actions import ActionError
+from humanmotionlib.kinematics import KinematicModel
+from humanmotionlib.mirror import mirror_pose, swap_side
+from humanmotionlib.poses import neutral_pose, rest_pose
+from humanmotionlib.validate import load_sources
 
 
 class KinematicModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        root = project_root()
-        cls.profile = load_yaml(root/"rig/profiles/adult-reference-v1.yaml")
-        cls.mobility = load_yaml(root/"rig/mobility/adult-reference-v1.yaml")
+        sources,_ = load_sources("adult-reference-v1")
+        cls.profile = sources["profile"]
+        cls.mobility = sources["mobility"]
         cls.model = KinematicModel(cls.profile,cls.mobility)
         cls.bodies = cls.model.bodies
 

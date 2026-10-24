@@ -3,15 +3,15 @@ from copy import deepcopy
 import math
 import unittest
 from unittest.mock import patch
-from tools import math3d as m
-from tools.balance import (validate_mass_model, mass_observations, static_balance,
+from humanmotionlib import math3d as m
+from humanmotionlib.balance import (validate_mass_model, mass_observations, static_balance,
                            measure_balance, mirror_mass_segment)
-from tools.contacts import attachments, contact_checks
-from tools.diagnostics import DiagnosticEvaluator
-from tools.poses import scaled_profile, scale_meter_fields
-from tools.validate import load_sources, validate_bundle
-from tools.source_validation import SourceValidationError
-from tools.dense_verification import audit_squat_balance, audit_dense
+from humanmotionlib.contacts import attachments, contact_checks
+from humanmotionlib.diagnostics import DiagnosticEvaluator
+from humanmotionlib.poses import scaled_profile, scale_meter_fields
+from humanmotionlib.validate import load_sources, validate_bundle
+from humanmotionlib.source_validation import SourceValidationError
+from humanmotionlib.dense_verification import audit_squat_balance, audit_dense
 
 
 class BalanceTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class BalanceTests(unittest.TestCase):
         self.assertAlmostEqual(r['assessment']['variants']['reference']['com_m'][1]/1.7,-.0650806008562,delta=1e-10)
 
     def test_dense_squat_audit_retains_each_complete_observation_and_context_link(self):
-        with patch('tools.dense_verification.dense_beats',return_value=[0.,2.25,4.]):
+        with patch('humanmotionlib.dense_verification.dense_beats',return_value=[0.,2.25,4.]):
             report=audit_squat_balance(self.sources)
         self.assertEqual(report['status'],'pass')
         self.assertEqual(len(report['observations']),3)
@@ -83,7 +83,7 @@ class BalanceTests(unittest.TestCase):
             peak=25 if track['channel']=='pelvis.pitch' else 20 if track['channel'].startswith('ankle.') else None
             if peak:
                 for key in track['keys']:key['value']*=12/peak
-        with patch('tools.dense_verification.dense_beats',return_value=[2.]):
+        with patch('humanmotionlib.dense_verification.dense_beats',return_value=[2.]):
             report=audit_squat_balance(sources)
         self.assertEqual(report['status'],'fail')
         sample=report['observations'][0]
@@ -95,7 +95,7 @@ class BalanceTests(unittest.TestCase):
     def test_dense_combined_report_retains_squat_assessments(self):
         def sample_grid(fixture):
             return [0.,2.,4.] if fixture['id']=='squat' else [0.,fixture['duration_beats']]
-        with patch('tools.dense_verification.dense_beats',side_effect=sample_grid):
+        with patch('humanmotionlib.dense_verification.dense_beats',side_effect=sample_grid):
             report=audit_dense(self.sources)
         squat=next(row for row in report['fixtures'] if row['fixture']=='squat')
         retained=squat['static_balance']

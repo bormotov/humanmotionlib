@@ -2,9 +2,7 @@
 """Actual Blender scene mutations used by the pipeline fault tests."""
 import argparse
 import json
-from pathlib import Path
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 
 def phase(name, **details):
  print('HML_PHASE '+json.dumps({'phase':name,**details},sort_keys=True),flush=True)
@@ -12,8 +10,8 @@ def phase(name, **details):
 phase('script_started')
 from mathutils import Matrix,Vector
 import bpy
-from tools.blender_backend import SkeletonBackend,matrix
-from tools.prepared import read_prepared,write_json
+from humanmotionlib.blender_backend import SkeletonBackend,matrix
+from humanmotionlib.prepared import read_prepared,write_json
 
 parser=argparse.ArgumentParser();parser.add_argument('--input',required=True);parser.add_argument('--output',required=True)
 a=parser.parse_args(sys.argv[sys.argv.index('--')+1:]);p=read_prepared(a.input)
@@ -41,13 +39,13 @@ for fault,fixture,beat in [('frozen-scapula','arm-raise',1),('frozen-patella','s
   body=backend.index['patella.R'];backend.targets['patella.R'].matrix_world=matrix({'position_m':body['origin_m'],'rotation':body['basis']})
  elif fault=='wrong-side-sign':
   frame=sample['frames']['femur.R'];body=backend.index['femur.R'];left=backend.index['femur.L']
-  from tools import math3d as m
+  from humanmotionlib import math3d as m
   action=m.mm(frame['rotation'],m.transpose(body['basis']))
   backend.targets['femur.L'].matrix_world=matrix({'position_m':sample['frames']['femur.L']['position_m'],'rotation':m.mm(action,left['basis'])})
  elif fault=='stretched-shank':backend.meshes['tibia.R.geometry.0'].scale=(1,1.1,1)
  elif fault=='undeclared-world-root':backend.world_root.location.x+=.01*backend.height
  elif fault=='uniform-ribs':
-  from tools.geometry import primitive_mesh
+  from humanmotionlib.geometry import primitive_mesh
   for name,obj in backend.meshes.items():
    if not name.startswith('rib.'):continue
    body=backend.index[obj['structure_id']];j=int(body['id'].split('.')[1]);sign=1 if '.R.' in name else -1
@@ -57,7 +55,7 @@ for fault,fixture,beat in [('frozen-scapula','arm-raise',1),('frozen-patella','s
    vertices,_=primitive_mesh(primitive)
    for v,position in zip(obj.data.vertices,vertices):v.co=position
  elif fault in ('bony-costal-arch','stale-cartilage-midpoint'):
-  from tools.geometry import primitive_mesh
+  from humanmotionlib.geometry import primitive_mesh
   name='cartilage.8.R.geometry.0' if fault=='bony-costal-arch' else 'cartilage.7.R.geometry.0'
   points=[list(p) for p in sample['guides'][name]]
   if fault=='bony-costal-arch':

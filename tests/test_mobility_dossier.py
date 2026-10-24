@@ -5,8 +5,8 @@ import unittest
 
 import yaml
 
-from tools.runtime import project_root
-from tools.source_validation import validate_document
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import validate_document
 
 
 def load_mobility():

@@ -4,7 +4,7 @@
 from copy import deepcopy
 import unittest
 
-from tools.source_validation import SourceValidationError, validate_document
+from humanmotionlib.source_validation import SourceValidationError, validate_document
 
 
 PROVENANCE = {"kind": "authored", "license": "CC-BY-4.0", "sources": [],

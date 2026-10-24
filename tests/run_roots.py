@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 
-from tools.runtime import project_root
+from humanmotionlib.runtime import project_root
 
 
 _COMPONENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")

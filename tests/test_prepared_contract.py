@@ -4,10 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools import math3d as m
-from tools.prepare_skeleton import prepare
-from tools.prepared import canonical_bytes, read_prepared, seal, write_json
-from tools.verify_skeleton import verify_transforms
+from humanmotionlib import math3d as m
+from humanmotionlib.prepare_skeleton import prepare
+from humanmotionlib.prepared import canonical_bytes, read_prepared, seal, write_json
+from humanmotionlib.verify_skeleton import verify_transforms
 
 
 class PreparedContractTests(unittest.TestCase):

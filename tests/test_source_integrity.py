@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.source_validation import SourceValidationError, load_yaml
-from tools.validate import load_sources, validate_bundle, validate_sources
+from humanmotionlib.source_validation import SourceValidationError, load_yaml
+from humanmotionlib.validate import load_sources, validate_bundle, validate_sources
 
 
 class SourceIntegrityTests(unittest.TestCase):

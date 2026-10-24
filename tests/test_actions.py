@@ -3,11 +3,11 @@ from copy import deepcopy
 import math
 import unittest
 
-from tools import math3d as m
-from tools.actions import ActionError, ActionEvaluator, constraint_failure, require_valid
-from tools.articulation import hip_rotation, wrist_rotation
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.actions import ActionError, ActionEvaluator, constraint_failure, require_valid
+from humanmotionlib.articulation import hip_rotation, wrist_rotation
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import load_yaml
 
 
 class ActionTests(unittest.TestCase):

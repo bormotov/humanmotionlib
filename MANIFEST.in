@@ -1,0 +1,8 @@
+include pyproject.toml
+include .python-version uv.lock
+include MANIFEST.in
+include hml_build_backend.py
+include LICENSE-CODE LICENSE-DATA THIRD-PARTY-NOTICES.md
+recursive-include src/humanmotionlib *.py *.json *.yaml *.md
+include src/humanmotionlib/resources/LICENSE-CODE
+include src/humanmotionlib/resources/LICENSE-DATA

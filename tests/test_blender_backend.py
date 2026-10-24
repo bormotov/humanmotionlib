@@ -3,14 +3,16 @@
 
 from copy import deepcopy
 import json
+from pathlib import Path
 import unittest
 
-from tools import math3d as m
-from tools.backend_measurements import verify_backend
-from tools.prepare_skeleton import prepare
-from tools.prepared import write_json
-from tools.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation
-from tools.verify_skeleton import verify_transforms
+import importlib.util
+from humanmotionlib import math3d as m
+from humanmotionlib.backend_measurements import verify_backend
+from humanmotionlib.prepare_skeleton import prepare
+from humanmotionlib.prepared import write_json
+from humanmotionlib.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation, project_root
+from humanmotionlib.verify_skeleton import verify_transforms
 from tests.run_roots import test_case_root, test_run_root
 
 
@@ -27,18 +29,20 @@ class BlenderBackendTests(unittest.TestCase):
         output_dir = case_root / 'output'
         output_dir.mkdir()
         write_json(input_path, prepared)
-        identity = inspect_blender(run_root)
+        identity = inspect_blender(run_root, workspace=project_root())
         if not identity['version'] or not identity['build_hash']:
             raise AssertionError('pinned Blender probe did not return a complete identity')
         executable = identity['receipt']['executable']
         result = invocation(
             [executable, '--background', '--factory-startup', '--python-exit-code', '1',
-             '--python', 'tools/build_skeleton.py', '--', '--input', str(input_path),
-             '--output', str(output_dir)],
+             '--python', str(Path(next(iter(importlib.util.find_spec('humanmotionlib').submodule_search_locations)) /
+                                  'build_skeleton.py').resolve()), '--', '--input', str(input_path),
+             '--output', str(output_dir), '--workspace', str(project_root())],
             run_root=run_root, operation=operation, timeout_seconds=DEFAULT_BUILD_TIMEOUT,
             source_sha256=prepared['content_sha256'],
             expected_outputs=[output_dir / 'evaluated.json', output_dir / 'geometry-reference.json',
-                              output_dir / 'build-metadata.json', output_dir / 'skeleton.blend'])
+                              output_dir / 'build-metadata.json', output_dir / 'skeleton.blend'],
+            workspace=project_root())
         cls.assert_receipt_outputs(result, [output_dir / 'evaluated.json',
                                             output_dir / 'geometry-reference.json',
                                             output_dir / 'build-metadata.json',
@@ -114,7 +118,7 @@ class BlenderBackendTests(unittest.TestCase):
 
     def test_rigid_deep_chains_do_not_accumulate_scale_or_shear(self):
         from fractions import Fraction
-        from tools.prepared import seal
+        from humanmotionlib.prepared import seal
         targets={'arm-raise':Fraction(4,3),'squat':Fraction(2),
                  'sweep-lumbar-rotation':Fraction(1,3),'sweep-pelvis-yaw':Fraction(1),
                  'sweep-thoracic-lateral_flexion':Fraction(2,3),'sweep-elbow-bilateral-flexion':Fraction(3)}
@@ -127,7 +131,7 @@ class BlenderBackendTests(unittest.TestCase):
         self.assertEqual(report['status'],'pass',str(failed[:10]))
 
     def test_isolated_subset_cannot_satisfy_complete_diagnostic_acceptance(self):
-        from tools.verification_run import verify_collection
+        from humanmotionlib.verification_run import verify_collection
         p,e=self.builds[1]
         metrics_case = self.allocate_case('collection-metrics')
         report=verify_collection(p,e,metrics_case/'metrics.json',verify_transforms)

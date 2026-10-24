@@ -44,6 +44,7 @@ jobs:
             echo "UV_PROJECT_ENVIRONMENT=$GITHUB_WORKSPACE/$run_root/environment"
             echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$run_root/cache"
             echo "HML_CI_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
+            echo "HUMANMOTIONLIB_SOURCE_ROOT=$GITHUB_WORKSPACE"
           } >> "$GITHUB_ENV"
           echo "Candidate commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
 
@@ -56,7 +57,7 @@ jobs:
             uv --version
             python --version
             uv lock --check
-            uv sync --locked
+            uv sync --locked --no-editable
           } 2>&1 | tee "$HML_CI_RUN_ROOT/setup.log"
 
       - name: Check host interpreter and dependency metadata
@@ -64,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked python tools/check_host.py --check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
+          uv run --locked --no-sync hml check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
 
       - name: Check installed dependency consistency
         id: dependency-consistency
@@ -78,14 +79,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked python tools/validate.py --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
+          uv run --locked --no-sync hml validate --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
 
       - name: Run host-only test suite
         id: host-tests
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked python tools/check_host.py 2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
+          uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$GITHUB_WORKSPACE/tests" 2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
 
       - name: Record CI outcome
         if: always()

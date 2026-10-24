@@ -7,6 +7,20 @@ motion recording is included. Consult `docs/used-materials.md` for the exact
 cleared portions, authors, titles, publication details, locators, permissions,
 and changes made in the anatomical dossier.
 
+## Python build and runtime dependencies
+
+The package build uses `setuptools` 83.0.0 under its MIT license. HML runtime
+declares `referencing` under its MIT license; the current locked release is
+0.37.0. These dependencies are distributed and installed under their own
+licenses and notices; HML does not copy their implementation code. The exact
+release licenses, commercial-use clearance, and the security advisory informing
+the setuptools version choice are recorded in `docs/used-materials.md`.
+
+The setuptools version choice also references GitHub Advisory Database
+`GHSA-h35f-9h28-mq5c` (`CVE-2026-59890`), licensed CC BY 4.0. HML reproduces no
+advisory text or code; see `docs/used-materials.md` for the source, license and
+version-selection rationale.
+
 ## Source-to-output contract
 
 Every externally informed source record carries material identifiers resolving

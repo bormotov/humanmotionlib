@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.presentation import diagnostic_ids, navigation, preview_groups, regenerate_html
+from humanmotionlib.presentation import diagnostic_ids, navigation, preview_groups, regenerate_html
 
 
 class ReviewPresentationTests(unittest.TestCase):
@@ -75,7 +75,7 @@ class ReviewPresentationTests(unittest.TestCase):
                     (predecessor / "composites" / f"arm-raise-{bpm}-{view}.gif").write_bytes(b"gif")
             markup = preview_groups(predecessor, output, "arm-raise")
             self.assertLess(markup.index("Front animation preview"), markup.index("Side animation preview"))
-            self.assertIn("grid-template-columns", __import__("tools.presentation", fromlist=["STYLE"]).STYLE)
+            self.assertIn("grid-template-columns", __import__("humanmotionlib.presentation", fromlist=["STYLE"]).STYLE)
             for bpm in (60, 120, 180):
                 (predecessor / "composites" / f"arm-raise-{bpm}-side.gif").unlink()
             with self.assertRaisesRegex(ValueError, "Missing side animation preview"):

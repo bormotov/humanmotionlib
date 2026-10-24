@@ -2,11 +2,11 @@
 from copy import deepcopy
 import unittest
 
-from tools import math3d as m
-from tools.coverage import audit_action_cases, audit_anatomical_directions, anatomical_direction_measurement
-from tools.kinematics import KinematicModel
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.coverage import audit_action_cases, audit_anatomical_directions, anatomical_direction_measurement
+from humanmotionlib.kinematics import KinematicModel
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import load_yaml
 
 
 class GuideAndCoverageTests(unittest.TestCase):

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
 
-from tools import math3d as m
-from tools.poses import apply_deltas, neutral_pose, rest_pose, scaled_profile, to_deltas
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.poses import apply_deltas, neutral_pose, rest_pose, scaled_profile, to_deltas
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import load_yaml
 
 
 class CanonicalPoseTests(unittest.TestCase):

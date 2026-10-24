@@ -2,11 +2,11 @@
 from copy import deepcopy
 import unittest
 
-from tools import math3d as m
-from tools.mirror import mirror_fixture, mirror_pose, mirror_structure, swap_side
-from tools.poses import neutral_pose, rest_pose
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.mirror import mirror_fixture, mirror_pose, mirror_structure, swap_side
+from humanmotionlib.poses import neutral_pose, rest_pose
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import load_yaml
 
 
 class MirrorTests(unittest.TestCase):

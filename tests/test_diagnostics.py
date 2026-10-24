@@ -4,14 +4,14 @@ from fractions import Fraction
 import math
 import unittest
 
-from tools import math3d as m
-from tools.actions import ActionError
-from tools.contacts import attachments,contact_checks,solve_contacts
-from tools.diagnostics import DiagnosticEvaluator
-from tools.measurements import measure_pose
-from tools.mirror import mirror_pose
-from tools.sampling import sampling
-from tools.validate import load_sources,validate_bundle
+from humanmotionlib import math3d as m
+from humanmotionlib.actions import ActionError
+from humanmotionlib.contacts import attachments,contact_checks,solve_contacts
+from humanmotionlib.diagnostics import DiagnosticEvaluator
+from humanmotionlib.measurements import measure_pose
+from humanmotionlib.mirror import mirror_pose
+from humanmotionlib.sampling import sampling
+from humanmotionlib.validate import load_sources,validate_bundle
 
 
 class DiagnosticTests(unittest.TestCase):
@@ -119,7 +119,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result['actions']['pelvis.y'],.01)
 
     def test_three_statures_scale_contact_targets_and_analytic_frames(self):
-        from tools.poses import scaled_profile,scale_meter_fields
+        from humanmotionlib.poses import scaled_profile,scale_meter_fields
         for height in (1.5,1.7,1.9):
             sources=deepcopy(self.sources)
             sources['profile']=scaled_profile(sources['profile'],height)
@@ -137,7 +137,7 @@ class DiagnosticTests(unittest.TestCase):
                         self.assertLess(m.angle_error(frame['rotation'],reference['frames'][body]['rotation']),.1)
 
     def test_prepared_modes_refer_to_one_animation_and_exact_events(self):
-        from tools.prepare_skeleton import prepare
+        from humanmotionlib.prepare_skeleton import prepare
         prepared=prepare('adult-reference-v1',fixtures=['arm-raise','walking-in-place'])
         lookup={s['id']:s for s in prepared['samples']}
         for id,plans in prepared['sampling'].items():

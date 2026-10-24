@@ -2,21 +2,21 @@
 import json
 import unittest
 
-from tools.backend_measurements import verify_backend
-from tools.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation
-from tools.verify_skeleton import verify_transforms
+from humanmotionlib.backend_measurements import verify_backend
+from humanmotionlib.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation
+from humanmotionlib.verify_skeleton import verify_transforms
 from tests.run_roots import test_case_root, test_run_root
 
 
 class PipelineFaultTests(unittest.TestCase):
     def test_actual_scene_faults_are_rejected_for_the_intended_measurement(self):
         # Select a compact set of canonical samples in a fresh prepared payload.
-        from tools.prepare_skeleton import prepare
-        from tools.prepared import seal,write_json
+        from humanmotionlib.prepare_skeleton import prepare
+        from humanmotionlib.prepared import seal,write_json
         p=prepare('adult-reference-v1',fixtures=['neutral','arm-raise','squat','sweep-hip-bilateral-adduction','sweep-thoracic-flexion'])
         keep={('neutral',0),('arm-raise',1),('squat',2),('sweep-hip-bilateral-adduction',3),('sweep-thoracic-flexion',3)}
         p['samples']=[s for s in p['samples'] if (s['fixture'],s['beat']['numerator']/s['beat']['denominator']) in keep]
-        from tools.diagnostics import DiagnosticEvaluator
+        from humanmotionlib.diagnostics import DiagnosticEvaluator
         e=DiagnosticEvaluator(p['sources']);source=next(s for s in p['samples'] if s['fixture']=='squat')
         actions=dict(source['expected_actions']);i,hip,v=e.flat_leg(90,12,12)
         actions.update({'pelvis.y':-v[1],'pelvis.z':.04*e.height-v[2],'pelvis.pitch':12})

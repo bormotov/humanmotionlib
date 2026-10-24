@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from PIL import Image,ImageDraw
-from tools.review_graphics import sheet,gif
+from humanmotionlib.review_graphics import sheet,gif
 
 
 class ReviewAspectTests(unittest.TestCase):

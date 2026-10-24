@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest import mock
 
-from tools.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
+from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
                            DEFAULT_SLOT_TIMEOUT, KILL_REAP_SECONDS, TERMINATE_GRACE_SECONDS,
                            MAX_TIMEOUT_SECONDS, InvocationError, SlotTimeout, backend_contract, check_blender_version,
                            inspect_blender, invocation, project_root, validate_timeout, _group_state)
@@ -48,10 +48,10 @@ class ProcessGroupStateTests(unittest.TestCase):
         for system in ("Darwin", "Linux"):
             for name, snapshot, anchor, raw_state, expected in cases:
                 with self.subTest(system=system, case=name), \
-                     mock.patch("tools.runtime.platform.system", return_value=system), \
-                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
-                     mock.patch("tools.runtime.subprocess.run", return_value=self.ps_snapshot(snapshot)), \
-                     mock.patch("tools.runtime._raw_group_state", return_value=raw_state):
+                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
+                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
+                     mock.patch("humanmotionlib.runtime.subprocess.run", return_value=self.ps_snapshot(snapshot)), \
+                     mock.patch("humanmotionlib.runtime._raw_group_state", return_value=raw_state):
                     self.assertEqual(_group_state(410, anchor_pid=anchor), expected)
 
     def test_empty_process_table_requires_kernel_absence_without_anchor(self):
@@ -60,10 +60,10 @@ class ProcessGroupStateTests(unittest.TestCase):
                                         ("present", "ambiguous"),
                                         ("ambiguous", "ambiguous")):
                 with self.subTest(system=system, raw_state=raw_state), \
-                     mock.patch("tools.runtime.platform.system", return_value=system), \
-                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
-                     mock.patch("tools.runtime.subprocess.run", return_value=self.ps_snapshot("")), \
-                     mock.patch("tools.runtime._raw_group_state", return_value=raw_state):
+                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
+                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
+                     mock.patch("humanmotionlib.runtime.subprocess.run", return_value=self.ps_snapshot("")), \
+                     mock.patch("humanmotionlib.runtime._raw_group_state", return_value=raw_state):
                     self.assertEqual(_group_state(410), expected)
 
     def test_unreadable_or_malformed_process_table_is_ambiguous(self):
@@ -71,9 +71,9 @@ class ProcessGroupStateTests(unittest.TestCase):
             for result in (self.ps_snapshot("not-a-process-row"), OSError("ps unavailable"),
                            subprocess.TimeoutExpired("ps", 0.01)):
                 with self.subTest(system=system, result=result), \
-                     mock.patch("tools.runtime.platform.system", return_value=system), \
-                     mock.patch("tools.runtime.Path.is_file", return_value=True), \
-                     mock.patch("tools.runtime.subprocess.run",
+                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
+                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
+                     mock.patch("humanmotionlib.runtime.subprocess.run",
                                 side_effect=result if isinstance(result, BaseException) else None,
                                 return_value=result if not isinstance(result, BaseException) else None):
                     self.assertEqual(_group_state(410, anchor_pid=410), "ambiguous")
@@ -119,8 +119,8 @@ class ProbeTests(unittest.TestCase):
         expected = backend_contract()
         stdout.write_text(f"Blender {expected['blender-version']}\nbuild hash: {expected['blender-build']}\n")
         receipt = {"stdout_log": str(stdout), "executable": str(real.resolve()), "invocation_id": "probe-test"}
-        with mock.patch("tools.runtime.shutil.which", return_value=str(link)), \
-             mock.patch("tools.runtime.invocation", return_value=receipt) as launch:
+        with mock.patch("humanmotionlib.runtime.shutil.which", return_value=str(link)), \
+             mock.patch("humanmotionlib.runtime.invocation", return_value=receipt) as launch:
             identity = inspect_blender(root)
         self.assertEqual(identity["version"], expected["blender-version"])
         self.assertEqual(identity["build_hash"], expected["blender-build"])
@@ -132,8 +132,8 @@ class ProbeTests(unittest.TestCase):
         stdout = root / "probe.stdout"
         stdout.write_text("Blender 5.2.1 LTS\nbuild hash: another-build\n")
         receipt = {"stdout_log": str(stdout), "executable": "blender", "invocation_id": "bad-probe"}
-        with mock.patch("tools.runtime.shutil.which", return_value="/usr/bin/blender"), \
-             mock.patch("tools.runtime.invocation", return_value=receipt) as launch:
+        with mock.patch("humanmotionlib.runtime.shutil.which", return_value="/usr/bin/blender"), \
+             mock.patch("humanmotionlib.runtime.invocation", return_value=receipt) as launch:
             with self.assertRaises(InvocationError) as caught:
                 inspect_blender(root)
         self.assertEqual(launch.call_count, 1)
@@ -143,7 +143,7 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("version mismatch", failed["error"])
 
     def test_failed_probe_prevents_build_script_launch(self):
-        from tools import run_blender
+        from humanmotionlib import run_blender
         root = case("probe-failure")
         input_path = root / "input.json"
         input_path.write_text("prepared")
@@ -158,7 +158,7 @@ class ProbeTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_runner_requires_flat_owned_run_identity_for_nested_tool_content(self):
-        from tools.run_blender import owning_run_root
+        from humanmotionlib.run_blender import owning_run_root
         nested = test_cases_directory("runtime") / "runner-identity" / "clean-a"
         self.assertEqual(owning_run_root(nested), checks_root())
         with self.assertRaisesRegex(ValueError, "five-component"):
@@ -201,6 +201,12 @@ class InvocationTests(unittest.TestCase):
             self.assertEqual(receipt["state"], "failed")
             self.assertTrue(Path(receipt["stdout_log"]).is_file())
             self.assertTrue(Path(receipt["stderr_log"]).is_file())
+            self.assertEqual(receipt["workspace"], str(Path.cwd().resolve()))
+            self.assertEqual(receipt["package_version"], "0.2.0")
+            self.assertEqual(len(receipt["runtime_manifest_sha256"]), 64)
+            self.assertTrue(receipt["resource_hashes"])
+            self.assertEqual(len(receipt["backend_contract_sha256"]), 64)
+            self.assertTrue(receipt["implementation_hashes"])
 
     def test_zero_nonzero_and_signal_results_are_classified(self):
         root = case("exit-results")
@@ -293,7 +299,7 @@ class InvocationTests(unittest.TestCase):
         for signum in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signum=signum):
                 owner_code = (
-                    "from tools.runtime import invocation; "
+                    "from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},'-c','import time; time.sleep(1.5)'], "
                     f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2)"
                 )
@@ -317,7 +323,7 @@ class InvocationTests(unittest.TestCase):
                         time.sleep(.02)
                     self.assertIsNotNone(owner_id, "owner must hold the checkout slot before cancellation")
                     script = (
-                        "import json,os,signal,threading; from tools.runtime import invocation,InvocationError; "
+                        "import json,os,signal,threading; from humanmotionlib.runtime import invocation,InvocationError; "
                         f"threading.Timer(.4,lambda: os.kill(os.getpid(),{int(signum)})).start(); "
                         f"invocation([{sys.executable!r},'-c','print(\"must not spawn\")'], "
                         f"run_root={str(checks_root())!r}, operation='queued-cancel-{signum}', "
@@ -383,7 +389,7 @@ class InvocationTests(unittest.TestCase):
 
     def test_unfinished_receipt_remains_recognizable_after_parent_death(self):
         root = case("unfinished-receipt")
-        child_code = ("from tools.runtime import invocation; "
+        child_code = ("from humanmotionlib.runtime import invocation; "
                       f"invocation([{sys.executable!r},'-c','import time; time.sleep(30)'], "
                       f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2)")
         parent = subprocess.Popen([sys.executable, "-c", child_code], cwd=project_root(),
@@ -471,7 +477,7 @@ class InvocationTests(unittest.TestCase):
         for name in ("caller-a", "caller-b"):
             run_root = cases / name
             run_root.mkdir()
-            code = ("import sys; from tools.runtime import invocation; "
+            code = ("import sys; from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},{str(child_script)!r},{str(shared)!r}], "
                     f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5)")
             callers.append(subprocess.Popen([sys.executable, "-c", code], cwd=project_root(),
@@ -486,7 +492,7 @@ class InvocationTests(unittest.TestCase):
     def test_slot_contention_records_without_child_spawn(self):
         root = case("slot-contention")
         # Use exec form because a compound statement cannot follow a semicolon in -c.
-        holder_code = "from tools.runtime import backend_slot\nimport time\nwith backend_slot(2): time.sleep(.8)\n"
+        holder_code = "from humanmotionlib.runtime import backend_slot\nimport time\nwith backend_slot(2): time.sleep(.8)\n"
         holder = subprocess.Popen([sys.executable, "-c", holder_code], cwd=project_root())
         time.sleep(.1)
         with self.assertRaises(InvocationError) as caught:

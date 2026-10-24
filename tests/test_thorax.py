@@ -4,15 +4,15 @@
 from copy import deepcopy
 import math
 import unittest
-from tools import math3d as m
-from tools.geometry import primitive_mesh
-from tools.guides import compile_guides
-from tools.kinematics import KinematicModel
-from tools.mirror import mirror_structure
-from tools.poses import scaled_profile, scale_meter_fields
-from tools.source_validation import validate_document
-from tools.thorax_measurements import measure_thorax, rib_controls, hermite_curve
-from tools.validate import load_sources, validate_bundle
+from humanmotionlib import math3d as m
+from humanmotionlib.geometry import primitive_mesh
+from humanmotionlib.guides import compile_guides
+from humanmotionlib.kinematics import KinematicModel
+from humanmotionlib.mirror import mirror_structure
+from humanmotionlib.poses import scaled_profile, scale_meter_fields
+from humanmotionlib.source_validation import validate_document
+from humanmotionlib.thorax_measurements import measure_thorax, rib_controls, hermite_curve
+from humanmotionlib.validate import load_sources, validate_bundle
 
 
 def mesh_evidence(profile, solved):

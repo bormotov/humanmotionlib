@@ -4,11 +4,10 @@
 import math
 import unittest
 
-from tools import math3d as m
-from tools.actions import ActionEvaluator
-from tools.articulation import ankle_hindfoot, hip_rotation, knee, rotate_about_line, shoulder, spine, wrist_rotation
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.actions import ActionEvaluator
+from humanmotionlib.articulation import ankle_hindfoot, hip_rotation, knee, rotate_about_line, shoulder, spine, wrist_rotation
+from humanmotionlib.validate import load_sources
 
 
 def signed_axis_angle(rotation, axis):
@@ -22,7 +21,7 @@ def signed_axis_angle(rotation, axis):
 class MeasuredActionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.data = load_yaml(project_root()/"rig/mobility/adult-reference-v1.yaml")
+        cls.data = load_sources("adult-reference-v1")[0]["mobility"]
         cls.actions = {a["id"]:a for a in cls.data["actions"]}
         cls.couplings = {c["id"]:c["parameters"] for c in cls.data["couplings"]}
         cls.evaluator = ActionEvaluator(cls.data)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import unittest
-from tools import math3d as m
-from tools.dense_floor import floor_bound
+from humanmotionlib import math3d as m
+from humanmotionlib.dense_floor import floor_bound
 
 
 class DenseFloorTests(unittest.TestCase):
@@ -26,9 +26,9 @@ class DenseFloorTests(unittest.TestCase):
 
 class CurvedGuideBoundTests(unittest.TestCase):
     def test_bezier_hull_contains_curved_tube_even_when_controls_overshoot(self):
-        from tools.dense_floor import guide_bounds
-        from tools.geometry import tube
-        from tools import math3d as m
+        from humanmotionlib.dense_floor import guide_bounds
+        from humanmotionlib.geometry import tube
+        from humanmotionlib import math3d as m
         points=[[0,0,.3],[.05,.2,.1],[.1,.21,.12]]
         lo,hi=guide_bounds(points,.002)
         vertices,_=tube(points,.002)

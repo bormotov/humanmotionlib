@@ -2,7 +2,7 @@
 import math
 import unittest
 
-from tools import math3d as m
+from humanmotionlib import math3d as m
 
 
 class TransformTests(unittest.TestCase):

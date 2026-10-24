@@ -6,8 +6,8 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from tools import run_blender
-from tools.runtime import InvocationError, file_sha256
+from humanmotionlib import run_blender
+from humanmotionlib.runtime import InvocationError, file_sha256
 from tests.run_roots import test_case_root
 
 
@@ -74,13 +74,15 @@ class RunBlenderContractTests(unittest.TestCase):
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual(self.command, [
             "/resolved/blender", "--background", "--factory-startup", "--python-exit-code", "1",
-            "--python", "tools/build_skeleton.py", "--", "--input", str(self.input_path),
-            "--output", str(self.output),
+            "--python", str(Path(run_blender.__file__).with_name("build_skeleton.py").resolve()),
+            "--", "--input", str(self.input_path), "--output", str(self.output),
+            "--workspace", str(Path.cwd().resolve()),
         ])
         self.assertEqual(self.invocation_kwargs["timeout_seconds"], 17.5)
         self.assertEqual(self.invocation_kwargs["slot_timeout_seconds"], 4.25)
         self.assertEqual(self.invocation_kwargs["source_sha256"], self.prepared["content_sha256"])
         self.assertEqual(self.invocation_kwargs["operation"], "build")
+        self.assertIsNone(self.invocation_kwargs["workspace"])
         self.assertEqual(self.expected_outputs[0]["allow_existing_sha256"],
                          file_sha256(self.input_path))
 

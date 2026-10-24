@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tools import check_host
+from humanmotionlib import check_host
 
 
 class CheckEnvironmentTests(unittest.TestCase):

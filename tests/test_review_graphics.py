@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from PIL import Image
-from tools.review_graphics import gif,label,onion,sheet
-from tools.review_pack import decoded_digest
+from humanmotionlib.review_graphics import gif,label,onion,sheet
+from humanmotionlib.review_pack import decoded_digest
 
 
 class ReviewGraphicsTests(unittest.TestCase):

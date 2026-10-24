@@ -9,18 +9,26 @@ from unittest import mock
 
 from PIL import Image
 
-from tools import review_pack
-from tools.runtime import InvocationError, file_sha256
+from humanmotionlib import review_pack
+from humanmotionlib.package_resources import manifest_sha256, verify_runtime_integrity
+from humanmotionlib.runtime import InvocationError, file_sha256
 
 
 def prepared_fixture():
     return {
         "content_sha256": "a" * 64,
         "samples": [{"id": "neutral-000", "fixture": "neutral", "frame_id": 0}],
+        "sampling": {"neutral": []},
         "sources": {"review-scene": {"cameras": [
             {"id": "front"}, {"id": "side"}, {"id": "rear"}, {"id": "thorax-axial"},
         ]}},
     }
+
+
+def fresh_run(workspace: Path, name: str) -> Path:
+    build = workspace / "build"
+    build.mkdir(exist_ok=True)
+    return build / f"package-humanmotionlib_r1_test_try-1_{name}"
 
 
 def supervised_pass(root: Path, prepared=None, output=None):
@@ -45,9 +53,13 @@ def supervised_pass(root: Path, prepared=None, output=None):
     recorded = [*required, manifest_path, *frames.rglob("*.png")]
     files = [{"path": str(path.resolve()), "size_bytes": path.stat().st_size,
               "sha256": file_sha256(path)} for path in recorded]
+    package = verify_runtime_integrity()
     receipt = {
         "format": "backend-invocation/v1", "state": "succeeded", "operation": "render-pass",
         "outcome": "exit", "return_code": 0, "source_sha256": prepared["content_sha256"],
+        "package_version": package["version"], "runtime_manifest_sha256": manifest_sha256(),
+        "resource_hashes": package["resources"], "backend_contract_sha256": package["backend_contract"],
+        "implementation_hashes": package["implementation"],
         "last_script_phase": "script_complete",
         "phases": [{"phase": "input_loaded", "prepared_sha256": prepared["content_sha256"]},
                    {"phase": "script_complete", "prepared_sha256": prepared["content_sha256"]}],
@@ -59,7 +71,96 @@ def supervised_pass(root: Path, prepared=None, output=None):
     return output, frames, manifest
 
 
+def completed_pack(root: Path, prepared=None):
+    prepared = prepared or prepared_fixture()
+    source = fresh_run(root, "input")
+    source.mkdir()
+    input_path = source / "input.json"
+    input_path.write_bytes(b"current output")
+    pack = fresh_run(root, "pack")
+    pack.mkdir()
+    for name in ("clean-a", "clean-b"):
+        supervised_pass(root, prepared, pack / name)
+    (pack / "composites").mkdir()
+    for name in (
+        "acceptance-map.md", "attribution-and-limitations.md", "build-metadata.json",
+        "gif-timing.json", "index.html", "render-repeatability.json", "sample-timing.json",
+        "neutral.html",
+    ):
+        (pack / name).write_text("previous assembled output", encoding="utf-8")
+    return source, pack
+
+
 class ReviewPackSupervisionTests(unittest.TestCase):
+    def test_reuse_reassembles_existing_pack_only_after_both_passes_are_preflighted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, pack = completed_pack(root)
+            argv = ["review_pack.py", "--input", str(source), "--output", str(pack), "--reuse-renders"]
+            with (mock.patch("sys.argv", argv),
+                  mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
+                  mock.patch.object(review_pack, "render_pass") as render,
+                  mock.patch.object(review_pack, "assemble", return_value={"status": "pass"}) as assemble):
+                self.assertEqual(review_pack.main(workspace=root), 0)
+            render.assert_not_called()
+            self.assertEqual(assemble.call_count, 1)
+            self.assertEqual(assemble.call_args.args[1:], (
+                json.loads((pack / "clean-a" / "render-manifest.json").read_text()),
+                json.loads((pack / "clean-b" / "render-manifest.json").read_text()),
+                pack.resolve(),
+            ))
+
+    def test_reuse_rejects_unexpected_pack_content_without_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, pack = completed_pack(root)
+            (pack / "unrelated.txt").write_text("untrusted", encoding="utf-8")
+            before = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            argv = ["review_pack.py", "--input", str(source), "--output", str(pack), "--reuse-renders"]
+            with (mock.patch("sys.argv", argv),
+                  mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
+                  mock.patch.object(review_pack, "assemble") as assemble):
+                with self.assertRaisesRegex(ValueError, "inventory mismatch"):
+                    review_pack.main(workspace=root)
+            assemble.assert_not_called()
+            after = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            self.assertEqual(before, after)
+
+    def test_reuse_rejects_changed_second_pass_before_any_assembly_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, pack = completed_pack(root)
+            receipt_path = next((pack / "clean-b" / "processes").glob("*/outcome.json"))
+            receipt = json.loads(receipt_path.read_text())
+            receipt["source_sha256"] = "b" * 64
+            receipt_path.write_text(json.dumps(receipt))
+            before = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            argv = ["review_pack.py", "--input", str(source), "--output", str(pack), "--reuse-renders"]
+            with (mock.patch("sys.argv", argv),
+                  mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
+                  mock.patch.object(review_pack, "assemble") as assemble):
+                with self.assertRaisesRegex(ValueError, "package identity|failed, incomplete, or stale"):
+                    review_pack.main(workspace=root)
+            assemble.assert_not_called()
+            after = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            self.assertEqual(before, after)
+
+    def test_reuse_rejects_selected_input_mismatch_without_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, pack = completed_pack(root)
+            (source / "input.json").write_bytes(b"different selected input")
+            before = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            argv = ["review_pack.py", "--input", str(source), "--output", str(pack), "--reuse-renders"]
+            with (mock.patch("sys.argv", argv),
+                  mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
+                  mock.patch.object(review_pack, "assemble") as assemble):
+                with self.assertRaisesRegex(ValueError, "does not match the selected build input"):
+                    review_pack.main(workspace=root)
+            assemble.assert_not_called()
+            after = {p.relative_to(pack): p.read_bytes() for p in pack.rglob("*") if p.is_file()}
+            self.assertEqual(before, after)
+
     def test_reuse_requires_successful_current_receipt_and_unchanged_output_hashes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -81,7 +182,7 @@ class ReviewPackSupervisionTests(unittest.TestCase):
             receipt = json.loads(receipt_path.read_text())
             receipt["source_sha256"] = "b" * 64
             receipt_path.write_text(json.dumps(receipt))
-            with self.assertRaisesRegex(ValueError, "failed, incomplete, or stale"):
+            with self.assertRaisesRegex(ValueError, "package identity|failed, incomplete, or stale"):
                 review_pack.reuse_render_pass(root / "input.json", output, prepared)
 
     def test_render_pass_delegates_to_supervised_launcher_and_checks_its_receipt(self):
@@ -95,38 +196,46 @@ class ReviewPackSupervisionTests(unittest.TestCase):
             def completed_supervised_pass(*_args, **_kwargs):
                 supervised_pass(root, prepared, output)
 
-            with (mock.patch("tools.run_blender.run", side_effect=completed_supervised_pass) as supervised,
+            with (mock.patch("humanmotionlib.run_blender.run", side_effect=completed_supervised_pass) as supervised,
                   mock.patch.object(review_pack, "read_prepared", return_value=prepared)):
                 result = review_pack.render_pass(input_path, output, frames,
                                                  timeout_seconds=17, slot_timeout_seconds=4)
             self.assertEqual(result['prepared_sha256'], prepared['content_sha256'])
             supervised.assert_called_once_with(input_path, output, render_dir=frames, render_only=True,
-                                               timeout_seconds=17, slot_timeout_seconds=4)
+                                               timeout_seconds=17, slot_timeout_seconds=4, workspace=None)
 
     def test_first_render_failure_does_not_retry_start_second_pass_or_assemble(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            argv = ["review_pack.py", "--input", str(root / "input"), "--output", str(root / "pack")]
+            input_root = fresh_run(root, "input")
+            input_root.mkdir()
+            (input_root / "input.json").write_text("prepared")
+            output = fresh_run(root, "pack")
+            argv = ["review_pack.py", "--input", str(input_root), "--output", str(output)]
             with (mock.patch("sys.argv", argv),
                   mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
                   mock.patch.object(review_pack, "render_pass", side_effect=InvocationError("failed", "receipt")) as render,
                   mock.patch.object(review_pack, "assemble") as assemble):
                 with self.assertRaises(InvocationError):
-                    review_pack.main()
+                    review_pack.main(workspace=root)
             self.assertEqual(render.call_count, 1)
-            self.assertEqual(render.call_args.args[1], (root / "pack/clean-a").resolve())
+            self.assertEqual(render.call_args.args[1], (output / "clean-a").resolve())
             assemble.assert_not_called()
 
     def test_bounded_options_are_forwarded_for_each_supervised_render_pass(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            argv = ["review_pack.py", "--input", str(root / "input"), "--output", str(root / "pack"),
+            input_root = fresh_run(root, "input")
+            input_root.mkdir()
+            (input_root / "input.json").write_text("prepared")
+            output = fresh_run(root, "pack")
+            argv = ["review_pack.py", "--input", str(input_root), "--output", str(output),
                     "--timeout-seconds", "12", "--slot-timeout-seconds", "3"]
             with (mock.patch("sys.argv", argv),
                   mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
                   mock.patch.object(review_pack, "render_pass", return_value={"prepared_sha256": "a" * 64}) as render,
                   mock.patch.object(review_pack, "assemble", return_value={"status": "pass"})):
-                self.assertEqual(review_pack.main(), 0)
+                self.assertEqual(review_pack.main(workspace=root), 0)
             self.assertEqual(render.call_count, 2)
             for call in render.call_args_list:
                 self.assertEqual(call.kwargs["timeout_seconds"], 12.0)
@@ -135,12 +244,13 @@ class ReviewPackSupervisionTests(unittest.TestCase):
     def test_html_only_mode_never_probes_or_launches_backend(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            argv = ["review_pack.py", "--html-only-from", str(root / "legacy"), "--output", str(root / "html")]
+            output = fresh_run(root, "html")
+            argv = ["review_pack.py", "--html-only-from", str(root / "legacy"), "--output", str(output)]
             with (mock.patch("sys.argv", argv),
-                  mock.patch("tools.presentation.regenerate_html", return_value={"status": "pass"}),
-                  mock.patch("tools.runtime.inspect_blender", side_effect=AssertionError("probe called")) as probe,
-                  mock.patch("tools.runtime.invocation", side_effect=AssertionError("backend called")) as invocation):
-                self.assertEqual(review_pack.main(), 0)
+                  mock.patch("humanmotionlib.presentation.regenerate_html", return_value={"status": "pass"}),
+                  mock.patch("humanmotionlib.runtime.inspect_blender", side_effect=AssertionError("probe called")) as probe,
+                  mock.patch("humanmotionlib.runtime.invocation", side_effect=AssertionError("backend called")) as invocation):
+                self.assertEqual(review_pack.main(workspace=root), 0)
             probe.assert_not_called()
             invocation.assert_not_called()
 

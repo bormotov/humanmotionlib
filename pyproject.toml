@@ -1,12 +1,36 @@
 [project]
 name = "humanmotionlib"
-version = "0.1.0"
+version = "0.2.0"
 description = "Data-driven anatomical skeleton and exercise animation diagnostics"
 requires-python = ">=3.14,<3.15"
-dependencies = ["PyYAML>=6.0.2,<7", "jsonschema>=4.23,<5", "Pillow>=11,<13"]
+license-files = ["LICENSE-CODE", "LICENSE-DATA", "THIRD-PARTY-NOTICES.md"]
+dependencies = [
+    "PyYAML>=6.0.2,<7",
+    "jsonschema>=4.23,<5",
+    "Pillow>=11,<13",
+    "referencing>=0.37,<1",
+]
 
-[tool.uv]
-package = false
+[project.scripts]
+hml = "humanmotionlib.cli:main"
+
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "hml_build_backend"
+backend-path = ["."]
+
+[dependency-groups]
+build = ["setuptools==83.0.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+humanmotionlib = ["resources/**/*"]
 
 [tool.humanmotionlib.backend]
 blender-version = "5.2.2 LTS"

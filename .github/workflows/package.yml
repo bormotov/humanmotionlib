@@ -1,0 +1,309 @@
+name: Python package
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build and install CPython 3.14 wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+
+      - name: Allocate fresh package and sdist runs
+        id: allocate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          package_root="build/package-humanmotionlib_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_package"
+          sdist_root="build/package-humanmotionlib_commit-${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_sdist"
+          test ! -e "$package_root"
+          test ! -e "$sdist_root"
+          mkdir "$package_root" "$sdist_root"
+          {
+            echo "HML_PACKAGE_RUN_ROOT=$GITHUB_WORKSPACE/$package_root"
+            echo "HML_SDIST_RUN_ROOT=$GITHUB_WORKSPACE/$sdist_root"
+            echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$package_root/uv-cache"
+          } >> "$GITHUB_ENV"
+          {
+            echo "Candidate commit: $GITHUB_SHA"
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Python: $(python --version 2>&1)"
+            echo "uv: $(uv --version 2>&1)"
+            echo "Real Blender scope: not run in this Ubuntu host-only package job"
+          } | tee "$package_root/summary.txt"
+
+      - name: Check lock and build direct wheel and source distribution
+        id: direct-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/lock-check.log"
+          mkdir "$HML_PACKAGE_RUN_ROOT/direct"
+          uv build --wheel --sdist --out-dir "$HML_PACKAGE_RUN_ROOT/direct" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/direct-build.log"
+          wheel=("$HML_PACKAGE_RUN_ROOT"/direct/*.whl)
+          sdist=("$HML_PACKAGE_RUN_ROOT"/direct/*.tar.gz)
+          test "${#wheel[@]}" -eq 1
+          test "${#sdist[@]}" -eq 1
+          sha256sum "${wheel[0]}" | tee "$HML_PACKAGE_RUN_ROOT/wheel.sha256"
+          printf '%s\n' "HML_DIRECT_WHEEL=${wheel[0]}" "HML_DIRECT_SDIST=${sdist[0]}" >> "$GITHUB_ENV"
+
+      - name: Rebuild wheel from extracted source distribution and compare payloads
+        id: sdist-rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$HML_DIRECT_SDIST" "$HML_SDIST_RUN_ROOT" "$HML_PACKAGE_RUN_ROOT/direct/*.whl" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import tarfile
+          import zipfile
+
+          sdist = pathlib.Path(sys.argv[1])
+          root = pathlib.Path(sys.argv[2])
+          direct_pattern = sys.argv[3]
+          import glob
+          direct = pathlib.Path(glob.glob(direct_pattern)[0])
+          extract = root / "source"
+          extract.mkdir()
+          with tarfile.open(sdist, "r:gz") as archive:
+              archive.extractall(extract, filter="data")
+          projects = [p for p in extract.iterdir() if p.is_dir()]
+          assert len(projects) == 1, f"expected one sdist root, found {projects}"
+          build = root / "rebuilt"
+          build.mkdir()
+          import subprocess
+          subprocess.run(["uv", "build", "--wheel", "--out-dir", str(build)], cwd=projects[0], check=True)
+          rebuilt = list(build.glob("*.whl"))
+          assert len(rebuilt) == 1, f"expected one rebuilt wheel, found {rebuilt}"
+
+          def payload(path):
+              with zipfile.ZipFile(path) as archive:
+                  return {
+                      name: hashlib.sha256(archive.read(name)).hexdigest()
+                      for name in archive.namelist()
+                      if name.startswith("humanmotionlib/") and not name.endswith("/")
+                  }
+
+          direct_payload = payload(direct)
+          rebuilt_payload = payload(rebuilt[0])
+          assert direct_payload, "wheel has no humanmotionlib package payload"
+          assert direct_payload == rebuilt_payload, (
+              f"direct and sdist-rebuilt package payload differ: "
+              f"direct-only={sorted(direct_payload.keys() - rebuilt_payload.keys())}, "
+              f"rebuilt-only={sorted(rebuilt_payload.keys() - direct_payload.keys())}, "
+              f"changed={sorted(k for k in direct_payload.keys() & rebuilt_payload.keys() if direct_payload[k] != rebuilt_payload[k])}"
+          )
+          (root / "payload-parity.txt").write_text(
+              f"Logical package files: {len(direct_payload)}\n"
+              f"Direct wheel: {direct.name}\n"
+              f"Rebuilt wheel: {rebuilt[0].name}\n"
+              f"Result: identical package file names and SHA-256 hashes\n"
+          )
+          print((root / "payload-parity.txt").read_text(), end="")
+          PY
+          cat "$HML_SDIST_RUN_ROOT/payload-parity.txt" | tee -a "$HML_PACKAGE_RUN_ROOT/summary.txt"
+
+      - name: Install exact wheel and run isolated installed checks
+        id: installed-checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$HML_PACKAGE_RUN_ROOT/install"
+          outside="$HML_PACKAGE_RUN_ROOT/outside-cwd"
+          workspace="$HML_PACKAGE_RUN_ROOT/workspace"
+          mkdir "$install_root" "$outside" "$workspace"
+          python -m venv "$install_root/venv"
+          installed_python="$install_root/venv/bin/python"
+          export PYTHONDONTWRITEBYTECODE=1
+          uv pip install --python "$installed_python" "$HML_DIRECT_WHEEL" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/install.log"
+          uv pip check --python "$installed_python" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/dependency-check.log"
+          site_packages=$("$installed_python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          chmod -R a-w "$site_packages"
+          find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256"
+
+          (
+            cd "$outside"
+            env -u PYTHONPATH "$installed_python" - <<'PY' | tee "$HML_PACKAGE_RUN_ROOT/import-and-resource-identity.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.resources
+          import json
+          import pathlib
+          import humanmotionlib
+
+          dist = importlib.metadata.distribution("humanmotionlib")
+          package = pathlib.Path(humanmotionlib.__file__).resolve()
+          assert dist.version == "0.2.0", dist.version
+          assert "humanmotionlib" in str(package), package
+          assert not (package.parent.parent / "tools").exists()
+          resources = importlib.resources.files("humanmotionlib").joinpath("resources")
+          manifest = json.loads(resources.joinpath("runtime-manifest.json").read_text())
+          print(json.dumps({
+              "distribution_version": dist.version,
+              "package_origin": str(package),
+              "runtime_manifest_sha256": hashlib.sha256(resources.joinpath("runtime-manifest.json").read_bytes()).hexdigest(),
+              "resources": manifest["resources"],
+          }, sort_keys=True))
+          PY
+            env -u PYTHONPATH "$install_root/venv/bin/hml" --version | tee "$HML_PACKAGE_RUN_ROOT/cli-version.log"
+            env -u PYTHONPATH "$install_root/venv/bin/hml" --help > "$HML_PACKAGE_RUN_ROOT/cli-help.log"
+            env -u PYTHONPATH "$install_root/venv/bin/hml" check-environment | tee "$HML_PACKAGE_RUN_ROOT/installed-environment.log"
+            env -u PYTHONPATH "$install_root/venv/bin/python" -m humanmotionlib --version | tee "$HML_PACKAGE_RUN_ROOT/module-version.log"
+            env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" validate --profile adult-reference-v1 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/source-validation.log"
+            env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" prepare-skeleton --profile adult-reference-v1 --output "$workspace/build/package-humanmotionlib_ci_installed_try-${GITHUB_RUN_ATTEMPT}_prepare/input.json" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/all-fixture-preparation.log"
+          )
+
+          python - "$HML_PACKAGE_RUN_ROOT/source-validation.log" "$workspace/build/package-humanmotionlib_ci_installed_try-${GITHUB_RUN_ATTEMPT}_prepare/input.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          validation = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert validation["status"] == "valid-sources", validation.get("status")
+          assert validation["profile"] == "adult-reference-v1"
+          assert (validation["structures"], validation["actions"], validation["placements"], validation["fixtures"]) == (180, 67, 3, 32)
+          assert validation["source_hashes"], "source validation did not report canonical/resource hashes"
+
+          prepared = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          assert prepared["format"] == "skeleton-prepared/v1"
+          assert len(prepared["samples"]) == 900, len(prepared["samples"])
+          assert set(prepared["sources"]) == {"body-groups", "diagnostics", "humanoid-map", "mobility", "profile", "review-scene"}
+          assert all({"id", "fixture", "frame_id", "frames", "static", "animation"} <= set(sample) for sample in prepared["samples"])
+          print(json.dumps({
+              "validation_status": validation["status"],
+              "source_counts": {key: validation[key] for key in ("structures", "actions", "placements", "fixtures")},
+              "prepared_format": prepared["format"],
+              "prepared_samples": len(prepared["samples"]),
+              "source_sections": sorted(prepared["sources"]),
+          }, sort_keys=True))
+          PY
+
+          set +e
+          (cd "$outside" && env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" validate --profile missing-package-ci-fixture) > "$HML_PACKAGE_RUN_ROOT/cli-negative.log" 2>&1
+          negative_status=$?
+          set -e
+          test "$negative_status" -ne 0
+          echo "Invalid profile exit status: $negative_status" >> "$HML_PACKAGE_RUN_ROOT/cli-negative.log"
+
+          # Exercise numeric host code through imports from the installed wheel while
+          # keeping the caller cwd outside the source checkout.
+          (
+            cd "$outside"
+            for module in test_kinematics.py test_balance.py test_action_transforms.py; do
+              env -u PYTHONPATH "$installed_python" -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p "$module" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/${module%.py}.log"
+            done
+          )
+
+          # Build a synthetic but complete predecessor pack; HTML-only mode must
+          # preserve it and must not probe or start Blender.
+          python - "$workspace/build/html-predecessor" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          ids = [f"diag-{i:02d}" for i in range(32)]
+          (root / "reference").mkdir(parents=True)
+          (root / "composites").mkdir()
+          (root / "clean-a/render-manifest.json").parent.mkdir(parents=True)
+          (root / "clean-b").mkdir()
+          (root / "reference/input.json").write_text(json.dumps({"sources": {"diagnostics": [{"id": item} for item in ids]}}))
+          (root / "index.html").write_text("<!doctype html><html><body><h1>Pack</h1></body></html>")
+          for item in ids:
+              (root / f"{item}.html").write_text(
+                  f'<!doctype html><html><body><h1>{item}</h1><p><a href="composites/{item}-60-front-static.png">60 BPM front static sheet</a></p></body></html>'
+              )
+              for view in ("front", "side"):
+                  for bpm in (60, 120, 180):
+                      for suffix in ("", "-static", "-animation"):
+                          (root / "composites" / f"{item}-{bpm}-{view}{suffix}.png").write_bytes(b"synthetic-media")
+                  for directory in ("clean-a", "clean-b"):
+                      frame = root / directory / "frames" / item / view / "00000.png"
+                      frame.parent.mkdir(parents=True, exist_ok=True)
+                      frame.write_bytes(b"synthetic-frame")
+          for name in (
+              "metrics.json", "sample-timing.json", "gif-timing.json", "render-repeatability.json",
+              "squat-balance.json", "build-metadata.json", "clean-a/render-manifest.json",
+              "clean-b/render-manifest.json", "source-snapshot.json", "review-publication.json",
+          ):
+              path = root / name
+              path.parent.mkdir(parents=True, exist_ok=True)
+              if name == "source-snapshot.json":
+                  value = {"synthetic": "c" * 64}
+              elif name == "review-publication.json":
+                  value = {"source_snapshot_sha256": "a" * 64, "verdict": "PASS WITH NOTES", "review_sha256": "b" * 64}
+              else:
+                  value = {"status": "pass"}
+              path.write_text(json.dumps(value))
+          PY
+          html_output="$workspace/build/package-humanmotionlib_ci_installed_try-${GITHUB_RUN_ATTEMPT}_html"
+          env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" review-pack --html-only-from "$workspace/build/html-predecessor" --output "$html_output" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/html-only.log"
+          test -f "$html_output/index.html"
+          test -f "$html_output/presentation-provenance.json"
+          test -f "$html_output/presentation-verification.json"
+          find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
+          cmp "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256" "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
+
+      - name: Record package job outcome
+        if: always()
+        shell: bash
+        env:
+          DIRECT_BUILD_OUTCOME: ${{ steps.direct-build.outcome }}
+          SDIST_REBUILD_OUTCOME: ${{ steps.sdist-rebuild.outcome }}
+          INSTALLED_CHECKS_OUTCOME: ${{ steps.installed-checks.outcome }}
+        run: |
+          {
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Commit: $GITHUB_SHA"
+            echo "Python: $(python --version 2>&1 || true)"
+            echo "uv: $(uv --version 2>&1 || true)"
+            echo "Direct wheel/sdist build: $DIRECT_BUILD_OUTCOME"
+            echo "Extracted sdist rebuild and payload parity: $SDIST_REBUILD_OUTCOME"
+            echo "Installed wheel checks: $INSTALLED_CHECKS_OUTCOME"
+            echo "Real Blender backend: not executed; host-only scope"
+            echo "Package publication: not performed"
+          } >> "$HML_PACKAGE_RUN_ROOT/summary.txt"
+          cat "$HML_PACKAGE_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload checked wheel and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: humanmotionlib-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/direct/*.whl
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/summary.txt
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/*.log
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/wheel.sha256
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/import-and-resource-identity.json
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-before.sha256
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-after.sha256
+            ${{ env.HML_SDIST_RUN_ROOT }}/payload-parity.txt
+          if-no-files-found: error
+          retention-days: 90

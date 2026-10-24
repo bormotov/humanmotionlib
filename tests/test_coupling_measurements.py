@@ -3,11 +3,11 @@ from copy import deepcopy
 import math
 import unittest
 
-from tools import math3d as m
-from tools.kinematics import KinematicModel
-from tools.measurements import measure_pose
-from tools.runtime import project_root
-from tools.source_validation import load_yaml
+from humanmotionlib import math3d as m
+from humanmotionlib.kinematics import KinematicModel
+from humanmotionlib.measurements import measure_pose
+from humanmotionlib.runtime import project_root
+from humanmotionlib.source_validation import load_yaml
 
 
 class CouplingMeasurementTests(unittest.TestCase):

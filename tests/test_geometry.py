@@ -3,10 +3,10 @@ from collections import Counter
 import math
 import unittest
 
-from tools import math3d as m
-from tools.geometry import ellipsoid, primitive_mesh, tube
-from tools.source_validation import load_yaml
-from tools.runtime import project_root
+from humanmotionlib import math3d as m
+from humanmotionlib.geometry import ellipsoid, primitive_mesh, tube
+from humanmotionlib.source_validation import load_yaml
+from humanmotionlib.runtime import project_root
 
 
 class GeometryTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class GeometryTests(unittest.TestCase):
 
     def test_every_source_primitive_closed_and_stature_linear(self):
         profile=load_yaml(project_root()/'rig/profiles/adult-reference-v1.yaml')
-        from tools.poses import scale_meter_fields
+        from humanmotionlib.poses import scale_meter_fields
         for body in profile['structures']:
             for primitive in body['geometry']:
                 a,faces=primitive_mesh(primitive)

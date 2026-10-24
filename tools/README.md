@@ -2,7 +2,7 @@
 
 Run commands from the repository root. HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
-`>=3.14,<3.15`. `uv sync --locked` creates the environment with exact
+`>=3.14,<3.15`. `uv sync --locked --no-editable` creates the environment with exact
 dependencies from `uv.lock`. Blender supplies its own embedded Python; it is
 selected and verified through the pinned Blender executable and is not required
 to match the HML host Python version.
@@ -22,16 +22,20 @@ mkdir build/upgrade-host-python-314_r1_dev_try-1_host
 export UV_PROJECT_ENVIRONMENT=build/upgrade-host-python-314_r1_dev_try-1_host/environment
 export UV_CACHE_DIR=build/upgrade-host-python-314_r1_dev_try-1_host/cache
 uv lock --check
-uv sync --locked
-uv run --locked python tools/check_host.py --check-environment
+uv sync --locked --no-editable
+uv run --locked --no-sync hml check-environment
 uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
-uv run --locked python tools/validate.py --profile adult-reference-v1
-uv run --locked python tools/check_host.py
+uv run --locked --no-sync hml validate --profile adult-reference-v1
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/upgrade-host-python-314_r1_dev_try-1_host" \
+HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
+  uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
 ```
 
-The host check reports the selected test total, skips and the only two modules
-excluded because they require real Blender: `tests.test_blender_backend` and
-`tests.test_pipeline_faults`. It fails on an interpreter/metadata mismatch,
+The installed `hml check-environment` command checks the interpreter, dependency
+metadata and packaged resources. The explicit `humanmotionlib.check_host`
+contributor command reports the selected test total, skips and the only two
+modules excluded because they require real Blender: `tests.test_blender_backend`
+and `tests.test_pipeline_faults`. It fails on an interpreter/metadata mismatch,
 dependency import error, discovery error, empty selection or failed test. The
 full reference command below remains unfiltered and must run with the pinned
 Blender on the Darwin arm64 reference platform. The CI uv version is pinned in
@@ -44,12 +48,12 @@ and HTML-only presentation regeneration are available. A command existing does
 not establish complete OpenSpec acceptance; the task list tracks the checks.
 
 ```sh
-uv run python tools/validate.py --profile adult-reference-v1
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
-uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
-uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
-uv run python -m unittest discover -s tests
+uv run --locked --no-sync hml validate --profile adult-reference-v1
+uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
+uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
+uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/upgrade-host-python-314_r1_dev_try-1_host" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
 ```
 
 The runtime, wrapper, backend, and fault suites write all receipts and case
@@ -69,7 +73,7 @@ a direct child of `build/` with five valid identity components.
 
 ### Supervised backend execution
 
-Routine build and render work goes through `tools/run_blender.py` or the
+Routine build and render work goes through `hml run-blender` or the
 review-pack command. The runner resolves Blender from `PATH`, records the
 resolved executable, and performs a pinned version/build probe before starting
 the script. It writes one `backend-invocation/v1` receipt per probe and child
@@ -108,27 +112,20 @@ The build runner accepts `--timeout-seconds` (default 1800 seconds for its
 script child) and `--slot-timeout-seconds` (default 30 seconds per slot
 acquisition). Its version probe has its own 30-second deadline. For example,
 append `--timeout-seconds 2400 --slot-timeout-seconds 60` to the
-`tools/run_blender.py` command for an explicitly bounded longer build. The
+`hml run-blender` command for an explicitly bounded longer build. The
 review-pack command accepts the same options; its 14400-second execution
 deadline applies to each render pass, not to the complete two-pass operation.
 All timeout values must be finite, positive, and at most 86400 seconds.
 
 The runner launches Blender with `--background --factory-startup
---python-exit-code 1` and invokes `tools/build_skeleton.py` through the resolved
-PATH executable. Routine builds, renders, and automated checks use this
-supervised path. The runtime requires POSIX process groups and advisory locks;
-the pinned backend reference platform is Darwin arm64. It does not manage
-independent checkouts or interactive Blender sessions.
-
-Raw Blender invocation is reserved for an explicitly authorized low-level
-diagnostic, outside normal builds, renders, and tests. For example, the
-underlying build script can be invoked directly with
-`blender --background --factory-startup --python-exit-code 1 --python
-tools/build_skeleton.py -- --input <prepared-input.json> --output <run-root>`.
-This path does not provide the supervisor's deadline, checkout slot, receipt,
-or automatic output validation. Record the exact command and its output in the
-diagnostic hand-off, stop after a native failure, and do not automatically
-retry it.
+--python-exit-code 1` and invokes the packaged `humanmotionlib.build_skeleton`
+entry script through the resolved PATH executable. Routine builds, renders,
+and automated checks use the supervised `hml run-blender` or `hml review-pack`
+commands. Do not invoke the internal Blender script directly; that bypasses
+the supervisor's deadline, checkout slot, receipt and output validation.
+The runtime requires POSIX process groups and advisory locks; the pinned
+backend reference platform is Darwin arm64. It does not manage independent
+checkouts or interactive Blender sessions.
 
 The supplied backend failure evidence and its bounded hypotheses are recorded
 in [backend-crash-triage.md](../docs/backend-crash-triage.md). That record keeps
@@ -137,13 +134,13 @@ it does not attribute the failures to a confirmed hardware or upstream cause.
 
 | Command | Inputs | Outputs |
 |---|---|---|
-| `validate.py` | Selected profile, mobility, mapping, groups, fixtures, scene, schemas, source register | Validation diagnostics; nonzero status on invalid input |
-| `prepare_skeleton.py` | Validated sources and pinned backend contract | JSON with solved transforms, exact timing, source/schema hashes, metadata |
-| `build_skeleton.py` | Prepared JSON, factory-startup Blender | Generated skeleton, evaluated geometry/transform measurements, build metadata inside the selected build run root |
-| `verify_skeleton.py` | Evaluated build measurements and canonical dossier | Per-metric measured/expected/bound/status records and coverage in `metrics.json`; nonzero status on failure |
-| `review_pack.py` | Build outputs and fixed review scene | Clean renders, labeled sheets, GIFs, overlays, attribution/limitations, metadata and HTML index |
-| `review_pack.py --html-only-from` | Complete verified review pack and a fresh output directory | Diagnostic HTML, presentation provenance, scoped HTML/link/hash verification; no Blender process or media rewrite |
-| `unittest` | Repository tests | Automated developer checks; nonzero status on failure |
+| `hml validate` | Selected profile, mobility, mapping, groups, fixtures, scene, schemas, source register | Validation diagnostics; nonzero status on invalid input |
+| `hml prepare-skeleton` | Validated sources and pinned backend contract | JSON with solved transforms, exact timing, source/schema hashes, metadata |
+| `hml run-blender` | Prepared JSON, factory-startup Blender | Generated skeleton, evaluated geometry/transform measurements, build metadata inside the selected build run root |
+| `hml verify-skeleton` | Evaluated build measurements and canonical dossier | Per-metric measured/expected/bound/status records and coverage in `metrics.json`; nonzero status on failure |
+| `hml review-pack` | Build outputs and fixed review scene | Clean renders, labeled sheets, GIFs, overlays, attribution/limitations, metadata and HTML index |
+| `hml review-pack --html-only-from` | Complete verified review pack and a fresh output directory | Diagnostic HTML, presentation provenance, scoped HTML/link/hash verification; no Blender process or media rewrite |
+| `humanmotionlib.check_host` | Explicit repository test root and caller-owned run root | Automated contributor checks; nonzero status on failure |
 
 ### Flat run roots and cleanup
 
@@ -188,7 +185,7 @@ Compact hand-off record example:
 - Pending cleanup: none.
 ```
 
-`tools.runtime.inspect_blender()` checks the executable version/build before
+`humanmotionlib.runtime.inspect_blender()` checks the executable version/build before
 backend work. Automated runtime tests also check intentional mismatches.
 Outputs under `build/` and Python environments/caches are ignored. Do not put
 scratch binaries or unreviewed release artifacts in `dist/`.
@@ -205,7 +202,7 @@ be a fresh flat run root. The example input is a protected historical R3 pack
 and is explicitly a legacy input; it is not a new-run output path:
 
 ```sh
-uv run python tools/review_pack.py \
+uv run --locked --no-sync hml review-pack \
   --html-only-from build/review/anatomical-human-skeleton/squat-r3-final/independent/retention-fix \
   --output build/anatomical-human-skeleton_r1_dev_html-derivative_pack
 ```
@@ -226,7 +223,7 @@ inventory, broken links, escaped assets, or inconsistent bytes.
 
 ## Source validation
 
-`validate.py` loads the profile, mobility, group/map records, every diagnostic
+`hml validate` loads the profile, mobility, group/map records, every diagnostic
 YAML and the fixed scene. Duplicate YAML keys are errors, including nested
 keys. It validates closed schemas, finite values, IDs, parents/cycles,
 landmark/attachment references, local frames, action references, ownership,
@@ -245,7 +242,7 @@ recursive evaluation; other fixtures reference that base.
 
 ## Canonical transform math
 
-`tools/math3d.py` uses right-handed X subject-right, Y anterior, Z superior,
+`humanmotionlib.math3d` uses right-handed X subject-right, Y anterior, Z superior,
 active rotations and unit quaternions in `[w,x,y,z]` order. Local orientation
 is `q_rest * q_delta`; world orientation is `q_parent * q_local`. A child's
 local translation is rotated by its parent's world orientation before adding
@@ -259,7 +256,7 @@ Mirror position through X=0 and use `J R J` for rotations; no negative scale
 is introduced. Triangle winding and fixture-side ownership remain part of
 the later geometry/mirroring integration checks.
 
-`tools/mirror.py` swaps side identifiers and body-group ownership, reflects
+`humanmotionlib.mirror` swaps side identifiers and body-group ownership, reflects
 positions, conjugates rotations, and reverses shell triangle winding so
 outward normals follow the reflection. The expanded left-side records are
 derived from right-side records through this function; origins and primitive
@@ -268,7 +265,7 @@ with the same explicit times and named clinical values. Tests check proper
 rotation determinants, normal direction, side-specific positive action axes,
 and mirror involution on both neutral and rest frames.
 
-`tools/poses.py` reads neutral frames from the expanded dossier and reconstructs
+`humanmotionlib.poses` reads neutral frames from the expanded dossier and reconstructs
 the solved rest T-pose through parent FK. Identity rotation deltas reproduce
 that T-pose; `to_deltas` and `apply_deltas` round-trip neutral/posed frames with
 explicit local translations and `inverse(q_rest) * q_local` orientations.
@@ -279,7 +276,7 @@ bases and normalized ratios; review cameras remain fixed and are not scaled.
 
 ## Anatomical action validation
 
-`tools/actions.py` keeps valid, unsupported, out-of-range, and
+`humanmotionlib.actions` keeps valid, unsupported, out-of-range, and
 unsatisfied-constraint states separate. Reports retain joint/action, measured
 value, bounds or condition, and beat. Inputs and targets are not clamped or
 rewritten. Fixed/coupled channels cannot be written independently. Contact
@@ -290,7 +287,7 @@ Independent scalar ranges, sign-specific hip/wrist/spine envelopes,
 thoracic/lumbar combined budgets, shoulder plane/twist sectors, and dependent
 GH guards are checked separately. Total elevation and GH swing/twist appear
 as distinct values. Reference means are never used as fallback operating
-limits. The closed formulas in `tools/articulation.py` consume canonical numeric
+limits. The closed formulas in `humanmotionlib.articulation` consume canonical numeric
 parameters and require validated action inputs; curve saturation is only the
 explicit knee coupling rule, not clamping the commanded knee angle.
 
@@ -303,13 +300,13 @@ contact satisfaction or anatomical/natural visual acceptance.
 
 ## Kinematics and independent measurements
 
-`tools/kinematics.py` evaluates source action values on rigid anatomical frames;
-`tools/articulation.py` supplies the closed coupling formulas. The neutral
+`humanmotionlib.kinematics` evaluates source action values on rigid anatomical frames;
+`humanmotionlib.articulation` supplies the closed coupling formulas. The neutral
 solution and the 90-degree lateral-elevation solution reproduce the separately
 stored assembly/T-pose frames. Invalid intent produces no accepted pose.
 Parent-following transforms preserve unit scale and rigid local geometry.
 
-`tools/measurements.py` reconstructs actions from supplied body matrices and
+`humanmotionlib.measurements` reconstructs actions from supplied body matrices and
 joint positions. It does not import solver, evaluator, or articulation
 routines and does not read a success flag. Independent reference formulas,
 the dossier's knot tables, and explicit source intent check the measured
@@ -317,13 +314,13 @@ relationships. Each metric records its measured/expected value, tolerance,
 beat and requirement. Dimensionless envelope tolerances propagate the approved
 0.1-degree measurement tolerance; source commands still use exact envelopes.
 
-`tools/coverage.py` enumerates every action's positive, lower/interior/upper,
+`humanmotionlib.coverage` enumerates every action's positive, lower/interior/upper,
 outside, or unsupported-writer cases, including both sides. Invalid cases pass
 only when rejected without generating a pose. Numeric coverage is separate
 from the explicitly pending visual coverage.
 
 Only the 20 named cartilage connections have deformable bindings.
-`tools/guides.py` validates and topologically orders rigid-local endpoint,
+`humanmotionlib.guides` validates and topologically orders rigid-local endpoint,
 solved-guide-control, and co-rotating endpoint-midpoint bindings. Cartilages
 8–10 attach to the preceding cartilage's evaluated middle control, not its
 body frame or the neighboring rib. Missing targets, cycles, duplicate writers,
@@ -347,17 +344,17 @@ same entry points. The verifier report and preview pack use separate sibling
 runs:
 
 ```text
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
-uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
-uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
+uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
+uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
+uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
 ```
 
 The preview verifies evaluated native geometry but does not assert complete
 diagnostic coverage. Its index includes fixed front/side/three-quarter thoracic
 inspection views in context and isolation. Inspection cameras are separately
 defined in the scene source; full-body diagnostic cameras remain fixed.
-`tools/thorax_measurements.py` compares measured tube ring means and sternal
+`humanmotionlib.thorax_measurements` compares measured tube ring means and sternal
 shell midsurfaces with the numerical dossier. Independent Hermite sampling
 measures curvature extrema, descent, widening and floating-rib length ratios.
 All delivered frames additionally check actual mesh-based SC and costal-guide
@@ -408,7 +405,7 @@ they do not establish geometric or visual correctness.
 Before backend construction, the explicit transform-only command is useful:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
 ```
 
 The verifier reconstructs angles/couplings from supplied matrices and compares
@@ -446,7 +443,7 @@ scale, attachment, floor, inventory and articulation evidence.
 The runtime resolves `blender` from PATH and follows executable symlinks before
 launching it. This matters on macOS: an executable invoked through a symlink
 can lose its application resources. Automated subprocesses use the resolved
-executable; no installation path is stored in repository tools. If invoking
+executable; no installation path is stored in repository humanmotionlib. If invoking
 the documented `blender` command directly, ensure the PATH launcher preserves
 resource discovery. The version/build pin remains mandatory.
 
@@ -473,7 +470,7 @@ Contact intervals are half-open. Terminal states select their declared anchors
 at the endpoint; a zero-length endpoint record can declare terminal-only flat
 support, as in the rocker. Flat support checks heel and both ball witnesses;
 ball support checks both ball witnesses. Attachments never change bodies.
-`tools/contacts.py` independently measures positions/sliding and supplies a
+`humanmotionlib.contacts` independently measures positions/sliding and supplies a
 bounded damped least-squares solver (sorted variables, previous/canonical seed,
 positive knee branch, damping 1e-4, 100 iterations, 1e-5 H residual target).
 Candidate variables are projected to their operating bounds; requested fixed
@@ -482,7 +479,7 @@ Failure retains original targets, limits and residuals and produces no accepted
 solution. Closed diagnostic constructors already satisfy their exact pins and
 therefore do not replace the frozen trajectories with a numerical amplitude fit.
 
-`tools/sampling.py` stores exact rational beat/second timestamps at BPM
+`humanmotionlib.sampling` stores exact rational beat/second timestamps at BPM
 60/120/180. All modes refer to the same solved sample IDs; BPM never changes
 beat-relative geometry. Preparation can select a source fixture subset with
 `--fixtures neutral rest` for isolated builds. No image interpolation occurs.
@@ -510,7 +507,7 @@ expected values, tolerance, units, beat, status and its fixed-view image link.
 The summary links those records and reports loop/timing/complete-sole apex
 checks. A missing record or failed check cannot become acceptance.
 
-`review_pack.py` invokes two factory-startup render-only builds in isolated
+`hml review-pack` invokes two factory-startup render-only builds in isolated
 `clean-a`/`clean-b` directories, compares decoded RGBA pixels, then writes the
 HTML index, every diagnostic/action-family page, count/animation sheets at all
 three BPMs, GIF previews and count onion-skins. `--reuse-renders` only reassembles
@@ -559,7 +556,7 @@ the complete change-level diagnostic coverage gate.
 For the full delivered and dense geometry report use:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
 ```
 
 The native anatomical hierarchy also uses computed world-frame adapter targets
@@ -572,7 +569,7 @@ mutate these actual scene targets and still must fail independent measurements.
 To include actual cross-stature vertex/topology and native rest-frame comparison:
 
 ```sh
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
 ```
 
 Generate the additional stature builds with the same preparation/build commands,
@@ -583,12 +580,12 @@ belongs in its own flat checks run. All delivered samples at each stature must
 also pass their own backend verifier run.
 
 ```sh
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
-uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
-uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
+uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
+uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
+uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
 ```
 
 Approved action-direction refinement (2026-10-21): hip and wrist conventions are separate closed fields. Right hip is `Rx(f)*Ry(b)*Rz(-r)`; forearm rotation is positive about `normalize(proximal_radius-distal_ulna)`; knee dependent z uses distal -Z, hence `Rx(-k)*Rz(-z(k))`. Left sides use axial reflection. Rebuild all prepared inputs and outputs; old source hashes cannot establish acceptance. Absolute bilateral witness checks in the action-coverage report measure lateral toes, thumb-up midrotation with elbow 90, palm-down pronation and medial tibial turn independently of action-angle decoders.
@@ -602,7 +599,7 @@ reference cohort observations and the stepping ankle peak of 12 degrees are
 unchanged. These are authored exercise/operating choices, not universal ROM.
 
 The profile contains a closed `mass_model` of 16 rigid carrier-local points
-representing whole-body regions including unrendered tissues. `tools/balance.py`
+representing whole-body regions including unrendered tissues. `humanmotionlib.balance`
 checks the frozen weights/points and normalization independently of the pose
 constructor. `weight_kg` is the average of the two recorded coefficient columns;
 weights normalize by their 16-region sum. They are not mesh-volume/bone weights
@@ -628,10 +625,10 @@ stability, force, muscle or speed-dependent balance claim is made.
 Produce the early squat-only preview through the established commands:
 
 ```sh
-uv run python tools/prepare_skeleton.py --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
-uv run python tools/run_blender.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
-uv run python tools/verify_skeleton.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
-uv run python tools/review_pack.py --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
+uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
+uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
+uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
+uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
 ```
 
 The preview is development evidence only. It cannot satisfy full fixture/action,
@@ -660,3 +657,17 @@ and source fractions, then runs the complete dense squat balance grid separately
 at all three statures (`stature_balance` in the resulting report). This supplements
 the reference full-domain `--dense`/`--dense-floor` audits and the 900 delivered
 native samples per stature. Its canonical-frame scope remains explicit.
+
+## Installed package migration
+
+The runtime now lives in `src/humanmotionlib/`. Imports use `humanmotionlib.*`; the old `tools` package is no longer installed. For installed use, follow [`docs/usage.md`](../docs/usage.md): invoke `hml <subcommand>` or `python -m humanmotionlib <subcommand>`. Contributor-only test discovery remains explicit through `hml check-environment` and the repository test commands in the usage guide.
+
+| Previous checkout command | Installed command |
+|---|---|
+| `python tools/validate.py ...` | `hml validate ...` |
+| `python tools/prepare_skeleton.py ...` | `hml prepare-skeleton ...` |
+| `python tools/run_blender.py ...` | `hml run-blender ...` |
+| `python tools/verify_skeleton.py ...` | `hml verify-skeleton ...` |
+| `python tools/review_pack.py ...` | `hml review-pack ...` |
+| `python tools/check_host.py --check-environment` | `hml check-environment` |
+| `tools.<module>` | `humanmotionlib.<module>` |
