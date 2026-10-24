@@ -1,6 +1,6 @@
 [project]
 name = "humanmotionlib"
-version = "0.2.0"
+version = "0.3.0"
 description = "Data-driven anatomical skeleton and exercise animation diagnostics"
 requires-python = ">=3.14,<3.15"
 license-files = ["LICENSE-CODE", "LICENSE-DATA", "THIRD-PARTY-NOTICES.md"]
