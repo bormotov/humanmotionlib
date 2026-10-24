@@ -40,7 +40,8 @@ _load_installed_package()
 from humanmotionlib.prepared import read_prepared, write_json
 from humanmotionlib.blender_backend import SkeletonBackend
 from humanmotionlib.package_resources import verify_runtime_integrity
-from humanmotionlib.runtime import resolve_workspace_path, validate_run_root, workspace_root
+from humanmotionlib.runtime import (resolve_workspace_path, validate_operation_root,
+                                    validate_run_root, workspace_root)
 
 
 def phase(name, **details):
@@ -54,6 +55,7 @@ def main():
     parser.add_argument('--render-dir',type=Path,help='Internal review-pack fixed-camera PNG destination')
     parser.add_argument('--render-only',action='store_true',help='Build cleanly and render; full mesh measurements are a separate build')
     parser.add_argument('--workspace',type=Path,required=True)
+    parser.add_argument('--owner-run',type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
     workspace=workspace_root(args.workspace)
     input_path=resolve_workspace_path(args.input,workspace)
@@ -62,15 +64,16 @@ def main():
         input_path=input_path/'input.json'
     else:
         input_root=input_path.parent
-    output=validate_run_root(resolve_workspace_path(args.output,workspace),workspace)
+    output=validate_operation_root(resolve_workspace_path(args.output,workspace),workspace,args.owner_run)
+    owner=validate_run_root(args.owner_run,workspace) if args.owner_run is not None else output
     render_dir=resolve_workspace_path(args.render_dir,workspace) if args.render_dir else None
-    if input_root != output and (input_root.is_relative_to(output) or output.is_relative_to(input_root)):
+    if input_root != owner and (input_root.is_relative_to(owner) or owner.is_relative_to(input_root)):
         raise ValueError('prepared input and output runs must be disjoint or share the designated run root')
     if render_dir is not None and not render_dir.is_relative_to(output):
         raise ValueError('render directory must stay inside the output run')
     if output.exists():
-        allowed = {'processes', 'scratch'}
-        if input_root == output:
+        allowed = {'processes'}
+        if input_root == owner == output:
             allowed.add('input.json')
         unexpected = [item.name for item in output.iterdir() if item.name not in allowed]
         if unexpected:

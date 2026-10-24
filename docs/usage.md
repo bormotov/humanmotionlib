@@ -64,12 +64,14 @@ hml --workspace /path/to/workspace review-pack \
 
 The Python API exposes the same workspace contract. `verify_transforms` is a
 pure in-memory check. The full collection writer requires the explicit
-workspace and places both `metrics.json` and its `metrics-samples/` shard
+workspace and keeps the `metrics.json` summary and `metrics-samples/` shard
 directory in the supplied fresh run. `prepared` and `evaluated` below are
 objects loaded and validated by the caller from explicit input paths:
 
 ```python
 from pathlib import Path
+from humanmotionlib.prepared import write_json
+from humanmotionlib.runtime import validate_run_content_path
 from humanmotionlib.verify_skeleton import verify_transforms
 from humanmotionlib.verification_run import verify_collection
 
@@ -83,12 +85,15 @@ summary = verify_collection(
     verify_transforms,
     workspace=workspace,
 )
+report, _ = validate_run_content_path(run / "metrics.json", workspace)
+write_json(report, summary)
 ```
 
-The API checks that the summary and every per-sample shard stay inside the
-selected run. Its records retain measured/expected values, bounds, units,
-status and image links; the existing verifier tolerances and failure
-thresholds are unchanged. Use `verify_transforms(prepared)` when only the
+`verify_collection` validates the report destination, writes the per-sample
+shards beside it and returns the summary; the caller persists that summary to
+the validated destination. The records retain measured/expected values,
+bounds, units, status and image links; existing verifier tolerances and
+failure thresholds are unchanged. Use `verify_transforms(prepared)` when only
 prepared transforms are available; this does not establish backend acceptance.
 
 Each `<run>` placeholder must be replaced with a fresh direct child of

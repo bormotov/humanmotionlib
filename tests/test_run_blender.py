@@ -2,7 +2,10 @@
 """Contract tests for the supervised normal Blender build wrapper."""
 
 import json
+import importlib
 from pathlib import Path
+import sys
+import types
 import unittest
 from unittest import mock
 
@@ -84,6 +87,37 @@ class RunBlenderContractTests(unittest.TestCase):
         self.assertEqual(self.invocation_kwargs["workspace"], project_root())
         self.assertEqual(self.expected_outputs[0]["allow_existing_sha256"],
                          file_sha256(self.input_path))
+
+    def test_embedded_build_preflight_accepts_only_the_explicit_managed_pass(self):
+        fake_mathutils = types.ModuleType("mathutils")
+        fake_mathutils.Matrix = object
+        fake_mathutils.Vector = object
+        saved_bytecode = sys.dont_write_bytecode
+        with mock.patch.dict(sys.modules, {"bpy": types.ModuleType("bpy"),
+                                           "mathutils": fake_mathutils}):
+            build_skeleton = importlib.import_module("humanmotionlib.build_skeleton")
+        sys.dont_write_bytecode = saved_bytecode
+        owner = fresh_test_run_root("embedded-owner")
+        pass_root = owner / "clean-a"
+        pass_root.mkdir()
+        args = ["blender", "--", "--input", str(self.input_path), "--output", str(pass_root),
+                "--workspace", str(project_root()), "--owner-run", str(owner), "--render-only",
+                "--render-dir", str(pass_root / "frames")]
+        with mock.patch("sys.argv", args), \
+             mock.patch.object(build_skeleton, "verify_runtime_integrity",
+                               return_value={"version": "0.2.0", "resources": {}}), \
+             mock.patch.object(build_skeleton, "read_prepared", return_value=self.prepared), \
+             mock.patch.object(build_skeleton, "SkeletonBackend", side_effect=RuntimeError("backend sentinel")) as backend:
+            with self.assertRaisesRegex(RuntimeError, "backend sentinel"):
+                build_skeleton.main()
+        backend.assert_called_once()
+
+        wrong_owner = fresh_test_run_root("wrong-owner")
+        with mock.patch("sys.argv", args[:-5] + ["--owner-run", str(wrong_owner), *args[-3:]]), \
+             mock.patch.object(build_skeleton, "verify_runtime_integrity") as integrity:
+            with self.assertRaisesRegex(ValueError, "managed render pass"):
+                build_skeleton.main()
+        integrity.assert_not_called()
 
     def test_stale_output_is_rejected_before_probe_or_spawn(self):
         (self.output / "skeleton.blend").write_bytes(b"stale")

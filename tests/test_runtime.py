@@ -16,7 +16,8 @@ from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT
                            DEFAULT_SLOT_TIMEOUT, KILL_REAP_SECONDS, TERMINATE_GRACE_SECONDS,
                            MAX_TIMEOUT_SECONDS, InvocationError, SlotTimeout, backend_contract, check_blender_version,
                            inspect_blender as _inspect_blender, invocation as _invocation,
-                           project_root, validate_timeout, _group_state)
+                           project_root, validate_managed_pass_root, validate_operation_root,
+                           validate_timeout, _group_state)
 from tests.run_roots import fresh_test_run_root, test_case_root, test_cases_directory, test_run_root
 
 
@@ -183,6 +184,34 @@ class ProbeTests(unittest.TestCase):
 
 
 class InvocationTests(unittest.TestCase):
+    def test_managed_pass_receipts_and_scratch_stay_below_the_fixed_pass(self):
+        owner = fresh_test_run_root("managed-pass")
+        pass_root = owner / "clean-a"
+        pass_root.mkdir()
+        self.assertEqual(validate_managed_pass_root(pass_root, owner, project_root()), pass_root)
+        self.assertEqual(validate_operation_root(pass_root, project_root(), owner), pass_root)
+        for invalid in (owner / "other", owner / "clean-a" / "nested_run_r1_dev_try-1_pack"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_operation_root(invalid, project_root(), owner)
+
+        package_identity = {"version": "0.2.0", "resources": {},
+                            "backend_contract": "b" * 64, "implementation": {}}
+        with mock.patch("humanmotionlib.package_resources.verify_runtime_integrity",
+                        return_value=package_identity), \
+             mock.patch("humanmotionlib.package_resources.manifest_sha256",
+                        return_value="a" * 64):
+            receipt = invocation([sys.executable, "-c", "print('managed pass')"],
+                                 run_root=pass_root, owner_run=owner,
+                                 operation="managed-pass-test", timeout_seconds=3)
+        receipt_dir = Path(receipt["stdout_log"]).parent
+        self.assertEqual(receipt_dir.parent, pass_root / "processes")
+        self.assertEqual(receipt["operation_root"], str(pass_root))
+        self.assertEqual(receipt["owning_run_root"], str(owner))
+        self.assertEqual(receipt["scratch_cleanup"]["status"], "removed-after-child-exit")
+        self.assertFalse((pass_root / "scratch").exists())
+        self.assertFalse((owner / "processes").exists())
+        self.assertFalse((owner / "scratch").exists())
+
     def test_deadline_validation_prevents_spawn(self):
         for value in (0, -1, float("nan"), float("inf"), 86401, None, "bad"):
             with self.subTest(value=value), self.assertRaises(ValueError):

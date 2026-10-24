@@ -2,7 +2,9 @@
 """Review-pack render supervision and protected presentation workflows."""
 
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -92,6 +94,125 @@ def completed_pack(root: Path, prepared=None):
 
 
 class ReviewPackSupervisionTests(unittest.TestCase):
+    def test_normal_review_pack_owns_pass_receipts_scratch_and_reuses_without_spawn(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            source = fresh_run(workspace, "input")
+            source.mkdir()
+            input_path = source / "input.json"
+            input_path.write_text("{}")
+            pack = fresh_run(workspace, "pack")
+            prepared = prepared_fixture()
+            fake_bin = workspace / "fake-bin"
+            fake_bin.mkdir()
+            blender = fake_bin / "blender"
+            payload = json.dumps(prepared)
+            script = '''#!PYTHON
+import argparse, json, pathlib, shutil, sys
+from PIL import Image
+
+if "--version" in sys.argv[1:]:
+    print("Blender 5.2.2 LTS")
+    print("build hash: d13f752e3b9c")
+    raise SystemExit(0)
+
+values = sys.argv[sys.argv.index("--") + 1:]
+parser = argparse.ArgumentParser()
+parser.add_argument("--input", required=True)
+parser.add_argument("--output", required=True)
+parser.add_argument("--workspace", required=True)
+parser.add_argument("--owner-run", required=True)
+parser.add_argument("--render-dir", required=True)
+parser.add_argument("--render-only", action="store_true")
+args = parser.parse_args(values)
+prepared = json.loads(PREPARED_JSON)
+output, frames = pathlib.Path(args.output), pathlib.Path(args.render_dir)
+shutil.copyfile(args.input, output / "input.json")
+(output / "build-metadata.json").write_text(json.dumps({"blender_version": "5.2.2 LTS", "blender_build": "d13f752e3b9c"}))
+(output / "skeleton.blend").write_bytes(b"synthetic embedded render output")
+records = []
+for sample in prepared["samples"]:
+    views = {"front", "side"}
+    if sample["fixture"] in ("neutral", "rest"):
+        views.add("rear")
+        extra = {camera["id"] for camera in prepared["sources"]["review-scene"]["cameras"] if camera["id"].startswith("thorax-")}
+        views.update(extra)
+        views.update(view + "-isolated" for view in extra)
+    images = {}
+    for view in sorted(views):
+        relative = f"{sample['fixture']}/{view}/{sample['frame_id']:05d}.png"
+        path = frames / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGBA", (2, 2), (20, 30, 40, 255)).save(path)
+        images[view] = relative
+    records.append({"id": sample["id"], "images": images})
+(output / "render-manifest.json").write_text(json.dumps({"prepared_sha256": prepared["content_sha256"], "samples": records}))
+print("HML_PHASE " + json.dumps({"phase": "input_loaded", "prepared_sha256": prepared["content_sha256"]}), flush=True)
+print("HML_PHASE " + json.dumps({"phase": "script_complete", "prepared_sha256": prepared["content_sha256"]}), flush=True)
+'''.replace("PYTHON", sys.executable).replace("PREPARED_JSON", repr(payload))
+            blender.write_text(script)
+            blender.chmod(blender.stat().st_mode | 0o111)
+
+            def assemble_fixture(_prepared, _pass_a, _pass_b, output):
+                output = Path(output)
+                (output / "composites").mkdir()
+                for name in (
+                    "acceptance-map.md", "attribution-and-limitations.md", "build-metadata.json",
+                    "gif-timing.json", "index.html", "render-repeatability.json", "sample-timing.json",
+                    "neutral.html",
+                ):
+                    (output / name).write_text("controlled assembly fixture")
+                return {"status": "pass"}
+
+            assemble_count = 0
+            def assemble_calls(*args):
+                nonlocal assemble_count
+                assemble_count += 1
+                if assemble_count == 1:
+                    return assemble_fixture(*args)
+                return {"status": "pass"}
+
+            invocation_count = 0
+            def count_spawn(*args, **kwargs):
+                nonlocal invocation_count
+                invocation_count += 1
+                return _real_invocation(*args, **kwargs)
+
+            from humanmotionlib.runtime import invocation as _real_invocation
+            argv = ["review-pack", "--input", str(source), "--output", str(pack)]
+            with mock.patch.dict(os.environ, {"PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", "")}), \
+                 mock.patch.object(review_pack, "read_prepared", return_value=prepared), \
+                 mock.patch("humanmotionlib.run_blender.read_prepared", return_value=prepared), \
+                 mock.patch("humanmotionlib.run_blender.invocation", side_effect=count_spawn), \
+                 mock.patch("humanmotionlib.runtime.invocation", side_effect=count_spawn), \
+                 mock.patch.object(review_pack, "assemble", side_effect=assemble_calls) as assemble, \
+                 mock.patch("sys.argv", argv):
+                self.assertEqual(review_pack.main(workspace=workspace), 0)
+                self.assertEqual(invocation_count, 4)  # probe and render child for each pass
+                for name in ("clean-a", "clean-b"):
+                    process_root = pack / name / "processes"
+                    receipts = [json.loads(path.read_text()) for path in process_root.glob("*/outcome.json")]
+                    self.assertEqual({receipt["operation"] for receipt in receipts}, {"version-probe", "render-pass"})
+                    self.assertTrue(all(Path(receipt["stdout_log"]).is_relative_to(process_root) for receipt in receipts))
+                    self.assertTrue(all(receipt["scratch_cleanup"]["status"] == "removed-after-child-exit"
+                                        for receipt in receipts))
+                    self.assertTrue(all(not Path(receipt["scratch_cleanup"]["path"]).exists()
+                                        for receipt in receipts))
+                    self.assertFalse((pack / name / "scratch").exists())
+                self.assertFalse((pack / "processes").exists())
+                self.assertFalse((pack / "scratch").exists())
+                pass_hashes = {name: {path.relative_to(pack / name): file_sha256(path)
+                                      for path in (pack / name).rglob("*") if path.is_file()}
+                               for name in ("clean-a", "clean-b")}
+                argv[:] = ["review-pack", "--input", str(source), "--output", str(pack), "--reuse-renders"]
+                self.assertEqual(review_pack.main(workspace=workspace), 0)
+                self.assertEqual(invocation_count, 4)
+                self.assertEqual(assemble.call_count, 2)
+                self.assertEqual(pass_hashes,
+                                 {name: {path.relative_to(pack / name): file_sha256(path)
+                                         for path in (pack / name).rglob("*") if path.is_file()}
+                                  for name in ("clean-a", "clean-b")})
+
     def test_reuse_reassembles_existing_pack_only_after_both_passes_are_preflighted(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -205,7 +326,7 @@ class ReviewPackSupervisionTests(unittest.TestCase):
             supervised.assert_called_once_with(input_path.resolve(), output.resolve(),
                                                render_dir=frames.resolve(), render_only=True,
                                                timeout_seconds=17, slot_timeout_seconds=4,
-                                               workspace=root.resolve())
+                                               workspace=root.resolve(), owner_run=None)
 
     def test_first_render_failure_does_not_retry_start_second_pass_or_assemble(self):
         with tempfile.TemporaryDirectory() as temporary:

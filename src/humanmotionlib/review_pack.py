@@ -132,7 +132,7 @@ def _read_supervised_receipt(output, prepared, required_paths):
 
 
 def render_pass(input_path, output, frames, *, timeout_seconds=DEFAULT_RENDER_TIMEOUT,
-                slot_timeout_seconds=DEFAULT_SLOT_TIMEOUT, workspace=None):
+                slot_timeout_seconds=DEFAULT_SLOT_TIMEOUT, workspace=None, owner_run=None):
     # Use the same validated routine path as ordinary builds; it probes the
     # pinned executable and records render outputs under this clean-pass run.
     validate_timeout(timeout_seconds)
@@ -146,7 +146,7 @@ def render_pass(input_path, output, frames, *, timeout_seconds=DEFAULT_RENDER_TI
     from humanmotionlib import run_blender
     run_blender.run(input_path, output, render_dir=frames, render_only=True,
                     timeout_seconds=timeout_seconds, slot_timeout_seconds=slot_timeout_seconds,
-                    workspace=workspace)
+                    workspace=workspace, owner_run=owner_run)
     manifest = json.loads((output / 'render-manifest.json').read_text())
     prepared = read_prepared(input_path)
     required_paths = _validate_manifest(manifest, prepared, frames)
@@ -490,7 +490,7 @@ def main(workspace=None):
                              (directory/'frames').resolve(),
                              timeout_seconds=args.timeout_seconds,
                              slot_timeout_seconds=args.slot_timeout_seconds,
-                             workspace=workspace)
+                             workspace=workspace, owner_run=output)
         passes.append(manifest)
         print('Completed '+name,flush=True)
     result=assemble(prepared,*passes,output)

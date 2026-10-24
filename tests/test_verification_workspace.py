@@ -142,6 +142,48 @@ class VerificationWorkspaceTests(unittest.TestCase):
         self.assertFalse(report.exists())
         self.assertEqual(sentinel.read_text(), "preserve")
 
+    def test_full_writer_retains_numerical_checks_in_owned_summary_and_shard(self):
+        run = self.run_root()
+        output = run / "metrics.json"
+        prepared = {
+            "content_sha256": "prepared-hash",
+            "source_hashes": {"profile": "profile-hash"},
+            "samples": [{"id": "neutral@0", "fixture": "neutral",
+                         "beat": {"numerator": 0, "denominator": 1},
+                         "expected_actions": {}, "world_root": {}, "frame_id": 0}],
+            "sampling": {},
+            "sources": {"diagnostics": [{"id": "neutral", "duration_beats": 0}],
+                        "profile": {"stature_m": 1.7, "structures": []},
+                        "humanoid-map": {"entries": []}},
+        }
+        evaluated = {
+            "prepared_sha256": "prepared-hash",
+            "samples": [{"id": "neutral@0", "frames": {}, "geometry": {}, "scene": "stable"}],
+            "metadata": {"native_bones": [], "semantic_targets": {}, "collections":
+                         ["Anatomy", "Controls", "Humanoid", "Review"],
+                         "independent_collection_visibility":
+                         {key: True for key in ("Anatomy", "Controls", "Humanoid", "Review")}},
+        }
+        metric = {"id": "torso.height", "measured": 1.7001, "expected": 1.7,
+                  "tolerance": 0.0002, "units": "m", "beat": 0,
+                  "status": "pass"}
+        sample_result = {"id": "neutral@0", "fixture": "neutral", "status": "pass",
+                         "checks": [metric], "metric_count": 1}
+        backend_result = {"samples": [sample_result]}
+        with mock.patch("humanmotionlib.verification_run.verify_backend",
+                        return_value=backend_result):
+            summary = verify_collection(prepared, evaluated, output, lambda *_: {},
+                                       workspace=self.workspace)
+        details = run / "metrics-samples" / "neutral@0.json"
+        self.assertTrue(details.is_file())
+        persisted_detail = json.loads(details.read_text())
+        self.assertEqual(summary["status"], "pass")
+        self.assertEqual(summary["samples"][0]["details"], "metrics-samples/neutral@0.json")
+        self.assertEqual(persisted_detail["checks"][0]["measured"], 1.7001)
+        self.assertEqual(persisted_detail["checks"][0]["expected"], 1.7)
+        self.assertEqual(persisted_detail["checks"][0]["tolerance"], 0.0002)
+        self.assertEqual(persisted_detail["checks"][0]["status"], "pass")
+
 
 if __name__ == "__main__":
     unittest.main()

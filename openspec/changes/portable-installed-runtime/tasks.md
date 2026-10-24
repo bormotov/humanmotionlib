@@ -15,22 +15,22 @@ Implementation begins only after human approval of proposal, deltas and design (
 
 ## 3. Contain numerical verification outputs
 
-- [ ] 3.1 Dev: route `verify_skeleton.py` and `verification_run.py` report and sample-shard writers through the selected workspace and owning fresh check run; add focused workspace-contract tests covering full, preview and transforms-only modes, relative stature inputs, explicit external read inputs, and rejection of invalid report/shard destinations before file creation.
-- [ ] 3.2 Dev: update numeric verification usage and direct API examples alongside the implementation; verify every documented output stays inside its owning run and report/shard numerical contents and failure thresholds match existing verifier tests.
+- [x] 3.1 Dev: route `verify_skeleton.py` and `verification_run.py` report and sample-shard writers through the selected workspace and owning fresh check run; add focused workspace-contract tests covering full, preview and transforms-only modes, relative stature inputs, explicit external read inputs, and rejection of invalid report/shard destinations before file creation.
+- [x] 3.2 Dev: update numeric verification usage and direct API examples alongside the implementation; verify every documented output stays inside its owning run and report/shard numerical contents and failure thresholds match existing verifier tests.
 
 ## 4. Bind supervision and scratch to caller ownership
 
 - [ ] 4.1 Dev: propagate validated workspace/run context through `run_blender.py`, `runtime.py` and `build_skeleton.py` as needed, configuring explicit backend cwd and run-local temporary/cache/config/log locations in child environments; verify launch arguments, bootstrap/import isolation, bytecode behavior, unchanged parent environment and before/after write inventories in `tests/test_run_blender.py` and `tests/test_blender_bootstrap.py`.
-- [ ] 4.2 Dev: retain package-owned backend closure and manifest/implementation validation without checkout fallback; verify missing/corrupt runtime files fail before probe/spawn even with valid-looking neighboring resources, and retain existing prepared-content, source-hash and completion-evidence negative tests.
+- [x] 4.2 Dev: retain package-owned backend closure and manifest/implementation validation without checkout fallback; verify missing/corrupt runtime files fail before probe/spawn even with valid-looking neighboring resources, and retain existing prepared-content, source-hash and completion-evidence negative tests.
 - [ ] 4.3 Dev: extend `tests/test_runtime.py` supervision coverage for distinct installations/cwds and symlink aliases targeting one workspace, and for distinct workspaces; verify serialization, finite wait/cancellation, orphan handling, owned-child cleanup and failure receipts with resolved run/scratch paths.
-- [ ] 4.4 Dev: update backend command and diagnostic-path documentation, including `docs/backend-crash-triage.md` where affected; verify documented receipt/log/lock locations against successful and injected-failure runs without changing backend pins, retry policy or acceptance thresholds.
+- [x] 4.4 Dev: update backend command and diagnostic-path documentation, including `docs/backend-crash-triage.md` where affected; verify documented receipt/log/lock locations against successful and injected-failure runs without changing backend pins, retry policy or acceptance thresholds.
 
 ## 5. Make review and presentation portable
 
-- [ ] 5.1 Dev: migrate `review_pack.py` input/output preflight and all modes to explicit workspace-relative operands and permit valid explicit cross-workspace build inputs as read-only; verify fresh/disjoint output allocation and unchanged input bytes in `tests/test_review_pack_supervision.py`.
-- [ ] 5.2 Dev: replace lexical `build` ancestry inference in `presentation.py` with the design's explicit predecessor location and existing provenance identity, validating the complete dependency closure before writing; verify HTML-only predecessors outside any build directory and beneath misleading multiple build ancestors in `tests/test_review_presentation.py`, including required links, preserved hashes and no Blender launch.
-- [ ] 5.3 Dev: retain render-reuse and managed-asset checks while changing path resolution; verify stale/incomplete/tampered predecessor and reuse evidence fails closed, HTML/reuse spawn no backend, and affected `tests/test_review_graphics.py` and supervision/presentation regressions pass.
-- [ ] 5.4 Dev: document external predecessor, cross-workspace review, HTML-only and reuse examples in active usage guidance; run those examples against controlled inputs and audit local visuals, required predecessor links and protected-input hashes.
+- [x] 5.1 Dev: migrate `review_pack.py` input/output preflight and all modes to explicit workspace-relative operands and permit valid explicit cross-workspace build inputs as read-only; verify fresh/disjoint output allocation and unchanged input bytes in `tests/test_review_pack_supervision.py`.
+- [x] 5.2 Dev: replace lexical `build` ancestry inference in `presentation.py` with the design's explicit predecessor location and existing provenance identity, validating the complete dependency closure before writing; verify HTML-only predecessors outside any build directory and beneath misleading multiple build ancestors in `tests/test_review_presentation.py`, including required links, preserved hashes and no Blender launch.
+- [x] 5.3 Dev: retain render-reuse and managed-asset checks while changing path resolution; verify stale/incomplete/tampered predecessor and reuse evidence fails closed, HTML/reuse spawn no backend, and affected `tests/test_review_graphics.py` and supervision/presentation regressions pass.
+- [x] 5.4 Dev: document external predecessor, cross-workspace review, HTML-only and reuse examples in active usage guidance; run those examples against controlled inputs and audit local visuals, required predecessor links and protected-input hashes.
 
 ## 6. Check the actual installed artifact outside HML
 
@@ -38,7 +38,7 @@ Implementation begins only after human approval of proposal, deltas and design (
 - [ ] 6.2 Dev: add hostile-neighbor, missing-workspace, path-escape, symlink and resource/implementation/prepared/reuse tamper cases to that harness; verify expected failures, unchanged sentinel/package/source/cwd inventories and all HML-directed writes confined to selected workspace build trees, including scratch, report shards and locks.
 - [ ] 6.3 Dev: update `.github/workflows/package.yml` to allocate its installed acceptance run outside the checkout and retain exact wheel checksum, direct/sdist resource parity, supported interpreter/tool versions and scoped results; verify the actual candidate CI run and retain its link, with synthetic/host evidence explicitly separated from unexecuted real Blender scope.
 - [ ] 6.4 Dev: migrate remaining maintained callers and `.github/workflows/host-python.yml` where needed without shipping contributor test discovery into the runtime; verify the complete locked host suite and active command documentation, keeping explicit real-backend exclusions and no cwd fallback.
-- [ ] 6.5 Dev: audit license/provenance and the used-materials register for files/tools actually used; verify no new dependencies/actions or external sources were introduced without required clearance, and installed attribution/resource inventories remain complete.
+- [x] 6.5 Dev: audit license/provenance and the used-materials register for files/tools actually used; verify no new dependencies/actions or external sources were introduced without required clearance, and installed attribution/resource inventories remain complete.
 
 ## 7. Independent acceptance and hand-off
 

@@ -11,8 +11,9 @@ from PIL import Image
 from humanmotionlib.prepared import read_prepared
 from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_SLOT_TIMEOUT, InvocationError,
                            ensure_workspace_build, file_sha256, inspect_blender, invocation,
-                           resolve_workspace_path, update_receipt,
-                           validate_outputs, validate_run_root, workspace_root)
+                           resolve_workspace_path, update_receipt, validate_managed_pass_root,
+                           validate_operation_root, validate_outputs, validate_run_root,
+                           workspace_root)
 
 
 _RUN_COMPONENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -56,7 +57,7 @@ def expected_outputs(prepared, output, render_dir, render_only, input_file):
 
 def run(input_path, output, *, render_dir=None, render_only=False,
         timeout_seconds=DEFAULT_BUILD_TIMEOUT, slot_timeout_seconds=DEFAULT_SLOT_TIMEOUT,
-        workspace=None):
+        workspace=None, owner_run=None):
     workspace = workspace_root(workspace)
     input_operand = resolve_workspace_path(input_path, workspace)
     if input_operand.is_dir():
@@ -66,18 +67,22 @@ def run(input_path, output, *, render_dir=None, render_only=False,
         input_path = input_operand
         input_root = input_path.parent
     output = resolve_workspace_path(output, workspace)
-    output = validate_run_root(output, workspace)
-    owner_root = owning_run_root(output, workspace)
+    output = validate_operation_root(output, workspace, owner_run)
+    owner_root = validate_run_root(owner_run, workspace) if owner_run is not None else output
+    if owner_run is not None:
+        validate_managed_pass_root(output, owner_root, workspace)
     render_dir = resolve_workspace_path(render_dir, workspace) if render_dir else None
     if render_dir is not None:
         try:
             render_dir.relative_to(output)
         except ValueError as error:
             raise ValueError("render directory must be inside the owning output run") from error
-    if input_path.is_relative_to(output) or output.is_relative_to(input_root):
+    if owner_run is not None and output.exists():
+        raise ValueError(f"managed render pass output must be fresh: {output}")
+    if input_path.is_relative_to(owner_root) or owner_root.is_relative_to(input_root):
         # The designated output run may also own the prepared input. A sibling
         # output root may not contain or overwrite the independent input root.
-        if input_root != output:
+        if input_root != owner_root:
             raise ValueError("prepared input and output roots must be disjoint or share the designated run root")
     prepared = read_prepared(input_path)
     outputs = expected_outputs(prepared, output, render_dir, render_only, input_path)
@@ -91,11 +96,14 @@ def run(input_path, output, *, render_dir=None, render_only=False,
             raise ValueError("backend run root is occupied: " + ", ".join(str(path) for path in unexpected))
     ensure_workspace_build(workspace)
     output.mkdir(parents=True, exist_ok=True)
-    probe = inspect_blender(output, slot_timeout_seconds=slot_timeout_seconds, workspace=workspace)
+    probe = inspect_blender(output, slot_timeout_seconds=slot_timeout_seconds,
+                            workspace=workspace, owner_run=owner_run)
     script = Path(__file__).with_name("build_skeleton.py").resolve()
     command = [probe["receipt"]["executable"], "--background", "--factory-startup",
                "--python-exit-code", "1", "--python", str(script), "--",
                "--input", str(input_path), "--output", str(output), "--workspace", str(workspace_root(workspace))]
+    if owner_run is not None:
+        command.extend(("--owner-run", str(owner_root)))
     if render_dir is not None:
         command.extend(("--render-dir", str(render_dir)))
     if render_only:
@@ -104,7 +112,7 @@ def run(input_path, output, *, render_dir=None, render_only=False,
                          cwd=workspace_root(workspace), timeout_seconds=timeout_seconds,
                          slot_timeout_seconds=slot_timeout_seconds,
                          source_sha256=prepared["content_sha256"], expected_outputs=outputs,
-                         workspace=workspace)
+                         workspace=workspace, owner_run=owner_run)
     if receipt.get("last_script_phase") != "script_complete":
         update_receipt(receipt, state="failed", outcome="missing-completion-marker",
                        output_validation={"status": "fail", "reason": "script_complete marker missing"})
@@ -177,13 +185,14 @@ def main(workspace=None):
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--render-dir", type=Path)
     parser.add_argument("--render-only", action="store_true")
+    parser.add_argument("--owner-run", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_BUILD_TIMEOUT)
     parser.add_argument("--slot-timeout-seconds", type=float, default=DEFAULT_SLOT_TIMEOUT)
     args = parser.parse_args()
     try:
         receipt = run(args.input, args.output, render_dir=args.render_dir, render_only=args.render_only,
                       timeout_seconds=args.timeout_seconds, slot_timeout_seconds=args.slot_timeout_seconds,
-                      workspace=workspace)
+                      workspace=workspace, owner_run=args.owner_run)
     except (ValueError, OSError, InvocationError) as error:
         print(str(error), file=sys.stderr, flush=True)
         return 1

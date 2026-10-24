@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -280,9 +281,20 @@ raise SystemExit(main(workspace=workspace))
         broken_root.mkdir()
         shutil.copytree(package_origin.parent, broken_root / "humanmotionlib")
         broken_file = broken_root / relative_name
+        # Installed files and directories may be read-only. Make only this
+        # disposable tamper copy writable so the negative reaches HML's
+        # integrity validator instead of failing in the filesystem API.
+        package_copy = broken_root / "humanmotionlib"
+        parent = broken_file.parent
+        while parent == package_copy or package_copy in parent.parents:
+            parent.chmod(parent.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+            if parent == package_copy:
+                break
+            parent = parent.parent
         if label == "resource":
             broken_file.unlink()
         else:
+            broken_file.chmod(broken_file.stat().st_mode | stat.S_IWUSR)
             broken_file.write_bytes(broken_file.read_bytes() + b"\n# tampered acceptance copy\n")
         broken_env = env | {"PYTHONPATH": str(broken_root)}
         broken_result = run([str(cli), "--workspace", str(workspace), "validate",

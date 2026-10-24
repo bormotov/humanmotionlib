@@ -89,7 +89,14 @@ the script. It writes one `backend-invocation/v1` receipt per probe and child
 under `<run-root>/processes/<invocation-id>/outcome.json`, with separate stdout
 and stderr logs, command/cwd/platform/Python identity, source hash, deadline,
 process group, completion phases, exit or signal outcome, output hashes, and
-cleanup status. A receipt is updated atomically as the invocation progresses.
+cleanup status. Each invocation keeps temporary, Blender config and cache data
+in its own `<run-root>/processes/<invocation-id>/scratch/` directory. The
+supervisor removes scratch after a successful, confirmed child exit and retains
+it with a receipt reason when execution fails or cleanup is unresolved. Review
+packs own two internal pass roots, `clean-a/` and `clean-b/`; each pass has its
+own receipts and scratch, while independent run identities remain direct
+children of `build/`. A receipt is updated atomically as the invocation
+progresses.
 Build scripts emit flushed `HML_PHASE` markers; `script_complete` is emitted
 only after required files, including `skeleton.blend`, are saved.
 
@@ -519,11 +526,13 @@ checks. A missing record or failed check cannot become acceptance.
 Direct callers can use `verify_transforms(prepared)` as a pure in-memory check,
 or call `verification_run.verify_collection` for full evaluated evidence. The
 full writer requires `workspace=` and an output inside a fresh run allocated by
-the caller; it writes the summary and `metrics-samples/` together and rejects
-escaped or overlapping destinations before creating files:
+the caller; it writes `metrics-samples/`, returns the summary for persistence,
+and rejects escaped or overlapping destinations before creating files:
 
 ```python
 from pathlib import Path
+from humanmotionlib.prepared import write_json
+from humanmotionlib.runtime import validate_run_content_path
 from humanmotionlib.verify_skeleton import verify_transforms
 from humanmotionlib.verification_run import verify_collection
 
@@ -534,11 +543,15 @@ summary = verify_collection(
     prepared, evaluated, run / "metrics.json", verify_transforms,
     workspace=workspace,
 )
+report, _ = validate_run_content_path(run / "metrics.json", workspace)
+write_json(report, summary)
 ```
 
-The numerical records and acceptance bounds are those produced by the existing
-`backend_measurements` verifier; this API change only constrains where they are
-written. Prepared-only transforms do not establish backend acceptance.
+`verify_collection` writes the shard directory and returns the summary for the
+caller to persist to the validated report path. The numerical records and
+acceptance bounds are those produced by the existing `backend_measurements`
+verifier; this API change only constrains where they are written. Prepared-only
+transforms do not establish backend acceptance.
 
 `hml review-pack` invokes two factory-startup render-only builds in isolated
 `clean-a`/`clean-b` directories, compares decoded RGBA pixels, then writes the
