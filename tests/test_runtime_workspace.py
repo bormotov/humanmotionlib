@@ -46,9 +46,14 @@ class WorkspaceContractTests(unittest.TestCase):
             run.mkdir()
             external = Path(temporary) / "external"
             external.mkdir()
+            sentinel = external / "sentinel.txt"
+            sentinel.write_text("preserve")
             (run / "evidence").symlink_to(external, target_is_directory=True)
-            with self.assertRaisesRegex(ValueError, "outside build"):
+            with self.assertRaises(ValueError) as caught:
                 validate_run_content_path(run / "evidence/report.json", root)
+            self.assertRegex(str(caught.exception), "outside build|nested run identity")
+            self.assertEqual(sentinel.read_text(), "preserve")
+            self.assertFalse((external / "report.json").exists())
 
     def test_accepts_cross_workspace_existing_run_as_read_only_input(self):
         with tempfile.TemporaryDirectory() as temporary:
