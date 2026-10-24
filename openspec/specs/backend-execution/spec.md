@@ -8,7 +8,7 @@ Make repository-owned Blender execution bounded and diagnosable, so native proce
 
 ### Requirement: Routine backend work has one controlled execution path
 
-Documented routine builds, render passes, backend probes and Blender integration tests SHALL use a shared supervised execution policy. It SHALL preserve executable resource discovery, the pinned version/build check, factory-startup isolation for scripts and explicit nonzero exit on Python exceptions. It SHALL NOT launch a GUI application as an automatic recovery action.
+Documented routine builds, render passes, backend probes and Blender integration tests SHALL use a shared supervised execution policy in both source and installed workflows. It SHALL preserve executable resource discovery, the pinned version/build check, factory-startup isolation for scripts and explicit nonzero exit on Python exceptions. Installed execution SHALL resolve its script/import closure from the package without injecting the host environment into Blender. It SHALL NOT launch a GUI application as an automatic recovery action.
 
 #### Scenario: Inspect and build with the pinned backend
 - **Verification:** launcher argument assertions, mismatch tests and one real headless build.
@@ -22,6 +22,13 @@ Documented routine builds, render passes, backend probes and Blender integration
 - **Verification:** process-spawn interception and existing presentation regression tests.
 - **WHEN** the existing HTML-only review-pack mode is used
 - **THEN** no Blender probe or Blender process is launched and media/evidence hashes retain their current contract
+
+#### Scenario: Launch an installed backend without the checkout
+- **Verification:** real wheel-installed build with absent checkout imports and host-environment isolation assertions.
+- **WHEN** installed HML launches the pinned Blender from a caller-owned workspace
+- **THEN** the package supplies the entry script and all HML modules required by Blender's embedded interpreter for the lifetime of the invocation
+- **AND** neither the checkout nor host site-packages is added to Blender's import path, and the host Python version is not imposed on Blender
+- **AND** Blender remains an explicit external prerequisite, with the unchanged version/build/reference-platform pins and no automatic executable or asset download.
 
 ### Requirement: Backend execution and cancellation are bounded
 
@@ -43,11 +50,11 @@ Every supervised invocation SHALL have a finite positive execution deadline. Tim
 
 ### Requirement: Checkout-owned backend work does not overlap
 
-At most one supervised Blender child SHALL be active per checkout across independent callers. Waiting for the execution slot SHALL have a finite deadline and be cancellable. Abandoned ownership records SHALL NOT block later work after the actual owner has exited, and another caller SHALL NOT release or replace a live owner's slot.
+At most one supervised Blender child SHALL be active per selected workspace across independent callers, including callers using different installations. The checkout SHALL serve as a workspace for repository use. Waiting for the execution slot SHALL have a finite deadline and be cancellable. Abandoned ownership records SHALL NOT block later work after the actual owner has exited, and another caller SHALL NOT release or replace a live owner's slot. Slot state SHALL reside in the workspace's `build/`, outside immutable package resources.
 
 #### Scenario: Contend for a running backend
 - **Verification:** two-supervisor integration test with child lifetime intervals and bounded wait assertions.
-- **WHEN** two independent callers target the same checkout while the first owns the execution slot
+- **WHEN** two independent callers target the same workspace while the first owns the execution slot
 - **THEN** their Blender child lifetime intervals do not overlap
 - **AND** a caller whose slot-wait deadline expires records contention without spawning a child
 - **AND** unrelated Python-only checks can proceed
@@ -59,9 +66,16 @@ At most one supervised Blender child SHALL be active per checkout across indepen
 - **AND** after the owned process tree has ended the execution slot becomes available without deleting a live owner's lock
 - **AND** unverifiable orphan ownership is reported as requiring operator resolution rather than bypassed
 
+#### Scenario: Share ownership across installed callers
+- **Verification:** two independently installed callers, symlink-resolved workspace assertion and filesystem inspection.
+- **WHEN** callers from two installations select paths resolving to the same workspace
+- **THEN** they contend for the same persistent workspace lock/state and cannot overlap
+- **AND** distinct workspaces use distinct ownership state without modifying either installation
+- **AND** source-tree commands selecting the checkout retain its existing `build/.backend-execution.lock` and state-file locations.
+
 ### Requirement: Invocation evidence survives failures
 
-Each invocation SHALL retain a machine-readable outcome and captured output within its owning run. Evidence SHALL identify operation, command, source identity, executable, platform, timing, deadline, exit status or signal, timeout/cancellation, last observed phase and output-validation result. Unobserved phases SHALL be marked unknown. A parent killed before finalization SHALL leave recognizable unfinished evidence.
+Each invocation SHALL retain a machine-readable outcome and captured output within its owning run. Evidence SHALL identify operation, command, source identity, package version/resource identity, implementation identity, workspace, executable, platform, timing, deadline, exit status or signal, timeout/cancellation, last observed phase and output-validation result. Unobserved phases SHALL be marked unknown. A parent killed before finalization SHALL leave recognizable unfinished evidence.
 
 #### Scenario: Diagnose a native failure before the script starts
 - **Verification:** synthetic signal-equivalent nonzero exit and receipt/log field validation; no real application is deliberately crashed.
@@ -76,6 +90,13 @@ Each invocation SHALL retain a machine-readable outcome and captured output with
 - **THEN** the evidence preserves the last observed phase and treats script completion separately from process exit
 - **AND** a nonzero exit after script completion is still failure
 - **AND** an interrupted parent leaves an initial unfinished record distinguishable from a final successful outcome
+
+#### Scenario: Identify a wheel-installed invocation
+- **Verification:** installed build receipt/metadata comparison against distribution metadata and manifest hashes.
+- **WHEN** a supervised invocation is started without a source checkout
+- **THEN** its prepared input, receipt and build/render metadata identify the same installed release and source/implementation inventory
+- **AND** machine-specific command/workspace paths remain diagnostic evidence rather than canonical source identity
+- **AND** collecting identity requires neither Git nor a development `uv.lock` or `pyproject.toml`.
 
 ### Requirement: Successful execution requires complete fresh evidence
 
