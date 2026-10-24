@@ -42,9 +42,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"unknown hml command {command!r}; choose from {', '.join(sorted(_COMMANDS))}")
     module_name, _ = _COMMANDS[command]
     module = __import__(module_name, fromlist=["main"])
-    sys.argv = ["hml " + command, *args]
     if command == "check-environment":
+        sys.argv = ["hml " + command, *args]
         return module.main(["--check-environment", *args])
-    if command in ("prepare-skeleton", "run-blender", "verify-skeleton", "review-pack"):
+    if command in ("prepare-skeleton", "run-blender"):
+        return module.main(workspace=workspace, argv=args)
+    sys.argv = ["hml " + command, *args]
+    if command in ("verify-skeleton", "review-pack"):
         return module.main(workspace=workspace)
     return module.main()

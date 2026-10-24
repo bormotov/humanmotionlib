@@ -190,10 +190,11 @@ print("HML_PHASE " + json.dumps({"phase": "script_complete", "prepared_sha256": 
                 self.assertEqual(review_pack.main(workspace=workspace), 0)
                 self.assertEqual(invocation_count, 4)  # probe and render child for each pass
                 for name in ("clean-a", "clean-b"):
-                    process_root = pack / name / "processes"
+                    process_root = (pack / name / "processes").resolve()
                     receipts = [json.loads(path.read_text()) for path in process_root.glob("*/outcome.json")]
                     self.assertEqual({receipt["operation"] for receipt in receipts}, {"version-probe", "render-pass"})
-                    self.assertTrue(all(Path(receipt["stdout_log"]).is_relative_to(process_root) for receipt in receipts))
+                    self.assertTrue(all(Path(receipt["stdout_log"]).is_relative_to(process_root) for receipt in receipts),
+                                    {str(process_root): [receipt["stdout_log"] for receipt in receipts]})
                     self.assertTrue(all(receipt["scratch_cleanup"]["status"] == "removed-after-child-exit"
                                         for receipt in receipts))
                     self.assertTrue(all(not Path(receipt["scratch_cleanup"]["path"]).exists()

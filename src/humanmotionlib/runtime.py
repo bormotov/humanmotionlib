@@ -605,6 +605,7 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                                              stdin=subprocess.DEVNULL, env=child_env, start_new_session=True)
                 except OSError as error:
                     receipt.update({"state": "failed", "outcome": "spawn_error", "error": str(error),
+                                    "spawn_error": {"type": type(error).__name__, "errno": error.errno},
                                     "finished_at": _utc_now(), "elapsed_seconds": time.monotonic() - started})
                     receipt["cleanup"] = {"status": "confirmed"}
                     receipt["scratch_cleanup"] = {"path": str(scratch_root),

@@ -23,6 +23,59 @@ require Blender `5.2.2 LTS`, build `d13f752e3b9c`, on the documented reference
 platform. HML checks the selected executable and reports a controlled error if
 it is missing or has a different build. HML does not download Blender.
 
+## Public Python generation API
+
+`humanmotionlib.api` is the supported synchronous interface for the packaged
+skeleton diagnostics. Preparation validates sources and returns poses plus
+exact per-BPM timelines without probing Blender. Rendering uses the pinned
+external Blender backend. The API does not yet accept arbitrary pose, segment
+or motion sources.
+
+```python
+from pathlib import Path
+
+from humanmotionlib.api import GenerationError, prepare, render
+
+workspace = Path("/absolute/caller/workspace")
+try:
+    prepared = prepare(
+        workspace=workspace,
+        output="build/library-use_r1_app_try-1_prepare/input.json",
+        fixtures=("neutral", "arm-raise"),
+        bpms=(90,),
+    )
+    result = render(
+        prepared, workspace=workspace,
+        output="build/library-use_r1_app_try-1_render",
+    )
+except GenerationError as error:
+    print(error.code, error.run_root, error.receipt_path)
+    raise
+
+front = {image.sample_id: image.path for image in result.images
+         if image.view == "front"}
+timeline = next(item for item in prepared.timelines
+                if item.fixture_id == "arm-raise" and item.mode == "animation")
+frames = [(entry.seconds, front[entry.sample_id]) for entry in timeline.entries]
+portable_result = result.to_dict()  # standard json.dumps-compatible
+```
+
+Every writing call needs an explicit absolute workspace and a fresh flat run
+root under `workspace/build/`. Relative operands resolve from that workspace.
+The result exposes pose/control/contact data, image paths, source hashes,
+provenance, the used-materials register and applicable license/notice text.
+`prepared_sha256` is the sealed prepared-content identity checked by
+`read_prepared`, not a hash of the JSON file's formatting bytes. Exact times
+serialize as numerator/denominator pairs. `render` accepts either
+the returned preparation result or its prepared JSON path; it re-reads and
+verifies persisted bytes before rendering. Catch `GenerationError` to inspect
+its stable `code`, `operation`, `run_root`, `receipt_path` and JSON-compatible
+`details`. Stable codes are `invalid-request`, `source-validation`,
+`input-integrity`, `io-error`, `backend-unavailable`, `backend-mismatch`,
+`backend-contention`, `backend-timeout`, `backend-spawn`, `backend-failed`,
+`output-integrity` and `cleanup-pending`. Numerical acceptance remains
+`not-run` and visual acceptance remains `pending` until their separate checks.
+
 ## Commands
 
 The global `--workspace PATH` is required for every command that writes files

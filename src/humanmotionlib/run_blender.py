@@ -161,7 +161,7 @@ def run(input_path, output, *, render_dir=None, render_only=False,
             contracts["readable_image_count"] = decoded
         update_receipt(receipt, output_validation={"status": "pass", "contracts": contracts,
                                                    "files": receipt["output_validation"].get("files", [])})
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, json.JSONDecodeError) as error:
         receipt_path = Path(receipt["stdout_log"]).parent / "outcome.json"
         update_receipt(receipt, state="failed", outcome="output-contract-failed",
                        output_validation={"status": "fail", "reason": str(error)})
@@ -179,7 +179,7 @@ def validate_fresh_targets(outputs):
     return stale
 
 
-def main(workspace=None):
+def main(workspace=None, argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -188,12 +188,22 @@ def main(workspace=None):
     parser.add_argument("--owner-run", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_BUILD_TIMEOUT)
     parser.add_argument("--slot-timeout-seconds", type=float, default=DEFAULT_SLOT_TIMEOUT)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
-        receipt = run(args.input, args.output, render_dir=args.render_dir, render_only=args.render_only,
-                      timeout_seconds=args.timeout_seconds, slot_timeout_seconds=args.slot_timeout_seconds,
-                      workspace=workspace, owner_run=args.owner_run)
-    except (ValueError, OSError, InvocationError) as error:
+        if args.owner_run is not None:
+            # Internal managed review passes keep their ownership capability private.
+            receipt = run(args.input, args.output, render_dir=args.render_dir, render_only=args.render_only,
+                          timeout_seconds=args.timeout_seconds, slot_timeout_seconds=args.slot_timeout_seconds,
+                          workspace=workspace, owner_run=args.owner_run)
+            result = None
+        else:
+            from humanmotionlib.api import render as public_render
+            result = public_render(args.input, workspace=workspace, output=args.output,
+                                   images=args.render_dir is not None, render_dir=args.render_dir,
+                                   render_only=args.render_only, timeout_seconds=args.timeout_seconds,
+                                   slot_timeout_seconds=args.slot_timeout_seconds)
+            receipt = json.loads(result.receipt_path.read_text())
+    except (ValueError, OSError, InvocationError, RuntimeError) as error:
         print(str(error), file=sys.stderr, flush=True)
         return 1
     print(json.dumps({"state": receipt["state"], "operation": receipt["operation"],

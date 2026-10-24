@@ -231,6 +231,42 @@ raise SystemExit(main(workspace=workspace))
     assert "Prepared 900 samples" in direct.stdout
     assert (workspace / direct_output).read_bytes() == prepared_paths[0].read_bytes()
 
+    # The public API prepares structured records outside the checkout. A controlled
+    # missing-backend probe verifies catchable failure and receipt evidence without
+    # relying on the workstation's Blender installation.
+    api_output = "build/portable-installed-runtime_e3dcbf_ci_attempt-5_api-prepare/input.json"
+    api_result = run([str(python), "-c", """
+import json, pathlib, sys
+from humanmotionlib.api import prepare
+workspace, output = map(pathlib.Path, sys.argv[1:3])
+result = prepare(workspace=workspace, output=output, fixtures=('neutral','arm-raise'), bpms=(90,))
+data = result.to_dict()
+assert len(data['poses']) == len(result.poses)
+assert data['timelines'][0]['entries'][0]['seconds'] == {'numerator': 0, 'denominator': 1}
+assert result.prepared_path.is_file()
+print(json.dumps({'prepared_sha256': result.prepared_sha256, 'poses': len(result.poses),
+ 'timelines': len(result.timelines), 'materials': result.provenance.material_ids}))
+""", str(workspace), api_output], cwd=external_cwds[0], env=env)
+    api_identity = json.loads(api_result.stdout)
+    missing_path = run_root / "empty-path"
+    missing_path.mkdir()
+    api_failure = run([str(python), "-c", """
+import json, pathlib, sys
+from humanmotionlib.api import GenerationError, render
+workspace, prepared, output = map(pathlib.Path, sys.argv[1:4])
+try:
+    render(prepared, workspace=workspace, output=output)
+except GenerationError as error:
+    assert error.code == 'backend-unavailable', (error.code, error.to_dict())
+    assert error.receipt_path and error.receipt_path.is_file()
+    print(json.dumps({'code': error.code, 'receipt_path': str(error.receipt_path),
+      'run_root': str(error.run_root), 'outcome': error.details['supervisor_outcome']['outcome']}))
+else:
+    raise AssertionError('missing Blender should fail through a catchable API error')
+""", str(workspace), api_output, "build/portable-installed-runtime_e3dcbf_ci_attempt-6_api-failure"],
+        cwd=external_cwds[1], env=env | {"PATH": str(missing_path)})
+    api_failure_data = json.loads(api_failure.stdout)
+
     # Installed numeric host verification also writes relative to the selected workspace.
     verification_output = "build/portable-installed-runtime_e3dcbf_ci_attempt-1_host-verify/report.json"
     run([str(cli), "--workspace", str(workspace), "verify-skeleton", "--input",
@@ -349,14 +385,16 @@ raise SystemExit(main(workspace=workspace))
     assert bytecode_before == bytecode_after, "acceptance created or removed Python bytecode"
     result = {
         "status": "pass",
-        "scope": "installed-wheel-host-and-synthetic-presentation; real Blender unexecuted",
+        "scope": "installed-wheel-host-and-synthetic-presentation; real Blender render excluded; structured missing-backend failure checked",
         "distribution": package_identity,
         "python": subprocess.check_output([str(python), "--version"], text=True).strip(),
-        "entry_points": ["console", "python -m", "direct prepare writer API"],
+        "entry_points": ["console", "python -m", "direct prepare writer API", "public generation API"],
         "cwd_count": 2,
         "source_validation": {key: validation_data[key] for key in
                               ("status", "structures", "actions", "placements", "fixtures")},
         "prepared_samples": len(prepared["samples"]),
+        "public_api": api_identity,
+        "public_api_backend_failure": api_failure_data,
         "numeric_verification": verification["status"],
         "html_only": "pass; protected predecessor unchanged; no backend command",
         "integrity_negative_cases": integrity_failures + ["prepared-content", "stale-render-reuse",

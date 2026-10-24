@@ -53,8 +53,28 @@ reproducible lock operations. The workflow pins uv 0.13.5.
 
 The following entry points are approved by the change design. Validation,
 preparation, headless construction, numeric verification, render-pack assembly,
-and HTML-only presentation regeneration are available. A command existing does
-not establish complete OpenSpec acceptance; the task list tracks the checks.
+and HTML-only presentation regeneration are available. The synchronous public
+Python generation API for packaged skeleton diagnostics is documented in
+[`docs/usage.md`](../docs/usage.md); it uses the same workspace and supervised
+Blender contracts as the CLI:
+
+```python
+from pathlib import Path
+from humanmotionlib.api import GenerationError, prepare, render
+
+workspace = Path("/absolute/caller/workspace")
+try:
+    prepared = prepare(workspace=workspace, output="build/library-use_r1_app_try-1_prepare/input.json",
+                       fixtures=("neutral", "arm-raise"), bpms=(90,))
+    result = render(prepared, workspace=workspace,
+                    output="build/library-use_r1_app_try-1_render")
+except GenerationError as error:
+    print(error.code, error.run_root, error.receipt_path)
+    raise
+```
+
+A command existing does not establish complete OpenSpec acceptance; the task
+list tracks the checks.
 
 ```sh
 uv run --locked --no-sync hml validate --profile adult-reference-v1

@@ -65,29 +65,23 @@ def prepare(profile_id,stature=None,fixtures=None,bpms=(60,120,180)):
                                  'Prepared transforms do not establish evaluated-mesh, contact, render, or human acceptance.']})
 
 
-def main(workspace=None):
+def main(workspace=None, argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile",required=True)
     parser.add_argument("--output",required=True,type=Path)
     parser.add_argument("--stature",type=float)
     parser.add_argument("--fixtures",nargs="+",help="Explicit diagnostic subset for isolated builds")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
-        root = workspace_root(workspace)
-        output = resolve_workspace_path(args.output, root)
-        run_root = validate_run_root(output.parent, root)
-        if output.exists():
-            raise ValueError(f"prepared output already exists: {output}")
-        if run_root.exists() and any(run_root.iterdir()):
-            raise ValueError(f"prepare run root is occupied: {run_root}")
-        # Complete package/source validation before creating caller-owned state.
-        value = prepare(args.profile,args.stature,args.fixtures)
-        ensure_workspace_build(root)
-        run_root.mkdir(parents=True, exist_ok=True)
-        write_json(output,value)
-        print(f"Prepared {len(value['samples'])} samples: {output}")
+        from humanmotionlib.api import prepare as public_prepare
+        result = public_prepare(workspace=workspace, output=args.output, profile=args.profile,
+                                stature=args.stature, fixtures=args.fixtures)
+        print(f"Prepared {len(result.poses)} samples: {result.prepared_path}")
         return 0
-    except (ValueError,OSError) as error:
+    except (ValueError, OSError) as error:
+        print(str(error),file=sys.stderr)
+        return 1
+    except RuntimeError as error:
         print(str(error),file=sys.stderr)
         return 1
 

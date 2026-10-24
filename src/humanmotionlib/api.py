@@ -1,0 +1,547 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Small synchronous API for preparing and rendering packaged HML diagnostics.
+
+The API currently covers the installed skeleton diagnostic pipeline only.  It
+does not accept arbitrary pose data or expose a general exercise authoring
+interface. Blender is an external, pinned backend used only by :func:`render`.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, fields, is_dataclass
+from fractions import Fraction
+import json
+import math
+from pathlib import Path
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from typing import Any
+
+from humanmotionlib import prepare_skeleton, run_blender
+from humanmotionlib.package_resources import PackageResourceError, read_bytes, read_text
+from humanmotionlib.prepared import read_prepared
+from humanmotionlib.runtime import (
+    DEFAULT_BUILD_TIMEOUT,
+    DEFAULT_SLOT_TIMEOUT,
+    InvocationError,
+    SlotTimeout,
+    ensure_workspace_build,
+    resolve_workspace_path,
+    validate_run_root,
+    validate_timeout,
+    workspace_root,
+)
+from humanmotionlib.source_validation import SourceValidationError
+
+
+def _plain(value: Any) -> Any:
+    """Convert a result to a detached JSON-compatible tree."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _plain(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Path):
+        return str(value.resolve())
+    if isinstance(value, Fraction):
+        return {"numerator": value.numerator, "denominator": value.denominator}
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_plain(item) for item in value]
+    return deepcopy(value)
+
+
+class _Record:
+    def to_dict(self) -> dict[str, Any]:
+        return _plain(self)
+
+
+@dataclass(frozen=True)
+class PoseSample(_Record):
+    sample_id: str
+    fixture_id: str
+    beat: Fraction
+    actions: Mapping[str, Any]
+    fk_deltas: Mapping[str, Any]
+    world_root: Mapping[str, Any]
+    controls: tuple[str, ...]
+    rest_policy: Mapping[str, Any]
+    contacts: tuple[Mapping[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class TimelineEntry(_Record):
+    sample_id: str
+    frame_index: int
+    beat: Fraction
+    seconds: Fraction
+
+
+@dataclass(frozen=True)
+class Timeline(_Record):
+    fixture_id: str
+    bpm: int | float
+    mode: str
+    entries: tuple[TimelineEntry, ...]
+
+
+@dataclass(frozen=True)
+class SourceProvenance(_Record):
+    logical_path: str
+    sha256: str
+    license: str | None
+    provenance: Mapping[str, Any] | None
+    nested_provenance: Mapping[str, Mapping[str, Any]]
+
+
+@dataclass(frozen=True)
+class ProvenanceInfo(_Record):
+    sources: tuple[SourceProvenance, ...]
+    material_ids: tuple[str, ...]
+    register_text: str
+    licenses: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class PreparedResult(_Record):
+    workspace: Path
+    run_root: Path
+    prepared_path: Path
+    prepared_sha256: str
+    profile_id: str
+    stature_m: float
+    package_identity: Mapping[str, Any]
+    poses: tuple[PoseSample, ...]
+    timelines: tuple[Timeline, ...]
+    provenance: ProvenanceInfo
+    units: Mapping[str, Any]
+    limitations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RenderedImage(_Record):
+    sample_id: str
+    view: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class GenerationResult(_Record):
+    prepared: PreparedResult
+    output_root: Path
+    images: tuple[RenderedImage, ...]
+    artifacts: Mapping[str, Path]
+    receipt_path: Path
+    backend_identity: Mapping[str, Any]
+    numerical_acceptance: str
+    visual_acceptance: str
+
+
+class GenerationError(RuntimeError):
+    """Expected public-operation failure with stable code and evidence paths."""
+
+    def __init__(self, code: str, operation: str, message: str, *,
+                 run_root: Path | None = None, receipt_path: Path | None = None,
+                 details: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.code = code
+        self.operation = operation
+        self.run_root = run_root
+        self.receipt_path = receipt_path
+        self.details = deepcopy(dict(details or {}))
+
+    def to_dict(self) -> dict[str, Any]:
+        return _plain({"code": self.code, "operation": self.operation,
+                       "message": str(self), "run_root": self.run_root,
+                       "receipt_path": self.receipt_path, "details": self.details})
+
+
+class _RequestError(ValueError):
+    """A rejected public argument or destination preflight."""
+
+
+_LICENSE_RESOURCES = ("LICENSE-CODE", "LICENSE-DATA", "THIRD-PARTY-NOTICES.md")
+
+
+def _fraction(value: Mapping[str, Any]) -> Fraction:
+    return Fraction(value["numerator"], value["denominator"])
+
+
+def _unique_json(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _records_with_provenance(value: Any, prefix: str = "") -> dict[str, Mapping[str, Any]]:
+    found: dict[str, Mapping[str, Any]] = {}
+    if isinstance(value, dict):
+        if isinstance(value.get("provenance"), dict):
+            found[prefix or "/"] = deepcopy(value["provenance"])
+        for key, child in value.items():
+            escaped = str(key).replace("~", "~0").replace("/", "~1")
+            found.update(_records_with_provenance(child, prefix + "/" + escaped))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found.update(_records_with_provenance(child, prefix + "/" + str(index)))
+    return found
+
+
+def _material_ids(value: Any) -> set[str]:
+    result: set[str] = set()
+    if isinstance(value, dict):
+        if isinstance(value.get("sources"), list):
+            for source in value["sources"]:
+                if isinstance(source, dict) and isinstance(source.get("material"), str):
+                    result.add(source["material"])
+        for child in value.values():
+            result.update(_material_ids(child))
+    elif isinstance(value, list):
+        for child in value:
+            result.update(_material_ids(child))
+    return result
+
+
+def _source_documents(prepared: Mapping[str, Any]) -> dict[str, Any]:
+    sources = prepared["sources"]
+    documents = {
+        "profile": sources["profile"], "mobility": sources["mobility"],
+        "body-groups": sources["body-groups"], "humanoid-map": sources["humanoid-map"],
+        "review-scene": sources["review-scene"],
+    }
+    for fixture in sources["diagnostics"]:
+        documents[f"rig/diagnostics/{fixture['id']}.yaml"] = fixture
+    return documents
+
+
+def _provenance(prepared: Mapping[str, Any]) -> ProvenanceInfo:
+    from humanmotionlib.validate import load_yaml_text
+
+    docs = _source_documents(prepared)
+    source_records: list[SourceProvenance] = []
+    materials: set[str] = set()
+    for logical, digest in sorted(prepared["source_hashes"].items()):
+        document_key = logical
+        if logical.startswith("rig/profiles/"):
+            document_key = "profile"
+        elif logical.startswith("rig/mobility/"):
+            document_key = "mobility"
+        elif logical == "rig/body-groups.yaml":
+            document_key = "body-groups"
+        elif logical == "rig/humanoid-map.yaml":
+            document_key = "humanoid-map"
+        elif logical == "scenes/skeleton-review.yaml":
+            document_key = "review-scene"
+        document = docs.get(document_key)
+        # Hashes and provenance describe packaged source bytes, not scaled copies.
+        raw = read_bytes(logical)
+        parsed = document
+        if logical.endswith((".yaml", ".yml")):
+            parsed = load_yaml_text(raw.decode("utf-8"), logical)
+        nested = _records_with_provenance(parsed) if parsed is not None else {}
+        root_provenance = parsed.get("provenance") if isinstance(parsed, dict) else None
+        root_license = root_provenance.get("license") if isinstance(root_provenance, dict) else None
+        source_records.append(SourceProvenance(
+            logical_path=logical, sha256=digest, license=root_license,
+            provenance=deepcopy(root_provenance) if isinstance(root_provenance, dict) else None,
+            nested_provenance=nested,
+        ))
+        materials.update(_material_ids(parsed))
+    licenses = {name: read_text(name) for name in _LICENSE_RESOURCES}
+    return ProvenanceInfo(tuple(source_records), tuple(sorted(materials)),
+                          read_text("docs/used-materials.md"), licenses)
+
+
+def _project(prepared: Mapping[str, Any], workspace: Path, prepared_path: Path) -> PreparedResult:
+    fixtures = {item["id"]: item for item in prepared["sources"]["diagnostics"]}
+    pose_by_id: dict[str, PoseSample] = {}
+    poses: list[PoseSample] = []
+    for sample in prepared["samples"]:
+        fixture = fixtures[sample["fixture"]]
+        pose = PoseSample(
+            sample_id=sample["id"], fixture_id=sample["fixture"], beat=_fraction(sample["beat"]),
+            actions=deepcopy(sample["expected_actions"]), fk_deltas=deepcopy(sample["fk_deltas"]),
+            world_root=deepcopy(sample["world_root"]), controls=tuple(fixture["controls"]),
+            rest_policy=deepcopy(fixture["rest_policy"]), contacts=tuple(deepcopy(sample["contacts"])),
+        )
+        pose_by_id[pose.sample_id] = pose
+        poses.append(pose)
+    requested_bpms = list(prepared["sampling"].values())
+    # Preserve the caller's requested order as stored by the source preparation plans.
+    bpm_order: list[int | float] = []
+    if requested_bpms:
+        for plan in next(iter(requested_bpms)):
+            bpm_order.append(plan["bpm"])
+    timelines: list[Timeline] = []
+    for fixture_id in sorted(prepared["sampling"]):
+        for bpm in bpm_order:
+            plan = next(plan for plan in prepared["sampling"][fixture_id] if plan["bpm"] == bpm)
+            for mode in ("static", "animation"):
+                entries = tuple(TimelineEntry(
+                    sample_id=record["sample_id"], frame_index=record["frame_id"],
+                    beat=_fraction(record["beat"]), seconds=_fraction(record["seconds"]),
+                ) for record in plan[mode])
+                timelines.append(Timeline(fixture_id, bpm, mode, entries))
+    package_identity = deepcopy(prepared["package_identity"])
+    return PreparedResult(
+        workspace=workspace, run_root=prepared_path.parent.resolve(), prepared_path=prepared_path.resolve(),
+        prepared_sha256=prepared["content_sha256"], profile_id=prepared["sources"]["profile"]["id"],
+        stature_m=prepared["sources"]["profile"]["stature_m"], package_identity=package_identity,
+        poses=tuple(poses), timelines=tuple(timelines), provenance=_provenance(prepared),
+        units=deepcopy(prepared["units"]), limitations=tuple(prepared["limitations"]),
+    )
+
+
+def _validate_selection(value: Any, name: str, *, allow_none: bool = False) -> list[Any] | None:
+    if value is None and allow_none:
+        return None
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{name} must be a nonempty sequence")
+    result = list(value)
+    if not result:
+        raise ValueError(f"{name} must not be empty")
+    return result
+
+
+def _positive_number(value: Any, name: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite positive number")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+def _translate_error(error: Exception, operation: str, run_root: Path | None = None) -> GenerationError:
+    receipt_path: Path | None = None
+    details: dict[str, Any] = {}
+    if isinstance(error, InvocationError):
+        candidate = Path(error.receipt) if error.receipt else None
+        receipt_path = candidate if candidate and candidate.is_file() and candidate.name == "outcome.json" else None
+        outcome: str | None = None
+        receipt: dict[str, Any] = {}
+        if receipt_path:
+            try:
+                receipt = json.loads(receipt_path.read_text())
+                outcome = receipt.get("outcome")
+                details["supervisor_outcome"] = deepcopy(receipt)
+                if receipt.get("cleanup", {}).get("status") == "cleanup_pending":
+                    code = "cleanup-pending"
+                    return GenerationError(code, operation, str(error), run_root=run_root,
+                                           receipt_path=receipt_path, details=details)
+                if receipt.get("output_validation", {}).get("status") == "fail" or outcome == "output-contract-failed":
+                    code = "output-integrity"
+                    return GenerationError(code, operation, str(error), run_root=run_root,
+                                           receipt_path=receipt_path, details=details)
+            except (OSError, json.JSONDecodeError):
+                pass
+        if outcome == "timeout":
+            code = "backend-timeout"
+        elif outcome == "spawn_error":
+            code = ("backend-unavailable" if receipt and receipt.get("operation") == "version-probe"
+                    and receipt.get("spawn_error", {}).get("errno") == 2 else "backend-spawn")
+        elif outcome == "contention" or isinstance(error.__cause__, SlotTimeout):
+            code = "backend-contention"
+        elif outcome == "identity_error":
+            code = "backend-mismatch"
+        elif outcome in {"exit", "orphaned-descendant", "cancelled", "leader-state-running", "leader-state-ambiguous"}:
+            code = "backend-failed"
+        else:
+            code = "backend-unavailable"
+    elif isinstance(error, (PackageResourceError, SourceValidationError)):
+        code = "source-validation"
+    elif isinstance(error, OSError):
+        code = "io-error"
+    elif isinstance(error, _RequestError):
+        code = "invalid-request"
+    elif isinstance(error, (ValueError, TypeError, KeyError, json.JSONDecodeError)):
+        code = "invalid-request"
+    else:
+        code = "backend-failed" if operation == "render" else "source-validation"
+    return GenerationError(code, operation, str(error), run_root=run_root,
+                          receipt_path=receipt_path, details=details)
+
+
+def prepare(*, workspace: str | Path, output: str | Path,
+            profile: str = "adult-reference-v1", stature: float | None = None,
+            fixtures: Sequence[str] | None = None,
+            bpms: Sequence[int | float] = (60, 120, 180)) -> PreparedResult:
+    """Validate packaged sources, persist prepared data and return joined records.
+
+    This host-only operation never probes Blender. ``workspace`` must be an
+    absolute caller-owned workspace; ``output`` is a fresh JSON file in a new
+    or empty flat run root below its ``build/`` directory.
+    """
+    run_root: Path | None = None
+    try:
+        root = workspace_root(workspace)
+        if not isinstance(profile, str) or not profile:
+            raise ValueError("profile must be a nonempty packaged profile identifier")
+        if stature is not None:
+            stature = _positive_number(stature, "stature")
+        fixture_ids = _validate_selection(fixtures, "fixtures", allow_none=True)
+        if fixture_ids is not None:
+            if any(not isinstance(item, str) or not item for item in fixture_ids):
+                raise ValueError("fixtures must contain nonempty identifiers")
+            if len(set(fixture_ids)) != len(fixture_ids):
+                raise ValueError("fixtures must not contain duplicates")
+        bpm_values = _validate_selection(bpms, "bpms")
+        assert bpm_values is not None
+        normalized_bpms: list[int | float] = []
+        seen_bpms: set[Fraction] = set()
+        for value in bpm_values:
+            bpm = _positive_number(value, "BPM")
+            normalized = Fraction(str(bpm))
+            if normalized in seen_bpms:
+                raise ValueError("bpms must not contain duplicate numeric values")
+            seen_bpms.add(normalized)
+            normalized_bpms.append(bpm)
+        destination = resolve_workspace_path(output, root)
+        run_root = validate_run_root(destination.parent, root)
+        if destination.exists():
+            raise _RequestError(f"prepared output already exists: {destination}")
+        if run_root.exists() and (not run_root.is_dir() or any(run_root.iterdir())):
+            raise _RequestError(f"prepare run root is occupied: {run_root}")
+        value = prepare_skeleton.prepare(profile, stature, fixture_ids, tuple(normalized_bpms))
+        ensure_workspace_build(root)
+        run_root.mkdir(parents=True, exist_ok=True)
+        from humanmotionlib.prepared import write_json
+        write_json(destination, value)
+        persisted = read_prepared(destination)
+        return _project(persisted, root, destination)
+    except GenerationError:
+        raise
+    except (ValueError, TypeError, KeyError, OSError, SourceValidationError,
+            PackageResourceError) as error:
+        raise _translate_error(error, "prepare", run_root) from error
+
+
+def _load_render_prepared(prepared: PreparedResult | str | Path,
+                          workspace: Path) -> tuple[dict[str, Any], PreparedResult]:
+    if isinstance(prepared, PreparedResult):
+        path = prepared.prepared_path
+        if not path.is_file():
+            raise ValueError(f"prepared input is missing: {path}")
+        actual = read_prepared(path)
+        if actual["content_sha256"] != prepared.prepared_sha256:
+            raise ValueError("PreparedResult identity does not match persisted input")
+    elif isinstance(prepared, (str, Path)):
+        path = resolve_workspace_path(prepared, workspace)
+        if path.is_dir():
+            path = path / "input.json"
+        actual = read_prepared(path)
+    else:
+        raise _RequestError("prepared must be a PreparedResult or prepared JSON path")
+    return actual, _project(actual, workspace, path)
+
+
+def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
+           output: str | Path, images: bool = True,
+           render_dir: str | Path | None = None, render_only: bool = False,
+           timeout_seconds: float = DEFAULT_BUILD_TIMEOUT,
+           slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT) -> GenerationResult:
+    """Build/render a persisted preparation with the pinned external Blender.
+
+    ``output`` is a fresh flat run root. Relative paths resolve from the
+    explicit absolute workspace. Images are rendered into ``output/frames``
+    by default. ``numerical_acceptance`` remains ``not-run`` and
+    ``visual_acceptance`` remains ``pending`` until their separate review gates.
+    """
+    output_root: Path | None = None
+    phase = "request"
+    try:
+        root = workspace_root(workspace)
+        output_root = resolve_workspace_path(output, root)
+        if not isinstance(images, bool) or not isinstance(render_only, bool):
+            raise _RequestError("images and render_only must be booleans")
+        if not images and render_dir is not None:
+            raise _RequestError("render_dir cannot be supplied when images are disabled")
+        timeout_seconds = _positive_number(timeout_seconds, "timeout_seconds")
+        slot_timeout_seconds = _positive_number(slot_timeout_seconds, "slot_timeout_seconds")
+        timeout_seconds = validate_timeout(timeout_seconds, "timeout_seconds")
+        slot_timeout_seconds = validate_timeout(slot_timeout_seconds, "slot_timeout_seconds")
+        try:
+            actual, prepared_result = _load_render_prepared(prepared, root)
+        except (ValueError, TypeError, KeyError, OSError, PackageResourceError) as error:
+            raise GenerationError("input-integrity", "render", str(error),
+                                  run_root=output_root) from error
+        if images:
+            frames = resolve_workspace_path(render_dir, root) if render_dir is not None else output_root / "frames"
+            try:
+                frames.relative_to(output_root)
+            except ValueError as error:
+                raise _RequestError("render directory must remain inside the output run") from error
+        else:
+            frames = None
+        phase = "backend"
+        receipt = run_blender.run(
+            prepared_result.prepared_path, output_root, render_dir=frames,
+            render_only=render_only, timeout_seconds=timeout_seconds,
+            slot_timeout_seconds=slot_timeout_seconds, workspace=root,
+        )
+        receipt_path = Path(receipt["stdout_log"]).parent / "outcome.json"
+        image_records: tuple[RenderedImage, ...] = ()
+        phase = "outputs"
+        if images:
+            manifest_path = output_root / "render-manifest.json"
+            from humanmotionlib.render_contract import read_supervised_receipt, validate_manifest
+            try:
+                manifest = json.loads(manifest_path.read_text(), object_pairs_hook=_unique_json)
+                required_paths = validate_manifest(manifest, actual, frames, output=output_root)
+                if not render_only:
+                    required_paths.extend((Path("evaluated.json"), Path("geometry-reference.json")))
+                read_supervised_receipt(output_root, actual, required_paths)
+            except (ValueError, TypeError, AttributeError, OSError, KeyError, json.JSONDecodeError) as error:
+                raise GenerationError("output-integrity", "render", str(error), run_root=output_root,
+                                      receipt_path=receipt_path) from error
+            by_id = {pose.sample_id: pose for pose in prepared_result.poses}
+            collected: list[RenderedImage] = []
+            for sample in actual["samples"]:
+                record = next(item for item in manifest["samples"] if item["id"] == sample["id"])
+                for view, relative in sorted(record["images"].items()):
+                    collected.append(RenderedImage(sample["id"], view, (frames / relative).resolve()))
+            image_records = tuple(collected)
+            # A sample must have its corresponding structured pose before it is exposed.
+            if any(item.sample_id not in by_id for item in image_records):
+                raise ValueError("render manifest references an unknown pose sample")
+        artifacts: dict[str, Path] = {
+            "prepared": (output_root / "input.json").resolve(),
+            "scene": (output_root / "skeleton.blend").resolve(),
+            "metadata": (output_root / "build-metadata.json").resolve(),
+        }
+        if not render_only:
+            artifacts.update({"evaluated": (output_root / "evaluated.json").resolve(),
+                              "geometry": (output_root / "geometry-reference.json").resolve()})
+        if images:
+            artifacts["render_manifest"] = (output_root / "render-manifest.json").resolve()
+        metadata = json.loads(artifacts["metadata"].read_text())
+        backend_identity = {
+            "version": metadata.get("blender_version"),
+            "build_hash": metadata.get("blender_build"),
+            "platform": metadata.get("platform"),
+        }
+        return GenerationResult(prepared_result, output_root.resolve(), image_records,
+                                artifacts, receipt_path.resolve(), backend_identity,
+                                "not-run", "pending")
+    except GenerationError:
+        raise
+    except KeyboardInterrupt:
+        raise
+    except (ValueError, TypeError, AttributeError, KeyError, OSError, json.JSONDecodeError,
+            PackageResourceError, SourceValidationError, InvocationError, SlotTimeout) as error:
+        if isinstance(error, InvocationError) and isinstance(error.__cause__, KeyboardInterrupt):
+            raise error.__cause__
+        if phase == "request" and isinstance(error, (ValueError, TypeError)):
+            raise GenerationError("invalid-request", "render", str(error),
+                                  run_root=output_root) from error
+        if phase == "backend" and isinstance(error, (ValueError, TypeError)):
+            raise GenerationError("invalid-request", "render", str(error),
+                                  run_root=output_root) from error
+        raise _translate_error(error, "render", output_root) from error
+
+
+__all__ = [
+    "GenerationError", "GenerationResult", "PoseSample", "PreparedResult",
+    "ProvenanceInfo", "RenderedImage", "SourceProvenance", "Timeline",
+    "TimelineEntry", "prepare", "render",
+]
