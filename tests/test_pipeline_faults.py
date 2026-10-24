@@ -3,7 +3,7 @@ import json
 import unittest
 
 from humanmotionlib.backend_measurements import verify_backend
-from humanmotionlib.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation
+from humanmotionlib.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation, project_root
 from humanmotionlib.verify_skeleton import verify_transforms
 from tests.run_roots import test_case_root, test_run_root
 
@@ -29,7 +29,7 @@ class PipelineFaultTests(unittest.TestCase):
         run_root=test_run_root('pipeline-faults')
         input_path=case_root/'input.json';output_path=case_root/'faults.json'
         write_json(input_path,p)
-        identity=inspect_blender(run_root)
+        identity=inspect_blender(run_root, workspace=project_root())
         self.assertTrue(identity['version'])
         self.assertTrue(identity['build_hash'])
         executable=identity['receipt']['executable']
@@ -38,7 +38,7 @@ class PipelineFaultTests(unittest.TestCase):
              '--python','tests/blender_fault_harness.py','--','--input',str(input_path),
              '--output',str(output_path)],
             run_root=run_root,operation='pipeline-fault-harness',timeout_seconds=DEFAULT_BUILD_TIMEOUT,
-            source_sha256=p['content_sha256'],expected_outputs=[output_path])
+            source_sha256=p['content_sha256'],expected_outputs=[output_path],workspace=project_root())
         self.assertEqual(receipt['state'],'succeeded')
         self.assertEqual(receipt['last_script_phase'],'script_complete',receipt)
         phases=[item['phase'] for item in receipt['phases']]

@@ -27,7 +27,7 @@ def prepared_fixture():
 
 def fresh_run(workspace: Path, name: str) -> Path:
     build = workspace / "build"
-    build.mkdir(exist_ok=True)
+    build.mkdir(parents=True, exist_ok=True)
     return build / f"package-humanmotionlib_r1_test_try-1_{name}"
 
 
@@ -199,10 +199,13 @@ class ReviewPackSupervisionTests(unittest.TestCase):
             with (mock.patch("humanmotionlib.run_blender.run", side_effect=completed_supervised_pass) as supervised,
                   mock.patch.object(review_pack, "read_prepared", return_value=prepared)):
                 result = review_pack.render_pass(input_path, output, frames,
-                                                 timeout_seconds=17, slot_timeout_seconds=4)
+                                                 timeout_seconds=17, slot_timeout_seconds=4,
+                                                 workspace=root)
             self.assertEqual(result['prepared_sha256'], prepared['content_sha256'])
-            supervised.assert_called_once_with(input_path, output, render_dir=frames, render_only=True,
-                                               timeout_seconds=17, slot_timeout_seconds=4, workspace=None)
+            supervised.assert_called_once_with(input_path.resolve(), output.resolve(),
+                                               render_dir=frames.resolve(), render_only=True,
+                                               timeout_seconds=17, slot_timeout_seconds=4,
+                                               workspace=root.resolve())
 
     def test_first_render_failure_does_not_retry_start_second_pass_or_assemble(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -240,6 +243,26 @@ class ReviewPackSupervisionTests(unittest.TestCase):
             for call in render.call_args_list:
                 self.assertEqual(call.kwargs["timeout_seconds"], 12.0)
                 self.assertEqual(call.kwargs["slot_timeout_seconds"], 3.0)
+
+    def test_normal_review_accepts_explicit_valid_input_from_another_workspace_read_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_workspace = root / "protected-source"
+            output_workspace = root / "caller-workspace"
+            input_root = fresh_run(source_workspace, "input")
+            input_root.mkdir(parents=True)
+            input_path = input_root / "input.json"
+            input_path.write_text("protected prepared bytes")
+            before = input_path.read_bytes()
+            output = fresh_run(output_workspace, "pack")
+            argv = ["review_pack.py", "--input", str(input_root), "--output",
+                    str(output.relative_to(output_workspace))]
+            with (mock.patch("sys.argv", argv),
+                  mock.patch.object(review_pack, "read_prepared", return_value=prepared_fixture()),
+                  mock.patch.object(review_pack, "render_pass", return_value={"prepared_sha256": "a" * 64}),
+                  mock.patch.object(review_pack, "assemble", return_value={"status": "pass"})):
+                self.assertEqual(review_pack.main(workspace=output_workspace), 0)
+            self.assertEqual(input_path.read_bytes(), before)
 
     def test_html_only_mode_never_probes_or_launches_backend(self):
         with tempfile.TemporaryDirectory() as temporary:

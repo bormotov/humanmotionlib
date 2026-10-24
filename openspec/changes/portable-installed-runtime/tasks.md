@@ -4,14 +4,14 @@ Implementation begins only after human approval of proposal, deltas and design (
 
 ## 1. Record the unchanged baseline
 
-- [ ] 1.1 Dev: identify or capture the unchanged installed-wheel baseline described in design section 6, using explicit workspace and fresh valid run roots; verify and record commit/release, wheel checksum, package/resource identity, backend pins and protected-input hashes in the developer hand-off.
-- [ ] 1.2 Dev: retain neutral/rest and four-beat arm-raise baseline evidence at the specified tempos and views; verify existing numeric/timing checks and required comparison inputs, with no modification of accepted historical packs.
+- [x] 1.1 Dev: identify or capture the unchanged installed-wheel baseline described in design section 6, using explicit workspace and fresh valid run roots; verify and record commit/release, wheel checksum, package/resource identity, backend pins and protected-input hashes in the developer hand-off.
+- [x] 1.2 Dev: retain neutral/rest and four-beat arm-raise baseline evidence at the specified tempos and views; verify existing numeric/timing checks and required comparison inputs, with no modification of accepted historical packs.
 
 ## 2. Require workspace and unify path resolution
 
-- [ ] 2.1 Dev: replace ambient workspace selection in `runtime.py` with required absolute workspace validation and workspace-relative read/write resolution, retaining fresh five-component runs, same-run exceptions and resolved containment; verify missing/empty/relative workspace, traversal, escaping build/run/content symlinks, occupied roots and disjoint input/output cases in focused runtime tests before any mutation.
-- [ ] 2.2 Dev: propagate the explicit context through `cli.py`, `prepare_skeleton.py` and maintained writer callers; update `tests/test_cli.py`, `tests/test_runtime.py` and affected caller fixtures, verifying console/module/API parity and identical prepared bytes/path choices from two unrelated invocation directories.
-- [ ] 2.3 Dev: document the interface break and source/installed examples in `docs/usage.md` and `tools/README.md`; verify the documented option placement and relative-operand behavior against both entry points, including help/version/validate/check-environment without workspace and without HML filesystem allocation.
+- [x] 2.1 Dev: replace ambient workspace selection in `runtime.py` with required absolute workspace validation and workspace-relative read/write resolution, retaining fresh five-component runs, same-run exceptions and resolved containment; verify missing/empty/relative workspace, traversal, escaping build/run/content symlinks, occupied roots and disjoint input/output cases in focused runtime tests before any mutation.
+- [x] 2.2 Dev: propagate the explicit context through `cli.py`, `prepare_skeleton.py` and maintained writer callers; update `tests/test_cli.py`, `tests/test_runtime.py` and affected caller fixtures, verifying console/module/API parity and identical prepared bytes/path choices from two unrelated invocation directories.
+- [x] 2.3 Dev: document the interface break and source/installed examples in `docs/usage.md` and `tools/README.md`; verify the documented option placement and relative-operand behavior against both entry points, including help/version/validate/check-environment without workspace and without HML filesystem allocation.
 
 ## 3. Contain numerical verification outputs
 

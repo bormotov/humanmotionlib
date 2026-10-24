@@ -10,19 +10,20 @@ from PIL import Image
 
 from humanmotionlib.prepared import read_prepared
 from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_SLOT_TIMEOUT, InvocationError,
-                           file_sha256, inspect_blender, invocation,
-                           update_receipt, validate_outputs, workspace_root)
+                           ensure_workspace_build, file_sha256, inspect_blender, invocation,
+                           resolve_workspace_path, update_receipt,
+                           validate_outputs, validate_run_root, workspace_root)
 
 
 _RUN_COMPONENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
-def owning_run_root(path, workspace=None):
+def owning_run_root(path, workspace):
     """Require one valid flat run identity under build, allowing tool content below it."""
     build = (workspace_root(workspace) / "build").resolve()
-    path = Path(path).resolve()
+    path = resolve_workspace_path(path, workspace)
     candidate = path
-    while candidate != build and candidate.parent != build:
+    while candidate != build and candidate.parent != build and candidate.parent != candidate:
         nested_parts = candidate.name.split("_")
         if len(nested_parts) == 5 and all(_RUN_COMPONENT.fullmatch(part) for part in nested_parts):
             raise ValueError(f"nested run identity is not tool content: {candidate}")
@@ -56,19 +57,27 @@ def expected_outputs(prepared, output, render_dir, render_only, input_file):
 def run(input_path, output, *, render_dir=None, render_only=False,
         timeout_seconds=DEFAULT_BUILD_TIMEOUT, slot_timeout_seconds=DEFAULT_SLOT_TIMEOUT,
         workspace=None):
-    input_path = Path(input_path).resolve()
-    output = Path(output).resolve()
+    workspace = workspace_root(workspace)
+    input_operand = resolve_workspace_path(input_path, workspace)
+    if input_operand.is_dir():
+        input_root = input_operand
+        input_path = input_operand / "input.json"
+    else:
+        input_path = input_operand
+        input_root = input_path.parent
+    output = resolve_workspace_path(output, workspace)
+    output = validate_run_root(output, workspace)
     owner_root = owning_run_root(output, workspace)
-    render_dir = Path(render_dir).resolve() if render_dir else None
+    render_dir = resolve_workspace_path(render_dir, workspace) if render_dir else None
     if render_dir is not None:
         try:
             render_dir.relative_to(output)
         except ValueError as error:
             raise ValueError("render directory must be inside the owning output run") from error
-    if input_path.is_relative_to(output) or output.is_relative_to(input_path.parent):
+    if input_path.is_relative_to(output) or output.is_relative_to(input_root):
         # The designated output run may also own the prepared input. A sibling
         # output root may not contain or overwrite the independent input root.
-        if input_path.parent != output:
+        if input_root != output:
             raise ValueError("prepared input and output roots must be disjoint or share the designated run root")
     prepared = read_prepared(input_path)
     outputs = expected_outputs(prepared, output, render_dir, render_only, input_path)
@@ -76,10 +85,11 @@ def run(input_path, output, *, render_dir=None, render_only=False,
     if failed_preflight:
         raise ValueError("stale output preflight failed: " + ", ".join(failed_preflight))
     if output == owner_root and output.exists():
-        allowed = {input_path} if input_path.parent == owner_root else set()
+        allowed = {input_path} if input_root == owner_root else set()
         unexpected = [entry for entry in output.iterdir() if entry.resolve() not in allowed]
         if unexpected:
             raise ValueError("backend run root is occupied: " + ", ".join(str(path) for path in unexpected))
+    ensure_workspace_build(workspace)
     output.mkdir(parents=True, exist_ok=True)
     probe = inspect_blender(output, slot_timeout_seconds=slot_timeout_seconds, workspace=workspace)
     script = Path(__file__).with_name("build_skeleton.py").resolve()

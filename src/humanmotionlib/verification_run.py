@@ -10,13 +10,22 @@ from humanmotionlib import math3d as m
 from humanmotionlib.backend_measurements import verify_backend
 from humanmotionlib.measurements import Measurements
 from humanmotionlib.prepared import write_json
+from humanmotionlib.runtime import validate_run_content_path, workspace_root
 
 
-def verify_collection(prepared,evaluated,output,transform_verifier):
+def verify_collection(prepared,evaluated,output,transform_verifier,*,workspace):
+    workspace = workspace_root(workspace)
+    output, run_root = validate_run_content_path(output, workspace)
+    details = output.parent/(output.stem+'-samples')
+    resolved_details, details_run = validate_run_content_path(details, workspace)
+    if details_run != run_root:
+        raise ValueError('verification sample shards must share the report owning run')
+    if output.exists() or resolved_details.exists():
+        raise ValueError('verification report or sample-shard destination already exists')
     if evaluated.get('prepared_sha256')!=prepared['content_sha256']:raise ValueError('Evaluated/prepared hash mismatch')
     expected={s['id']:s for s in prepared['samples']};actual={s['id']:s for s in evaluated['samples']}
     if len(actual)!=len(evaluated['samples']) or set(actual)!=set(expected):raise ValueError('Missing/extra/duplicate evaluated samples')
-    output=Path(output);details=output.parent/(output.stem+'-samples');details.mkdir(parents=True,exist_ok=True)
+    output=Path(output);details=resolved_details;details.mkdir(parents=True,exist_ok=False)
     reports=[];history={};first_scene=None;overall=Measurements(0);measured_action_values={}
     metadata=evaluated['metadata']
     declared_fixtures={f['id'] for f in prepared['sources']['diagnostics']}

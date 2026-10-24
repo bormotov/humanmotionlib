@@ -36,6 +36,8 @@ Requiring an absolute selection rather than interpreting a relative workspace on
 
 Resolve relative workflow path operands against the explicit workspace, then normalize them. This includes prepared input, backend input/output/render destinations, verification reports and stature inputs, review inputs/output, and HTML-only predecessors. Absolute operands retain their explicit meanings.
 
+A read-only prepared input may be internal content such as `build/<valid-run>/cases/.../input.json`; its immediate parent does not have to be a direct build run. Validate the prepared data and its integrity independently of filename or parent shape. The direct-child run rule applies to new independent output allocation; it must not be imposed on read-only prepared files. This distinction also preserves the existing rule permitting tool-managed content directories within one run.
+
 | Path purpose | Resolution and ownership |
 |---|---|
 | Runtime data, schemas, scene, licenses, notices, backend contract and implementation | Installed package resource/implementation inventory only |

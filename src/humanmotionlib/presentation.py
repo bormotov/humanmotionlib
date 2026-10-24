@@ -12,6 +12,8 @@ import re
 import shutil
 from urllib.parse import unquote, urlsplit
 
+from humanmotionlib.runtime import resolve_workspace_path, validate_run_root, workspace_root
+
 
 BPMS = (60, 120, 180)
 IMAGE_SUFFIXES = {".png", ".gif"}
@@ -24,6 +26,7 @@ EVIDENCE_NAMES = {
     "build-metadata.json",
     "source-snapshot.json",
     "review-publication.json",
+    "review-draft.md",
     "clean-a/render-manifest.json",
     "clean-b/render-manifest.json",
     "reference/input.json",
@@ -213,20 +216,84 @@ def _write_page(path: Path, title: str, body: str) -> None:
     )
 
 
-def regenerate_html(predecessor: Path, output: Path, generator_paths: list[Path]) -> dict:
-    predecessor = predecessor.resolve()
-    output = output.resolve()
+def _preflight_predecessor(predecessor: Path) -> tuple[list[str], dict[str, str]]:
+    """Validate all retained evidence, pages, links and preview media before output writes."""
+    ids = diagnostic_ids(predecessor)
+    for required in EVIDENCE_NAMES:
+        required_path = predecessor / required
+        if not required_path.is_file():
+            raise ValueError(f"Missing required HTML-only evidence input: {required}")
+        resolved = required_path.resolve()
+        try:
+            resolved.relative_to(predecessor.resolve())
+        except ValueError as error:
+            raise ValueError(f"HTML-only evidence escapes predecessor: {required}") from error
+    review = json.loads((predecessor / "review-publication.json").read_text(encoding="utf-8"))
+    snapshot = json.loads((predecessor / "source-snapshot.json").read_text(encoding="utf-8"))
+    if (not isinstance(review, dict) or not isinstance(snapshot, dict)
+            or not isinstance(review.get("source_snapshot_sha256"), str)
+            or not isinstance(review.get("review_sha256"), str) or not isinstance(review.get("verdict"), str)
+            or review.get("status") != "published"):
+        raise ValueError("Malformed retained predecessor identity evidence")
+    if review["source_snapshot_sha256"] != sha256(predecessor / "source-snapshot.json"):
+        raise ValueError("Retained predecessor source-snapshot identity does not match its file hash")
+    if review["review_sha256"] != sha256(predecessor / "review-draft.md"):
+        raise ValueError("Retained predecessor review identity does not match its file hash")
+    inventory = input_inventory(predecessor)
+    if not inventory:
+        raise ValueError("No retained media or numeric/timing evidence found")
+    for relative in inventory:
+        resolved = (predecessor / relative).resolve()
+        try:
+            resolved.relative_to(predecessor.resolve())
+        except ValueError as error:
+            raise ValueError(f"Retained predecessor inventory escapes its root: {relative}") from error
+    for page in ["index", *ids]:
+        source = predecessor / ("index.html" if page == "index" else f"{page}.html")
+        body = _strip_legacy_preview_paragraphs(_extract_body(source.read_text(encoding="utf-8"), source))
+        for match in re.finditer(r'\b(?:href|src)="([^"]*)"', body):
+            value = html.unescape(match.group(1))
+            parsed = urlsplit(value)
+            if parsed.scheme or parsed.netloc or value.startswith("#"):
+                continue
+            path = unquote(parsed.path)
+            if path == "index.html" or (path.endswith(".html") and Path(path).stem in ids):
+                continue
+            target = (predecessor / path).resolve()
+            try:
+                target.relative_to(predecessor.resolve())
+            except ValueError as error:
+                raise ValueError(f"Pack link escapes predecessor: {value}") from error
+            if not target.is_file():
+                raise ValueError(f"Broken predecessor link in HTML: {value}")
+        if page == "index":
+            continue
+        for bpm in BPMS:
+            for view in ("front", "side"):
+                _available_preview(predecessor, page, bpm, view, "animation")
+                for relative, _label in _preview_sheets(predecessor, page, bpm, view, "animation"):
+                    if not (predecessor / relative).is_file():
+                        raise ValueError(f"Missing visual asset: {relative}")
+                detail = (predecessor / f"composites/{page}-{bpm}-{view}-detail.gif").is_file()
+                if detail:
+                    _available_preview(predecessor, page, bpm, view, "detail")
+            if page == "squat":
+                for view in ("front", "side"):
+                    _available_preview(predecessor, page, bpm, view, "com-support")
+    return ids, inventory
+
+
+def regenerate_html(predecessor: Path, output: Path, generator_paths: list[Path], *, workspace) -> dict:
+    workspace = workspace_root(workspace)
+    predecessor = resolve_workspace_path(predecessor, workspace)
+    output = validate_run_root(resolve_workspace_path(output, workspace), workspace)
+    if predecessor == output or predecessor.is_relative_to(output) or output.is_relative_to(predecessor):
+        raise ValueError("HTML-only predecessor and output run roots must be distinct and disjoint")
     if not predecessor.is_dir():
         raise ValueError(f"HTML-only input pack does not exist: {predecessor}")
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"HTML-only output must be fresh and empty: {output}")
-    ids = diagnostic_ids(predecessor)
-    for required in EVIDENCE_NAMES:
-        if not (predecessor / required).is_file():
-            raise ValueError(f"Missing required HTML-only evidence input: {required}")
-    original_inventory = input_inventory(predecessor)
-    if not original_inventory:
-        raise ValueError("No retained media or numeric/timing evidence found")
+    ids, original_inventory = _preflight_predecessor(predecessor)
     output.mkdir(parents=True, exist_ok=True)
     pages = ["index", *ids]
     for page in pages:
@@ -249,7 +316,8 @@ def regenerate_html(predecessor: Path, output: Path, generator_paths: list[Path]
         raise ValueError("Predecessor media/evidence changed during HTML regeneration")
     review = json.loads((predecessor / "review-publication.json").read_text())
     snapshot = json.loads((predecessor / "source-snapshot.json").read_text())
-    numeric_paths = sorted(name for name in original_inventory if name in EVIDENCE_NAMES)
+    numeric_paths = sorted(name for name in original_inventory
+                           if name in EVIDENCE_NAMES and name != "review-draft.md")
     media_paths = sorted(name for name in original_inventory if Path(name).suffix.lower() in IMAGE_SUFFIXES)
     local_visual_inventory = {
         path.relative_to(output / "assets").as_posix(): sha256(path)
@@ -262,17 +330,16 @@ def regenerate_html(predecessor: Path, output: Path, generator_paths: list[Path]
         for match in re.findall(r'<img\b[^>]*\bsrc="assets/([^\"]+)"', page.read_text(encoding="utf-8"), re.IGNORECASE)
     }
     local_inline_inventory = {name: local_visual_inventory[name] for name in sorted(inline_sources)}
-    predecessor_parts = predecessor.parts
     try:
-        build_index = predecessor_parts.index("build")
-    except ValueError as exc:
-        raise ValueError("HTML-only predecessor must be under the repository build/ directory") from exc
+        predecessor_identity = predecessor.relative_to(workspace).as_posix()
+    except ValueError:
+        predecessor_identity = str(predecessor)
     generator_hashes = {path.name: sha256(path) for path in sorted(generator_paths)}
     generator_digest = hashlib.sha256(json.dumps(generator_hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     provenance = {
         "format": "review-presentation-provenance/v1",
         "scope": "html-only presentation derivative; original numeric verdict is not extended",
-        "predecessor": Path(*predecessor_parts[build_index:]).as_posix(),
+        "predecessor": predecessor_identity,
         "predecessor_source_snapshot_sha256": review["source_snapshot_sha256"],
         "predecessor_source_snapshot_manifest_sha256": sha256(predecessor / "source-snapshot.json"),
         "predecessor_numeric_verdict": review["verdict"],

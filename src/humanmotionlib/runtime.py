@@ -55,17 +55,73 @@ def project_root():
     raise RuntimeError("No repository root is available in the installed package; use an explicit workspace")
 
 
-def workspace_root(workspace=None):
-    """Resolve a writable workspace, defaulting to the invocation directory."""
-    return Path(workspace if workspace is not None else Path.cwd()).resolve()
+def workspace_root(workspace):
+    """Return the resolved, explicitly selected caller workspace."""
+    if workspace is None:
+        raise ValueError("an explicit absolute --workspace PATH is required for filesystem-writing operations")
+    try:
+        operand = os.fspath(workspace)
+    except TypeError as error:
+        raise ValueError("workspace must be a nonempty absolute path") from error
+    if not operand or not Path(operand).is_absolute():
+        raise ValueError("workspace must be a nonempty absolute path")
+    root = Path(operand).resolve()
+    if root.exists() and not root.is_dir():
+        raise ValueError(f"workspace is not a directory: {root}")
+    return root
+
+
+def resolve_workspace_path(path, workspace):
+    """Resolve a relative workflow operand from the selected workspace."""
+    root = workspace_root(workspace)
+    try:
+        operand = os.fspath(path)
+    except TypeError as error:
+        raise ValueError("workflow path must be a nonempty path") from error
+    if not operand:
+        raise ValueError("workflow path must be a nonempty path")
+    candidate = Path(operand)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    return candidate.resolve()
+
+
+def _build_root(workspace):
+    root = workspace_root(workspace)
+    build = (root / "build").resolve()
+    try:
+        build.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"workspace build directory resolves outside the workspace: {root / 'build'}") from error
+    if build.exists() and not build.is_dir():
+        raise ValueError(f"workspace build path is not a directory: {build}")
+    return build
+
+
+def ensure_workspace_build(workspace):
+    """Create the selected workspace/build after the caller has completed path preflight."""
+    root = workspace_root(workspace)
+    build = _build_root(root)
+    probe = root
+    while not probe.exists():
+        probe = probe.parent
+    if not probe.is_dir() or not os.access(probe, os.W_OK | os.X_OK):
+        raise ValueError(f"workspace parent is not writable: {probe}")
+    if root.exists() and not os.access(root, os.W_OK | os.X_OK):
+        raise ValueError(f"workspace is not writable: {root}")
+    build.mkdir(parents=True, exist_ok=True)
+    # Re-resolve after creation in case a path component changed during setup.
+    if _build_root(root) != build:
+        raise ValueError("workspace build directory changed during setup")
+    return build
 
 
 def _validate_owned_run_root(run_root, workspace=None):
     """Require evidence to live below a valid direct-child build run identity."""
-    build = (workspace_root(workspace) / "build").resolve()
+    build = _build_root(workspace)
     path = Path(run_root).resolve()
     candidate = path
-    while candidate != build and candidate.parent != build:
+    while candidate != build and candidate.parent != build and candidate.parent != candidate:
         nested_parts = candidate.name.split("_")
         if len(nested_parts) == 5 and all(_RUN_COMPONENT.fullmatch(part) for part in nested_parts):
             raise ValueError(f"nested run identity is not a valid evidence path: {candidate}")
@@ -80,7 +136,7 @@ def _validate_owned_run_root(run_root, workspace=None):
 
 def validate_run_root(run_root, workspace=None):
     """Validate a fresh run identity as a direct child of workspace/build."""
-    build = (workspace_root(workspace) / "build").resolve()
+    build = _build_root(workspace)
     path = Path(run_root).resolve()
     if path.parent != build:
         raise ValueError(f"run root must be a direct child of workspace build/: {path}")
@@ -88,6 +144,29 @@ def validate_run_root(run_root, workspace=None):
     if len(parts) != 5 or not all(_RUN_COMPONENT.fullmatch(part) for part in parts):
         raise ValueError(f"run root must have five lowercase kebab-case components: {path}")
     return path
+
+
+def validate_existing_run_root(run_root, workspace):
+    """Validate a read-only run input under its actual workspace build directory."""
+    path = resolve_workspace_path(run_root, workspace)
+    if path.parent.name != "build":
+        raise ValueError(f"existing run input must be a direct child of its actual build/: {path}")
+    owner = path.parent.parent
+    if _build_root(owner) != path.parent:
+        raise ValueError(f"existing run input is outside its owning workspace build/: {path}")
+    parts = path.name.split("_")
+    if len(parts) != 5 or not all(_RUN_COMPONENT.fullmatch(part) for part in parts):
+        raise ValueError(f"existing run input has no valid five-component run root: {path}")
+    if not path.is_dir():
+        raise ValueError(f"existing run input is not a directory: {path}")
+    return path
+
+
+def validate_run_content_path(path, workspace):
+    """Resolve a writer destination and require it to remain in one valid run."""
+    resolved = resolve_workspace_path(path, workspace)
+    run_root = _validate_owned_run_root(resolved, workspace)
+    return resolved, run_root
 
 
 def backend_contract():
@@ -300,16 +379,20 @@ def _observed_phases(stdout_path):
 
 
 def _slot_paths(workspace=None):
-    build = workspace_root(workspace) / "build"
+    build = _build_root(workspace)
     return build / ".backend-execution.lock", build / ".backend-execution-state.json"
 
 
 @contextmanager
 def backend_slot(timeout_seconds=DEFAULT_SLOT_TIMEOUT, *, operation_id=None, workspace=None):
-    """Hold the checkout slot; never unlink the persistent advisory lock file."""
+    """Hold the selected workspace slot; never unlink its persistent lock file."""
     timeout = validate_timeout(timeout_seconds, "slot_timeout_seconds")
+    root = workspace_root(workspace)
+    ensure_workspace_build(root)
     lock_path, state_path = _slot_paths(workspace)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if lock_path.is_symlink() or state_path.is_symlink():
+        raise InvocationError("backend ownership files may not be symlinks", str(lock_path))
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     start = time.monotonic()
     acquired = False
@@ -368,6 +451,8 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
     The caller supplies a unique owning run root. No shell is used and output is
     streamed directly to files. An unsuccessful call raises ``InvocationError``.
     """
+    root = workspace_root(workspace)
+    owning_root = _validate_owned_run_root(run_root, root)
     timeout = validate_timeout(timeout_seconds)
     slot_timeout = validate_timeout(slot_timeout_seconds, "slot_timeout_seconds")
     wait_anchor_supported = (hasattr(os, "waitid") and
@@ -378,6 +463,16 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
     args = [os.fspath(item) for item in command]
     if not args:
         raise ValueError("command must contain an executable")
+    working_directory = resolve_workspace_path(cwd if cwd is not None else root, root)
+    if working_directory != root:
+        raise ValueError("supervised backend cwd must be the selected workspace")
+    if expected_outputs is not None:
+        for item in expected_outputs:
+            target = Path(item["path"] if isinstance(item, dict) else item).resolve()
+            try:
+                target.relative_to(owning_root)
+            except ValueError as error:
+                raise ValueError(f"expected output escapes its owning run: {target}") from error
     from humanmotionlib.package_resources import manifest_sha256, verify_runtime_integrity
     package_manifest = verify_runtime_integrity()
     package_identity = {
@@ -388,11 +483,14 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
         "implementation_hashes": package_manifest["implementation"],
     }
     operation_id = uuid.uuid4().hex
+    scratch_root = owning_root / "scratch"
+    if scratch_root.is_symlink() or not scratch_root.resolve().is_relative_to(owning_root):
+        raise ValueError(f"backend scratch escapes its owning run: {scratch_root}")
+    ensure_workspace_build(root)
     receipt_path, stdout_path, stderr_path = _make_receipt(run_root, operation_id, workspace)
     executable = shutil.which(args[0]) if not os.path.isabs(args[0]) else args[0]
     executable = str(Path(executable).resolve()) if executable else args[0]
     command = [executable, *args[1:]]
-    root = workspace_root(workspace)
     receipt = {
         "format": "backend-invocation/v1", "state": "running", "invocation_id": operation_id,
         "operation": operation, "command": command, "cwd": str(Path(cwd or root).resolve()),
@@ -401,6 +499,9 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
         "platform": platform.system() + "-" + platform.machine(), "python": platform.python_version(),
         "started_at": _utc_now(), "deadline_seconds": timeout, "slot_timeout_seconds": slot_timeout,
         "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+        "scratch_paths": {"temporary": str(owning_root / "scratch" / "tmp"),
+                          "cache": str(owning_root / "scratch" / "cache"),
+                          "configuration": str(owning_root / "scratch" / "config")},
         "last_script_phase": "unknown", "output_validation": {"status": "not-run"},
         "cleanup": {"status": "not-needed"}, "process_group_id": None,
     }
@@ -430,6 +531,17 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                         "output_validation": {"status": "fail", "reason": "stale-output-preflight", "paths": stale}})
         _atomic_json(receipt_path, receipt)
         raise InvocationError(receipt["error"], str(receipt_path))
+    scratch_env = {
+        "TMPDIR": str(scratch_root / "tmp"), "TMP": str(scratch_root / "tmp"),
+        "TEMP": str(scratch_root / "tmp"),
+        "XDG_CACHE_HOME": str(scratch_root / "cache"),
+        "XDG_CONFIG_HOME": str(scratch_root / "config"),
+        "BLENDER_USER_CONFIG": str(scratch_root / "blender-config"),
+        "BLENDER_USER_SCRIPTS": str(scratch_root / "blender-scripts"),
+        "BLENDER_USER_DATAFILES": str(scratch_root / "blender-data"),
+    }
+    for directory in scratch_env.values():
+        Path(directory).mkdir(parents=True, exist_ok=True)
     _atomic_json(receipt_path, receipt)
     started = time.monotonic()
     child = None
@@ -453,12 +565,14 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
             with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                 try:
                     child_env = os.environ.copy()
+                    child_env.update(scratch_env)
+                    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
                     if env is not None:
                         child_env.update(env)
                     for variable in ("PYTHONPATH", "PYTHONHOME"):
                         child_env.pop(variable, None)
                     child_env["PYTHONNOUSERSITE"] = "1"
-                    child = subprocess.Popen(command, cwd=cwd or root, stdout=stdout, stderr=stderr,
+                    child = subprocess.Popen(command, cwd=working_directory, stdout=stdout, stderr=stderr,
                                              stdin=subprocess.DEVNULL, env=child_env, start_new_session=True)
                 except OSError as error:
                     receipt.update({"state": "failed", "outcome": "spawn_error", "error": str(error),

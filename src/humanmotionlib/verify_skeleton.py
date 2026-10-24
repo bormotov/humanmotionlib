@@ -9,6 +9,7 @@ import sys
 from humanmotionlib import math3d as m
 from humanmotionlib.measurements import Measurements, measure_pose
 from humanmotionlib.prepared import read_prepared, write_json
+from humanmotionlib.runtime import resolve_workspace_path, validate_run_content_path, workspace_root
 from humanmotionlib.poses import neutral_pose, rest_pose
 
 
@@ -43,7 +44,7 @@ def verify_transforms(prepared,evaluated_samples=None):
             "acceptance":"incomplete: mesh/contact/render/timing/independent visual evidence must be verified separately"}
 
 
-def main():
+def main(workspace=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input",required=True,type=Path)
     parser.add_argument("--output",required=True,type=Path)
@@ -56,14 +57,31 @@ def main():
     parser.add_argument("--stature-builds",nargs=3,type=Path,help="Compare actual 1.50/1.70/1.90 m evaluated builds")
     args = parser.parse_args()
     try:
-        path = args.input/"input.json" if args.input.is_dir() else args.input
+        workspace = workspace_root(workspace)
+        input_operand = resolve_workspace_path(args.input, workspace)
+        output, output_run = validate_run_content_path(args.output, workspace)
+        input_root = input_operand if input_operand.is_dir() else input_operand.parent
+        path = input_operand/"input.json" if input_operand.is_dir() else input_operand
+        if (input_root == output_run or input_root.is_relative_to(output_run)
+                or output_run.is_relative_to(input_root)):
+            raise ValueError("verification input and report output runs must be disjoint")
+        stature_builds = ([resolve_workspace_path(item, workspace) for item in args.stature_builds]
+                          if args.stature_builds else None)
+        if output.exists():
+            raise ValueError(f"verification report already exists: {output}")
+        if not args.transforms_only:
+            evaluated_path = input_operand/"evaluated.json"
+        if stature_builds:
+            for build in stature_builds:
+                if build == output_run or build.is_relative_to(output_run) or output_run.is_relative_to(build):
+                    raise ValueError("stature comparison inputs must be disjoint from report output run")
         prepared = read_prepared(path)
         if args.transforms_only:
             result = verify_transforms(prepared)
         else:
             from humanmotionlib.backend_measurements import verify_backend
             from humanmotionlib.finite import require_finite
-            evaluated = json.loads((args.input/'evaluated.json').read_text())
+            evaluated = json.loads(evaluated_path.read_text())
             require_finite(evaluated)
             from humanmotionlib.verification_run import verify_collection
             if args.thorax_preview or args.squat_preview:
@@ -74,7 +92,7 @@ def main():
                 result=verify_backend(prepared,evaluated,verify_transforms(prepared,evaluated['samples']))
                 result['scope']=('evaluated-squat-preview' if args.squat_preview else 'evaluated-thorax-preview')+'; full diagnostics and independent review pending'
             else:
-                result = verify_collection(prepared,evaluated,args.output,verify_transforms)
+                result = verify_collection(prepared,evaluated,output,verify_transforms,workspace=workspace)
         if args.action_coverage or (not args.transforms_only and not args.thorax_preview and not args.squat_preview):
             from humanmotionlib.coverage import audit_action_cases
             result["action_coverage"] = audit_action_cases(prepared["sources"]["profile"],prepared["sources"]["mobility"])
@@ -93,21 +111,23 @@ def main():
             if result['dense']['status']!='pass':result['status']='fail'
         if args.dense_floor:
             from humanmotionlib.dense_floor import audit_dense_floor
-            geometry=json.loads((args.input/'geometry-reference.json').read_text())
+            geometry=json.loads((input_operand/'geometry-reference.json').read_text())
             result['dense_floor']=audit_dense_floor(prepared,geometry,lambda row:print(f"Dense floor {row['fixture']}: {row['status']} ({row['samples']} samples)",flush=True))
             if result['dense_floor']['status']!='pass':result['status']='fail'
         if args.stature_builds:
             from humanmotionlib.stature_comparison import compare_statures
-            result['stature_comparison']=compare_statures(args.stature_builds)
+            result['stature_comparison']=compare_statures(stature_builds)
             if result['stature_comparison']['status']!='pass':result['status']='fail'
             from humanmotionlib.dense_verification import audit_squat_balance
             result['stature_balance']=[]
-            for directory in args.stature_builds:
+            for directory in stature_builds:
                 source=read_prepared(directory/'input.json')['sources']
                 audit=audit_squat_balance(source);result['stature_balance'].append(audit)
                 print(f"Dense squat balance H={audit['stature_m']}: {audit['status']} ({audit['samples']} samples)",flush=True)
                 if audit['status']!='pass':result['status']='fail'
-        write_json(args.output,result)
+        # Output and all shards are now known to be inside the selected run.
+        output.parent.mkdir(parents=True, exist_ok=True)
+        write_json(output,result)
         print(f"{result['status']}: {result['scope']} ({len(result['samples'])} samples)")
         return 0 if result["status"]=="pass" else 1
     except (ValueError,OSError,KeyError) as error:

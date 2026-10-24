@@ -25,41 +25,71 @@ it is missing or has a different build. HML does not download Blender.
 
 ## Commands
 
-The optional global `--workspace PATH` selects the writable workspace and must
-appear before the command name. It defaults to the resolved invocation working
-directory. Relative input and output arguments are resolved from the invocation
-working directory; choosing a workspace does not rewrite their meaning. HML
-writes managed run state under the workspace's `build/` directory and does not
-write into its installed package files.
+The global `--workspace PATH` is required for every command that writes files
+or launches the backend. It must be an absolute path and appear before the
+command name. Relative input and output arguments are resolved from that
+workspace, regardless of the invocation working directory. Read-only commands
+such as `help`, `version`, `validate`, and `check-environment` need no workspace.
+HML writes managed run state under the selected workspace's `build/` directory
+and does not write into its installed package files.
 
 ```sh
 # Validate canonical data and inspect an installation.
-hml --workspace /path/to/workspace validate --profile adult-reference-v1
+hml validate --profile adult-reference-v1
 hml check-environment
 
 # Prepare all diagnostic fixtures, or select a subset explicitly.
 hml --workspace /path/to/workspace prepare-skeleton \
-  --profile adult-reference-v1 --output /path/to/workspace/build/<run>/input.json
+  --profile adult-reference-v1 --output build/<run>/input.json
 hml --workspace /path/to/workspace prepare-skeleton \
   --profile adult-reference-v1 --fixtures neutral rest \
-  --output /path/to/workspace/build/<run>/input.json
+  --output build/<run>/input.json
 
 # Supervised Blender construction, numeric verification and review presentation.
 hml --workspace /path/to/workspace run-blender \
-  --input /path/to/workspace/build/<run>/input.json \
-  --output /path/to/workspace/build/<run>
+  --input build/<run>/input.json \
+  --output build/<run>
 hml --workspace /path/to/workspace verify-skeleton \
-  --input /path/to/workspace/build/<run> \
-  --output /path/to/workspace/build/<check-run>/metrics.json
+  --input build/<run> \
+  --output build/<check-run>/metrics.json
 hml --workspace /path/to/workspace review-pack \
-  --input /path/to/workspace/build/<run> \
-  --output /path/to/workspace/build/<pack-run>
+  --input build/<run> \
+  --output build/<pack-run>
 
 # Regenerate HTML presentation from a retained, verified predecessor pack.
 hml --workspace /path/to/workspace review-pack \
   --html-only-from /path/to/verified/predecessor-pack \
-  --output /path/to/workspace/build/<pack-run>
+  --output build/<pack-run>
 ```
+
+The Python API exposes the same workspace contract. `verify_transforms` is a
+pure in-memory check. The full collection writer requires the explicit
+workspace and places both `metrics.json` and its `metrics-samples/` shard
+directory in the supplied fresh run. `prepared` and `evaluated` below are
+objects loaded and validated by the caller from explicit input paths:
+
+```python
+from pathlib import Path
+from humanmotionlib.verify_skeleton import verify_transforms
+from humanmotionlib.verification_run import verify_collection
+
+workspace = Path("/absolute/caller/workspace")
+run = workspace / "build/portable-installed-runtime_r1_app_try-1_verify"
+# Allocate `run` as a fresh direct child of workspace/build before calling.
+summary = verify_collection(
+    prepared,
+    evaluated,
+    run / "metrics.json",
+    verify_transforms,
+    workspace=workspace,
+)
+```
+
+The API checks that the summary and every per-sample shard stay inside the
+selected run. Its records retain measured/expected values, bounds, units,
+status and image links; the existing verifier tolerances and failure
+thresholds are unchanged. Use `verify_transforms(prepared)` when only the
+prepared transforms are available; this does not establish backend acceptance.
 
 Each `<run>` placeholder must be replaced with a fresh direct child of
 `build/`, named `<change>_<revision>_<role>_<attempt>_<kind>`. Its five
@@ -74,16 +104,19 @@ render reuse, and HTML-only presentation. Run `hml <command> --help` for the
 options supported by the installed release. Invalid sources, options,
 incomplete resources, backend mismatches and failed checks return a nonzero
 status. The raw Blender script is an internal entry point; normal construction
-uses `hml run-blender` or `hml review-pack` so the supervisor can check backend
-identity, enforce deadlines and record receipts.
+uses `hml --workspace /absolute/path run-blender` or
+`hml --workspace /absolute/path review-pack` so the supervisor can check
+backend identity, enforce deadlines and record receipts.
 
 ## Source contributors
 
 For development, use the repository's pinned CPython selector and locked uv
-environment. `uv sync --locked --no-editable` builds and installs the project wheel with its contributor/build
-dependencies. Use `uv run --locked --no-sync` afterward so uv does not request an editable install. Source validation and generation use the same `hml` commands;
-the default workspace is the checkout when invoked from its root. Keep every
-new run in a fresh direct child of `build/`.
+environment. `uv sync --locked --no-editable` builds and installs the project
+wheel with its contributor/build dependencies. Use `uv run --locked --no-sync`
+afterward so uv does not request an editable install. Source and installed
+writing commands both require an absolute workspace; for checkout work, pass
+`"$PWD"`. Keep every new run in a fresh direct child of that workspace's
+`build/`.
 
 ```sh
 uv lock --check

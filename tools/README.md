@@ -1,6 +1,6 @@
 # Skeleton tooling
 
-Run commands from the repository root. HML's host Python is managed by uv;
+HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
 `>=3.14,<3.15`. `uv sync --locked --no-editable` creates the environment with exact
 dependencies from `uv.lock`. Blender supplies its own embedded Python; it is
@@ -10,6 +10,14 @@ Blender must be available as `blender` on PATH. The backend contract lives in
 `pyproject.toml`: Blender 5.2.2 LTS, build `d13f752e3b9c`, reference platform
 Darwin arm64. A different Blender version or build is an error. MPFB and Rigify
 are not used. No tool requires a workstation-specific executable path or GUI state.
+
+Commands that write files or invoke Blender require an explicit absolute
+workspace before the subcommand, for example
+`uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton ...`.
+Relative path operands are resolved from that workspace, not the process cwd.
+Read-only `help`, `version`, `validate`, and `check-environment` need no
+workspace. All managed output, receipts, locks and backend scratch stay under
+the selected workspace's `build/` tree.
 
 ## Command contract
 
@@ -50,10 +58,10 @@ not establish complete OpenSpec acceptance; the task list tracks the checks.
 
 ```sh
 uv run --locked --no-sync hml validate --profile adult-reference-v1
-uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
-uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
-uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
+uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
 HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/upgrade-host-python-314_r1_dev_try-1_host" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
 ```
 
@@ -203,7 +211,7 @@ be a fresh flat run root. The example input is a protected historical R3 pack
 and is explicitly a legacy input; it is not a new-run output path:
 
 ```sh
-uv run --locked --no-sync hml review-pack \
+uv run --locked --no-sync hml --workspace "$PWD" review-pack \
   --html-only-from build/review/anatomical-human-skeleton/squat-r3-final/independent/retention-fix \
   --output build/anatomical-human-skeleton_r1_dev_html-derivative_pack
 ```
@@ -345,10 +353,10 @@ same entry points. The verifier report and preview pack use separate sibling
 runs:
 
 ```text
-uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
-uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
-uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
+uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
 ```
 
 The preview verifies evaluated native geometry but does not assert complete
@@ -406,7 +414,7 @@ they do not establish geometric or visual correctness.
 Before backend construction, the explicit transform-only command is useful:
 
 ```sh
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
 ```
 
 The verifier reconstructs angles/couplings from supplied matrices and compares
@@ -508,6 +516,30 @@ expected values, tolerance, units, beat, status and its fixed-view image link.
 The summary links those records and reports loop/timing/complete-sole apex
 checks. A missing record or failed check cannot become acceptance.
 
+Direct callers can use `verify_transforms(prepared)` as a pure in-memory check,
+or call `verification_run.verify_collection` for full evaluated evidence. The
+full writer requires `workspace=` and an output inside a fresh run allocated by
+the caller; it writes the summary and `metrics-samples/` together and rejects
+escaped or overlapping destinations before creating files:
+
+```python
+from pathlib import Path
+from humanmotionlib.verify_skeleton import verify_transforms
+from humanmotionlib.verification_run import verify_collection
+
+workspace = Path("/absolute/caller/workspace")
+run = workspace / "build/portable-installed-runtime_r1_app_try-1_verify"
+# Allocate this as a fresh direct child of workspace/build first.
+summary = verify_collection(
+    prepared, evaluated, run / "metrics.json", verify_transforms,
+    workspace=workspace,
+)
+```
+
+The numerical records and acceptance bounds are those produced by the existing
+`backend_measurements` verifier; this API change only constrains where they are
+written. Prepared-only transforms do not establish backend acceptance.
+
 `hml review-pack` invokes two factory-startup render-only builds in isolated
 `clean-a`/`clean-b` directories, compares decoded RGBA pixels, then writes the
 HTML index, every diagnostic/action-family page, count/animation sheets at all
@@ -557,7 +589,7 @@ the complete change-level diagnostic coverage gate.
 For the full delivered and dense geometry report use:
 
 ```sh
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
 ```
 
 The native anatomical hierarchy also uses computed world-frame adapter targets
@@ -570,7 +602,7 @@ mutate these actual scene targets and still must fail independent measurements.
 To include actual cross-stature vertex/topology and native rest-frame comparison:
 
 ```sh
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
 ```
 
 Generate the additional stature builds with the same preparation/build commands,
@@ -581,12 +613,12 @@ belongs in its own flat checks run. All delivered samples at each stature must
 also pass their own backend verifier run.
 
 ```sh
-uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
-uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
-uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
-uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
 ```
 
 Approved action-direction refinement (2026-10-21): hip and wrist conventions are separate closed fields. Right hip is `Rx(f)*Ry(b)*Rz(-r)`; forearm rotation is positive about `normalize(proximal_radius-distal_ulna)`; knee dependent z uses distal -Z, hence `Rx(-k)*Rz(-z(k))`. Left sides use axial reflection. Rebuild all prepared inputs and outputs; old source hashes cannot establish acceptance. Absolute bilateral witness checks in the action-coverage report measure lateral toes, thumb-up midrotation with elbow 90, palm-down pronation and medial tibial turn independently of action-angle decoders.
@@ -626,10 +658,10 @@ stability, force, muscle or speed-dependent balance claim is made.
 Produce the early squat-only preview through the established commands:
 
 ```sh
-uv run --locked --no-sync hml prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
-uv run --locked --no-sync hml run-blender --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
-uv run --locked --no-sync hml verify-skeleton --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
-uv run --locked --no-sync hml review-pack --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
+uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
 ```
 
 The preview is development evidence only. It cannot satisfy full fixture/action,
@@ -662,6 +694,29 @@ native samples per stature. Its canonical-frame scope remains explicit.
 ## Installed package migration
 
 The runtime now lives in `src/humanmotionlib/`. Imports use `humanmotionlib.*`; the old `tools` package is no longer installed. For installed use, follow [`docs/usage.md`](../docs/usage.md): invoke `hml <subcommand>` or `python -m humanmotionlib <subcommand>`. Contributor-only test discovery remains explicit through `hml check-environment` and the repository test commands in the usage guide.
+
+Every filesystem-writing command and direct writer API requires an explicit
+absolute caller workspace. The global CLI option goes before the subcommand;
+relative input/output operands are interpreted under that workspace, even when
+the process starts from another directory. Read-only `help`, `version`,
+`validate`, and `check-environment` do not create HML state and need no
+workspace. For repository work, use `"$PWD"`; for an installed caller, use its
+own absolute workspace path:
+
+```sh
+uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton \
+  --profile adult-reference-v1 --output build/portable-installed-runtime_e3dcbf_dev_try-1_fixture/input.json
+uv run --locked --no-sync hml --workspace "$PWD" run-blender \
+  --input build/portable-installed-runtime_e3dcbf_dev_try-1_fixture/input.json \
+  --output build/portable-installed-runtime_e3dcbf_dev_try-1_fixture
+uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton \
+  --input build/portable-installed-runtime_e3dcbf_dev_try-1_fixture \
+  --output build/portable-installed-runtime_e3dcbf_dev_try-1_metrics/checks.json --transforms-only
+```
+
+Python callers pass the same required context explicitly, for example
+`prepare_skeleton.main(workspace="/absolute/caller/workspace")` after setting
+the command arguments. No writer selects a workspace from the current directory.
 
 | Previous checkout command | Installed command |
 |---|---|

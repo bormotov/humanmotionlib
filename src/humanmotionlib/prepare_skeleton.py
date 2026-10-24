@@ -13,7 +13,8 @@ from humanmotionlib.guides import solve_guides
 from humanmotionlib.kinematics import KinematicModel
 from humanmotionlib.poses import neutral_pose, rest_pose, scale_meter_fields, scaled_profile, to_deltas
 from humanmotionlib.prepared import seal, write_json
-from humanmotionlib.runtime import backend_contract, validate_run_root
+from humanmotionlib.runtime import (backend_contract, ensure_workspace_build,
+                                    resolve_workspace_path, validate_run_root, workspace_root)
 from humanmotionlib.package_resources import manifest_sha256, runtime_manifest
 from humanmotionlib.validate import load_sources, validate_sources
 
@@ -72,14 +73,17 @@ def main(workspace=None):
     parser.add_argument("--fixtures",nargs="+",help="Explicit diagnostic subset for isolated builds")
     args = parser.parse_args()
     try:
-        output = args.output.resolve()
-        run_root = validate_run_root(output.parent, workspace)
+        root = workspace_root(workspace)
+        output = resolve_workspace_path(args.output, root)
+        run_root = validate_run_root(output.parent, root)
         if output.exists():
             raise ValueError(f"prepared output already exists: {output}")
         if run_root.exists() and any(run_root.iterdir()):
             raise ValueError(f"prepare run root is occupied: {run_root}")
-        run_root.mkdir(parents=True, exist_ok=True)
+        # Complete package/source validation before creating caller-owned state.
         value = prepare(args.profile,args.stature,args.fixtures)
+        ensure_workspace_build(root)
+        run_root.mkdir(parents=True, exist_ok=True)
         write_json(output,value)
         print(f"Prepared {len(value['samples'])} samples: {output}")
         return 0

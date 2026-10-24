@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from humanmotionlib.presentation import diagnostic_ids, navigation, preview_groups, regenerate_html
+from humanmotionlib.presentation import diagnostic_ids, navigation, preview_groups, regenerate_html, sha256
 
 
 class ReviewPresentationTests(unittest.TestCase):
@@ -42,18 +42,32 @@ class ReviewPresentationTests(unittest.TestCase):
         for name in (
             "metrics.json", "sample-timing.json", "gif-timing.json", "render-repeatability.json",
             "squat-balance.json", "build-metadata.json", "source-snapshot.json", "review-publication.json",
+            "review-draft.md",
             "clean-a/render-manifest.json", "clean-b/render-manifest.json",
         ):
             path = predecessor / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            if name == "review-publication.json":
-                value = {"source_snapshot_sha256": "a" * 64, "verdict": "PASS WITH NOTES", "review_sha256": "b" * 64}
+            if name == "review-draft.md":
+                path.write_text("Independent review draft\n")
+                continue
+            elif name == "review-publication.json":
+                value = {"status": "published", "source_snapshot_sha256": "", "verdict": "PASS WITH NOTES", "review_sha256": ""}
             elif name == "source-snapshot.json":
                 value = {"input.py": "c" * 64}
             else:
                 value = {"status": "pass"}
             path.write_text(json.dumps(value))
+        publication = predecessor / "review-publication.json"
+        value = json.loads(publication.read_text())
+        value["source_snapshot_sha256"] = sha256(predecessor / "source-snapshot.json")
+        value["review_sha256"] = sha256(predecessor / "review-draft.md")
+        publication.write_text(json.dumps(value))
         return predecessor
+
+    def _output(self, root: Path, name: str) -> Path:
+        build = root / "build"
+        build.mkdir(parents=True, exist_ok=True)
+        return build / f"portable-humanmotionlib_r1_test_try-1_{name}"
 
     def test_navigation_has_same_order_and_one_current_marker(self):
         ids = [f"sweep-{index:02d}" for index in range(32)]
@@ -119,10 +133,10 @@ class ReviewPresentationTests(unittest.TestCase):
             helper = root / "presentation.py"
             script.write_text("review pack")
             helper.write_text("presentation helper")
-            first = root / "build/review/presentation-r1/developer"
-            second = root / "build/review/presentation-r1/replay"
-            first_result = regenerate_html(predecessor, first, [script, helper])
-            second_result = regenerate_html(predecessor, second, [script, helper])
+            first = self._output(root, "developer")
+            second = self._output(root, "replay")
+            first_result = regenerate_html(predecessor, first, [script, helper], workspace=root)
+            second_result = regenerate_html(predecessor, second, [script, helper], workspace=root)
             self.assertEqual(first_result["status"], "pass")
             self.assertEqual(second_result["status"], "pass")
             first_files = {p.relative_to(first).as_posix(): p.read_bytes() for p in first.rglob("*") if p.is_file()}
@@ -134,7 +148,7 @@ class ReviewPresentationTests(unittest.TestCase):
             self.assertGreater(first_result["local_visual_asset_count"], first_result["local_inline_image_count"])
             self.assertIn("aria-current=\"page\"", (first / "diag-17.html").read_text())
             with self.assertRaisesRegex(ValueError, "fresh and empty"):
-                regenerate_html(predecessor, first, [script, helper])
+                regenerate_html(predecessor, first, [script, helper], workspace=root)
 
     def test_missing_inventory_and_media_fail_clearly(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -143,9 +157,9 @@ class ReviewPresentationTests(unittest.TestCase):
             script = root / "review_pack.py"
             script.write_text("script")
             (predecessor / "clean-a/render-manifest.json").unlink()
-            output = root / "build/review/presentation/developer"
+            output = self._output(root, "developer")
             with self.assertRaisesRegex(ValueError, "Missing required HTML-only evidence input"):
-                regenerate_html(predecessor, output, [script])
+                regenerate_html(predecessor, output, [script], workspace=root)
             self.assertFalse(output.exists())
 
     def test_legacy_gallery_is_replaced_and_inline_media_resolves_from_file_uri(self):
@@ -154,8 +168,8 @@ class ReviewPresentationTests(unittest.TestCase):
             predecessor = self._pack(root)
             script = root / "review_pack.py"
             script.write_text("script")
-            output = root / "build/review/presentation/developer"
-            regenerate_html(predecessor, output, [script])
+            output = self._output(root, "developer")
+            regenerate_html(predecessor, output, [script], workspace=root)
             page = output / "diag-00.html"
             content = page.read_text()
             self.assertNotIn("legacy single-column preview", content)
@@ -190,6 +204,51 @@ class ReviewPresentationTests(unittest.TestCase):
                 self.assertTrue(target.is_file(), resolved)
                 self.assertGreater(target.stat().st_size, 0)
                 self.assertEqual(target.read_bytes(), (predecessor / source.removeprefix("assets/")).read_bytes())
+
+    def test_external_predecessor_uses_explicit_absolute_identity_and_misleading_build_ancestors(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            caller = root / "caller"
+            caller.mkdir()
+            predecessor = self._pack(root)
+            external = root / "protected" / "build" / "archive" / "build" / "review"
+            external.parent.mkdir(parents=True)
+            predecessor.rename(external)
+            original = {path.relative_to(external).as_posix(): sha256(path)
+                        for path in external.rglob("*") if path.is_file()}
+            output = self._output(caller, "html")
+            script = caller / "review_pack.py"
+            script.write_text("review pack")
+            result = regenerate_html(external, output, [script], workspace=caller)
+            provenance = json.loads((output / "presentation-provenance.json").read_text())
+            self.assertEqual(result["status"], "pass")
+            self.assertEqual(provenance["predecessor"], str(external.resolve()))
+            self.assertTrue(result["predecessor_hashes_unchanged"])
+            self.assertEqual(original, {path.relative_to(external).as_posix(): sha256(path)
+                                        for path in external.rglob("*") if path.is_file()})
+
+    def test_preflight_rejects_broken_late_page_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            predecessor = self._pack(root)
+            (predecessor / "diag-31.html").write_text(
+                '<html><body><h1>diag-31</h1><a href="../escape.png">bad</a></body></html>'
+            )
+            output = self._output(root, "preflight")
+            with self.assertRaisesRegex(ValueError, "escapes predecessor"):
+                regenerate_html(predecessor, output, [], workspace=root)
+            self.assertFalse(output.exists())
+
+    def test_preflight_rejects_tampered_retained_review_identity_before_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            predecessor = self._pack(root)
+            with (predecessor / "review-draft.md").open("a") as stream:
+                stream.write("tampered\n")
+            output = self._output(root, "tampered")
+            with self.assertRaisesRegex(ValueError, "review identity"):
+                regenerate_html(predecessor, output, [], workspace=root)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from humanmotionlib.prepare_skeleton import prepare
 from humanmotionlib.prepared import write_json
 from humanmotionlib.runtime import DEFAULT_BUILD_TIMEOUT, inspect_blender, invocation, project_root
 from humanmotionlib.verify_skeleton import verify_transforms
-from tests.run_roots import test_case_root, test_run_root
+from tests.run_roots import fresh_test_run_root, test_case_root, test_run_root
 
 
 class BlenderBackendTests(unittest.TestCase):
@@ -23,11 +23,9 @@ class BlenderBackendTests(unittest.TestCase):
 
     @classmethod
     def build(cls, prepared, operation):
-        case_root = cls.allocate_case(operation)
+        output_dir = fresh_test_run_root('backend-build')
         run_root = test_run_root('blender-backend')
-        input_path = case_root / 'input.json'
-        output_dir = case_root / 'output'
-        output_dir.mkdir()
+        input_path = output_dir / 'input.json'
         write_json(input_path, prepared)
         identity = inspect_blender(run_root, workspace=project_root())
         if not identity['version'] or not identity['build_hash']:
@@ -38,7 +36,7 @@ class BlenderBackendTests(unittest.TestCase):
              '--python', str(Path(next(iter(importlib.util.find_spec('humanmotionlib').submodule_search_locations)) /
                                   'build_skeleton.py').resolve()), '--', '--input', str(input_path),
              '--output', str(output_dir), '--workspace', str(project_root())],
-            run_root=run_root, operation=operation, timeout_seconds=DEFAULT_BUILD_TIMEOUT,
+            run_root=output_dir, operation=operation, timeout_seconds=DEFAULT_BUILD_TIMEOUT,
             source_sha256=prepared['content_sha256'],
             expected_outputs=[output_dir / 'evaluated.json', output_dir / 'geometry-reference.json',
                               output_dir / 'build-metadata.json', output_dir / 'skeleton.blend'],
@@ -134,7 +132,7 @@ class BlenderBackendTests(unittest.TestCase):
         from humanmotionlib.verification_run import verify_collection
         p,e=self.builds[1]
         metrics_case = self.allocate_case('collection-metrics')
-        report=verify_collection(p,e,metrics_case/'metrics.json',verify_transforms)
+        report=verify_collection(p,e,metrics_case/'metrics.json',verify_transforms,workspace=project_root())
         self.assertEqual(report['status'],'fail')
         failed={c['id'] for c in report['checks'] if c['status']=='fail'}
         self.assertIn('diagnostic_fixture_coverage',failed)

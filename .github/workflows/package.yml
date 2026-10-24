@@ -42,9 +42,19 @@ jobs:
           test ! -e "$package_root"
           test ! -e "$sdist_root"
           mkdir "$package_root" "$sdist_root"
+          caller_root="$RUNNER_TEMP/humanmotionlib-caller"
+          acceptance_root="$caller_root/build/portable-installed-runtime_commit-${GITHUB_SHA:0:7}_ci_attempt-${GITHUB_RUN_ATTEMPT}_acceptance"
+          workspace="$caller_root/workspace"
+          test ! -e "$caller_root"
+          mkdir -p "$caller_root/build"
+          test ! -e "$acceptance_root"
+          mkdir "$acceptance_root"
           {
             echo "HML_PACKAGE_RUN_ROOT=$GITHUB_WORKSPACE/$package_root"
             echo "HML_SDIST_RUN_ROOT=$GITHUB_WORKSPACE/$sdist_root"
+            echo "HML_EXTERNAL_CALLER_ROOT=$caller_root"
+            echo "HML_ACCEPTANCE_RUN_ROOT=$acceptance_root"
+            echo "HML_ACCEPTANCE_WORKSPACE=$workspace"
             echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$package_root/uv-cache"
           } >> "$GITHUB_ENV"
           {
@@ -53,6 +63,8 @@ jobs:
             echo "Attempt: $GITHUB_RUN_ATTEMPT"
             echo "Python: $(python --version 2>&1)"
             echo "uv: $(uv --version 2>&1)"
+            echo "External acceptance run: $acceptance_root"
+            echo "External caller workspace: $workspace"
             echo "Real Blender scope: not run in this Ubuntu host-only package job"
           } | tee "$package_root/summary.txt"
 
@@ -134,8 +146,8 @@ jobs:
         run: |
           set -euo pipefail
           install_root="$HML_PACKAGE_RUN_ROOT/install"
-          outside="$HML_PACKAGE_RUN_ROOT/outside-cwd"
-          workspace="$HML_PACKAGE_RUN_ROOT/workspace"
+          outside="$HML_EXTERNAL_CALLER_ROOT/outside-cwd"
+          workspace="$HML_ACCEPTANCE_WORKSPACE"
           mkdir "$install_root" "$outside" "$workspace"
           python -m venv "$install_root/venv"
           installed_python="$install_root/venv/bin/python"
@@ -210,62 +222,14 @@ jobs:
           test "$negative_status" -ne 0
           echo "Invalid profile exit status: $negative_status" >> "$HML_PACKAGE_RUN_ROOT/cli-negative.log"
 
-          # Exercise numeric host code through imports from the installed wheel while
-          # keeping the caller cwd outside the source checkout.
-          (
-            cd "$outside"
-            for module in test_kinematics.py test_balance.py test_action_transforms.py; do
-              env -u PYTHONPATH "$installed_python" -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p "$module" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/${module%.py}.log"
-            done
-          )
-
-          # Build a synthetic but complete predecessor pack; HTML-only mode must
-          # preserve it and must not probe or start Blender.
-          python - "$workspace/build/html-predecessor" <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          root = pathlib.Path(sys.argv[1])
-          ids = [f"diag-{i:02d}" for i in range(32)]
-          (root / "reference").mkdir(parents=True)
-          (root / "composites").mkdir()
-          (root / "clean-a/render-manifest.json").parent.mkdir(parents=True)
-          (root / "clean-b").mkdir()
-          (root / "reference/input.json").write_text(json.dumps({"sources": {"diagnostics": [{"id": item} for item in ids]}}))
-          (root / "index.html").write_text("<!doctype html><html><body><h1>Pack</h1></body></html>")
-          for item in ids:
-              (root / f"{item}.html").write_text(
-                  f'<!doctype html><html><body><h1>{item}</h1><p><a href="composites/{item}-60-front-static.png">60 BPM front static sheet</a></p></body></html>'
-              )
-              for view in ("front", "side"):
-                  for bpm in (60, 120, 180):
-                      for suffix in ("", "-static", "-animation"):
-                          (root / "composites" / f"{item}-{bpm}-{view}{suffix}.png").write_bytes(b"synthetic-media")
-                  for directory in ("clean-a", "clean-b"):
-                      frame = root / directory / "frames" / item / view / "00000.png"
-                      frame.parent.mkdir(parents=True, exist_ok=True)
-                      frame.write_bytes(b"synthetic-frame")
-          for name in (
-              "metrics.json", "sample-timing.json", "gif-timing.json", "render-repeatability.json",
-              "squat-balance.json", "build-metadata.json", "clean-a/render-manifest.json",
-              "clean-b/render-manifest.json", "source-snapshot.json", "review-publication.json",
-          ):
-              path = root / name
-              path.parent.mkdir(parents=True, exist_ok=True)
-              if name == "source-snapshot.json":
-                  value = {"synthetic": "c" * 64}
-              elif name == "review-publication.json":
-                  value = {"source_snapshot_sha256": "a" * 64, "verdict": "PASS WITH NOTES", "review_sha256": "b" * 64}
-              else:
-                  value = {"status": "pass"}
-              path.write_text(json.dumps(value))
-          PY
-          html_output="$workspace/build/package-humanmotionlib_ci_installed_try-${GITHUB_RUN_ATTEMPT}_html"
-          env -u PYTHONPATH "$install_root/venv/bin/hml" --workspace "$workspace" review-pack --html-only-from "$workspace/build/html-predecessor" --output "$html_output" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/html-only.log"
-          test -f "$html_output/index.html"
-          test -f "$html_output/presentation-provenance.json"
-          test -f "$html_output/presentation-verification.json"
+          # The copied acceptance harness runs from an external five-component
+          # caller-owned run and imports only this non-editable installed wheel.
+          cp "$GITHUB_WORKSPACE/tests/installed_acceptance/run.py" "$HML_ACCEPTANCE_RUN_ROOT/run.py"
+          env -u PYTHONPATH "$installed_python" "$HML_ACCEPTANCE_RUN_ROOT/run.py" \
+            --python "$installed_python" \
+            --workspace "$workspace" \
+            --run-root "$HML_ACCEPTANCE_RUN_ROOT" \
+            2>&1 | tee "$HML_ACCEPTANCE_RUN_ROOT/installed-acceptance.log"
           find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
           cmp "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256" "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
 
@@ -286,6 +250,8 @@ jobs:
             echo "Direct wheel/sdist build: $DIRECT_BUILD_OUTCOME"
             echo "Extracted sdist rebuild and payload parity: $SDIST_REBUILD_OUTCOME"
             echo "Installed wheel checks: $INSTALLED_CHECKS_OUTCOME"
+            echo "External caller acceptance run: $HML_ACCEPTANCE_RUN_ROOT"
+            echo "Wheel SHA-256: $(cat "$HML_PACKAGE_RUN_ROOT/wheel.sha256" 2>/dev/null || true)"
             echo "Real Blender backend: not executed; host-only scope"
             echo "Package publication: not performed"
           } >> "$HML_PACKAGE_RUN_ROOT/summary.txt"
@@ -305,5 +271,8 @@ jobs:
             ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-before.sha256
             ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-after.sha256
             ${{ env.HML_SDIST_RUN_ROOT }}/payload-parity.txt
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/run.py
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/installed-acceptance.log
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/installed-acceptance.json
           if-no-files-found: error
           retention-days: 90

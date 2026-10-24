@@ -15,7 +15,8 @@ from humanmotionlib.prepared import read_prepared,write_json
 from humanmotionlib.review_graphics import gif,label,onion,sheet
 from humanmotionlib.package_resources import manifest_sha256, read_text, verify_runtime_integrity
 from humanmotionlib.runtime import (DEFAULT_RENDER_TIMEOUT, DEFAULT_SLOT_TIMEOUT, InvocationError,
-                           file_sha256, validate_run_root, validate_timeout)
+                           file_sha256, resolve_workspace_path, validate_existing_run_root,
+                           validate_run_root, validate_timeout, workspace_root)
 
 
 def decoded_digest(path):
@@ -136,6 +137,10 @@ def render_pass(input_path, output, frames, *, timeout_seconds=DEFAULT_RENDER_TI
     # pinned executable and records render outputs under this clean-pass run.
     validate_timeout(timeout_seconds)
     validate_timeout(slot_timeout_seconds, 'slot_timeout_seconds')
+    workspace = workspace_root(workspace)
+    input_path = resolve_workspace_path(input_path, workspace)
+    output = resolve_workspace_path(output, workspace)
+    frames = resolve_workspace_path(frames, workspace)
     if Path(output).exists():
         raise ValueError(f"Render pass output must be a fresh path: {output}")
     from humanmotionlib import run_blender
@@ -441,21 +446,24 @@ def main(workspace=None):
                         help='Finite wait for the checkout backend slot per invocation')
     args=parser.parse_args()
     verify_runtime_integrity()
-    output = validate_run_root(args.output, workspace)
+    workspace = workspace_root(workspace)
+    output_operand = resolve_workspace_path(args.output, workspace)
+    output = validate_run_root(output_operand, workspace)
     if bool(args.input)==bool(args.html_only_from):
         parser.error('choose exactly one of --input or --html-only-from')
     if args.html_only_from:
         if args.reuse_renders:
             parser.error('--reuse-renders applies only to normal render-pack mode')
+        predecessor = resolve_workspace_path(args.html_only_from, workspace)
         if output.exists() and any(output.iterdir()):
             raise ValueError(f"review-pack output run root is occupied: {output}")
         from humanmotionlib.presentation import regenerate_html
-        result=regenerate_html(args.html_only_from,output,[Path(__file__).resolve(),Path(__file__).with_name('presentation.py').resolve()])
+        result=regenerate_html(predecessor,output,[Path(__file__).resolve(),Path(__file__).with_name('presentation.py').resolve()],workspace=workspace)
         print(json.dumps(result,sort_keys=True),flush=True)
         return 0 if result['status']=='pass' else 1
     if not args.input:
         parser.error('--input is required for normal render-pack mode')
-    input_root = validate_run_root(args.input, workspace)
+    input_root = validate_existing_run_root(args.input, workspace)
     input_path = input_root / 'input.json'
     if args.reuse_renders:
         if input_root == output or input_root.is_relative_to(output) or output.is_relative_to(input_root):
@@ -467,6 +475,8 @@ def main(workspace=None):
         result = assemble(prepared, *passes, output)
         print(json.dumps(result, sort_keys=True), flush=True)
         return 0 if result['status'] == 'pass' else 1
+    if input_root == output or input_root.is_relative_to(output) or output.is_relative_to(input_root):
+        raise ValueError('review-pack input and output run roots must be distinct and disjoint')
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"review-pack output run root is occupied: {output}")
     validate_timeout(args.timeout_seconds)

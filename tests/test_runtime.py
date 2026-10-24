@@ -15,8 +15,19 @@ from unittest import mock
 from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
                            DEFAULT_SLOT_TIMEOUT, KILL_REAP_SECONDS, TERMINATE_GRACE_SECONDS,
                            MAX_TIMEOUT_SECONDS, InvocationError, SlotTimeout, backend_contract, check_blender_version,
-                           inspect_blender, invocation, project_root, validate_timeout, _group_state)
-from tests.run_roots import test_case_root, test_cases_directory, test_run_root
+                           inspect_blender as _inspect_blender, invocation as _invocation,
+                           project_root, validate_timeout, _group_state)
+from tests.run_roots import fresh_test_run_root, test_case_root, test_cases_directory, test_run_root
+
+
+def invocation(*args, **kwargs):
+    kwargs.setdefault("workspace", project_root())
+    return _invocation(*args, **kwargs)
+
+
+def inspect_blender(*args, **kwargs):
+    kwargs.setdefault("workspace", project_root())
+    return _inspect_blender(*args, **kwargs)
 
 
 def setUpModule():
@@ -102,7 +113,8 @@ class BackendContractTests(unittest.TestCase):
         modules = ("tests.test_runtime", "tests.test_run_blender",
                    "tests.test_blender_backend", "tests.test_pipeline_faults")
         code = "import importlib; " + "; ".join(f"importlib.import_module({module!r})" for module in modules)
-        subprocess.run([sys.executable, "-c", code], cwd=project_root(), env=environment,
+        checkout_root = Path(__file__).resolve().parents[1]
+        subprocess.run([sys.executable, "-c", code], cwd=checkout_root, env=environment,
                        check=True, capture_output=True, text=True, timeout=10)
         after = {entry.name for entry in build.iterdir()}
         self.assertEqual(after, before, "importing the stock suites must not allocate or write test roots")
@@ -144,30 +156,30 @@ class ProbeTests(unittest.TestCase):
 
     def test_failed_probe_prevents_build_script_launch(self):
         from humanmotionlib import run_blender
-        root = case("probe-failure")
-        input_path = root / "input.json"
+        input_root = case("probe-failure-input")
+        input_path = input_root / "input.json"
         input_path.write_text("prepared")
-        output = root
+        output = fresh_test_run_root("probe-failure")
         prepared = {"content_sha256": "synthetic", "samples": [],
                     "sources": {"review-scene": {"cameras": []}}}
         with mock.patch.object(run_blender, "read_prepared", return_value=prepared), \
              mock.patch.object(run_blender, "inspect_blender", side_effect=InvocationError("probe failed", "receipt")), \
              mock.patch.object(run_blender, "invocation") as launch:
             with self.assertRaises(InvocationError):
-                run_blender.run(input_path, output)
+                run_blender.run(input_path, output, workspace=project_root())
         launch.assert_not_called()
 
     def test_runner_requires_flat_owned_run_identity_for_nested_tool_content(self):
         from humanmotionlib.run_blender import owning_run_root
         nested = test_cases_directory("runtime") / "runner-identity" / "clean-a"
-        self.assertEqual(owning_run_root(nested), checks_root())
+        self.assertEqual(owning_run_root(nested, project_root()), checks_root())
         with self.assertRaisesRegex(ValueError, "five-component"):
-            owning_run_root(project_root() / "build" / "bad-run")
+            owning_run_root(project_root() / "build" / "bad-run", project_root())
         with self.assertRaisesRegex(ValueError, "outside build"):
-            owning_run_root(checks_root().parent)
+            owning_run_root(checks_root().parent, project_root())
         nested_identity = checks_root() / "nested-run_r3_dev_try-1_pack" / "clean-a"
         with self.assertRaisesRegex(ValueError, "nested run identity"):
-            owning_run_root(nested_identity)
+            owning_run_root(nested_identity, project_root())
 
 
 class InvocationTests(unittest.TestCase):
@@ -201,7 +213,7 @@ class InvocationTests(unittest.TestCase):
             self.assertEqual(receipt["state"], "failed")
             self.assertTrue(Path(receipt["stdout_log"]).is_file())
             self.assertTrue(Path(receipt["stderr_log"]).is_file())
-            self.assertEqual(receipt["workspace"], str(Path.cwd().resolve()))
+            self.assertEqual(receipt["workspace"], str(project_root()))
             self.assertEqual(receipt["package_version"], "0.2.0")
             self.assertEqual(len(receipt["runtime_manifest_sha256"]), 64)
             self.assertTrue(receipt["resource_hashes"])
@@ -301,7 +313,7 @@ class InvocationTests(unittest.TestCase):
                 owner_code = (
                     "from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},'-c','import time; time.sleep(1.5)'], "
-                    f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2)"
+                    f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2, workspace={str(project_root())!r})"
                 )
                 owner = subprocess.Popen([sys.executable, "-c", owner_code], cwd=project_root(),
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -327,7 +339,7 @@ class InvocationTests(unittest.TestCase):
                         f"threading.Timer(.4,lambda: os.kill(os.getpid(),{int(signum)})).start(); "
                         f"invocation([{sys.executable!r},'-c','print(\"must not spawn\")'], "
                         f"run_root={str(checks_root())!r}, operation='queued-cancel-{signum}', "
-                        "timeout_seconds=3, slot_timeout_seconds=4)"
+                        f"timeout_seconds=3, slot_timeout_seconds=4, workspace={str(project_root())!r})"
                     )
                     contender = subprocess.Popen([sys.executable, "-c", script], cwd=project_root(),
                                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -391,7 +403,7 @@ class InvocationTests(unittest.TestCase):
         root = case("unfinished-receipt")
         child_code = ("from humanmotionlib.runtime import invocation; "
                       f"invocation([{sys.executable!r},'-c','import time; time.sleep(30)'], "
-                      f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2)")
+                      f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2, workspace={str(project_root())!r})")
         parent = subprocess.Popen([sys.executable, "-c", child_code], cwd=project_root(),
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         state_path = project_root() / "build/.backend-execution-state.json"
@@ -479,7 +491,7 @@ class InvocationTests(unittest.TestCase):
             run_root.mkdir()
             code = ("import sys; from humanmotionlib.runtime import invocation; "
                     f"invocation([{sys.executable!r},{str(child_script)!r},{str(shared)!r}], "
-                    f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5)")
+                    f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5,workspace={str(project_root())!r})")
             callers.append(subprocess.Popen([sys.executable, "-c", code], cwd=project_root(),
                                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE))
         for caller in callers:
@@ -492,7 +504,8 @@ class InvocationTests(unittest.TestCase):
     def test_slot_contention_records_without_child_spawn(self):
         root = case("slot-contention")
         # Use exec form because a compound statement cannot follow a semicolon in -c.
-        holder_code = "from humanmotionlib.runtime import backend_slot\nimport time\nwith backend_slot(2): time.sleep(.8)\n"
+        holder_code = ("from humanmotionlib.runtime import backend_slot\nimport time\n"
+                       f"with backend_slot(2,workspace={str(project_root())!r}): time.sleep(.8)\n")
         holder = subprocess.Popen([sys.executable, "-c", holder_code], cwd=project_root())
         time.sleep(.1)
         with self.assertRaises(InvocationError) as caught:

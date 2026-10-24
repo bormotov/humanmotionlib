@@ -40,6 +40,7 @@ _load_installed_package()
 from humanmotionlib.prepared import read_prepared, write_json
 from humanmotionlib.blender_backend import SkeletonBackend
 from humanmotionlib.package_resources import verify_runtime_integrity
+from humanmotionlib.runtime import resolve_workspace_path, validate_run_root, workspace_root
 
 
 def phase(name, **details):
@@ -54,10 +55,45 @@ def main():
     parser.add_argument('--render-only',action='store_true',help='Build cleanly and render; full mesh measurements are a separate build')
     parser.add_argument('--workspace',type=Path,required=True)
     args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
+    workspace=workspace_root(args.workspace)
+    input_path=resolve_workspace_path(args.input,workspace)
+    if input_path.is_dir():
+        input_root=input_path
+        input_path=input_path/'input.json'
+    else:
+        input_root=input_path.parent
+    output=validate_run_root(resolve_workspace_path(args.output,workspace),workspace)
+    render_dir=resolve_workspace_path(args.render_dir,workspace) if args.render_dir else None
+    if input_root != output and (input_root.is_relative_to(output) or output.is_relative_to(input_root)):
+        raise ValueError('prepared input and output runs must be disjoint or share the designated run root')
+    if render_dir is not None and not render_dir.is_relative_to(output):
+        raise ValueError('render directory must stay inside the output run')
+    if output.exists():
+        allowed = {'processes', 'scratch'}
+        if input_root == output:
+            allowed.add('input.json')
+        unexpected = [item.name for item in output.iterdir() if item.name not in allowed]
+        if unexpected:
+            raise ValueError('backend output run is occupied: ' + ', '.join(sorted(unexpected)))
+        for name in allowed - {'input.json'}:
+            managed = output / name
+            if managed.exists():
+                if not managed.is_dir() or not managed.resolve().is_relative_to(output):
+                    raise ValueError('backend process scratch escaped its owning run: ' + str(managed))
+    stale_names = ['build-metadata.json', 'skeleton.blend']
+    if not args.render_only:
+        stale_names.extend(('evaluated.json', 'geometry-reference.json'))
+    if render_dir is not None:
+        stale_names.append('render-manifest.json')
+    stale = [name for name in stale_names if (output / name).exists()]
+    if stale:
+        raise ValueError('backend output files already exist: ' + ', '.join(stale))
+    if render_dir is not None and render_dir.exists() and any(render_dir.iterdir()):
+        raise ValueError('backend render directory is occupied')
     phase('script_started')
     manifest=verify_runtime_integrity()
     phase('package_verified', version=manifest['version'], resource_count=len(manifest['resources']))
-    prepared=read_prepared(args.input)
+    prepared=read_prepared(input_path)
     phase('input_loaded', prepared_sha256=prepared['content_sha256'], sample_count=len(prepared['samples']))
     backend=SkeletonBackend(prepared)
     phase('backend_ready', prepared_sha256=prepared['content_sha256'])
@@ -67,26 +103,26 @@ def main():
         backend.apply_sample(sample)
         if not args.render_only:samples.append(backend.measure(sample))
         if args.render_dir:
-            record={'id':sample['id'],'images':backend.render(sample,args.render_dir)}
+            record={'id':sample['id'],'images':backend.render(sample,render_dir)}
             if sample['fixture']=='squat':record['balance_evidence']=backend.balance_evidence()
             rendered.append(record)
         if index%25==0 or index+1==len(prepared['samples']):
             phase('samples_progress', sample_id=sample['id'], index=index+1, count=len(prepared['samples']))
-    args.output.mkdir(parents=True,exist_ok=True)
-    write_json(args.output/'input.json',prepared)
+    output.mkdir(parents=True,exist_ok=True)
+    write_json(output/'input.json',prepared)
     metadata=backend.metadata()
-    if not args.render_only:write_json(args.output/'evaluated.json',{'format':'skeleton-evaluated/v1','prepared_sha256':prepared['content_sha256'],'samples':samples,'metadata':metadata})
+    if not args.render_only:write_json(output/'evaluated.json',{'format':'skeleton-evaluated/v1','prepared_sha256':prepared['content_sha256'],'samples':samples,'metadata':metadata})
     if not args.render_only:
-        write_json(args.output/'geometry-reference.json',{
+        write_json(output/'geometry-reference.json',{
             'format':'skeleton-evaluated-geometry/v1','prepared_sha256':prepared['content_sha256'],
             'geometry':{name:{'structure':obj['structure_id'],'rigid':bool(obj['rigid']),
                               'vertices_m':backend.reference_local[name]}
                         for name,obj in sorted(backend.meshes.items())}})
-    if args.render_dir:write_json(args.output/'render-manifest.json',{'prepared_sha256':prepared['content_sha256'],'samples':rendered,'metadata':metadata})
-    write_json(args.output/'build-metadata.json',metadata)
+    if render_dir:write_json(output/'render-manifest.json',{'prepared_sha256':prepared['content_sha256'],'samples':rendered,'metadata':metadata})
+    write_json(output/'build-metadata.json',metadata)
     phase('outputs_written', prepared_sha256=prepared['content_sha256'])
     import bpy
-    bpy.ops.wm.save_as_mainfile(filepath=str((args.output/'skeleton.blend').resolve()))
+    bpy.ops.wm.save_as_mainfile(filepath=str((output/'skeleton.blend').resolve()))
     phase('script_complete', prepared_sha256=prepared['content_sha256'], body_count=len(backend.carriers),
           mesh_count=len(backend.meshes), measured_sample_count=len(samples))
 

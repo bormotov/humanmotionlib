@@ -7,8 +7,8 @@ import unittest
 from unittest import mock
 
 from humanmotionlib import run_blender
-from humanmotionlib.runtime import InvocationError, file_sha256
-from tests.run_roots import test_case_root
+from humanmotionlib.runtime import InvocationError, file_sha256, project_root
+from tests.run_roots import fresh_test_run_root
 
 
 def _prepared():
@@ -21,9 +21,8 @@ def _prepared():
 
 class RunBlenderContractTests(unittest.TestCase):
     def setUp(self):
-        self.case = test_case_root("run-blender", self._testMethodName)
-        self.output = self.case / "output"
-        self.output.mkdir(parents=True)
+        self.case = fresh_test_run_root("run-blender")
+        self.output = self.case
         self.input_path = self.output / "input.json"
         self.input_path.write_text("prepared input\n")
         self.prepared = _prepared()
@@ -65,7 +64,7 @@ class RunBlenderContractTests(unittest.TestCase):
              mock.patch.object(run_blender, "invocation",
                                side_effect=invocation_side_effect or self._successful_invocation), \
              mock.patch.object(run_blender, "update_receipt"):
-            result = run_blender.run(self.input_path, self.output,
+            result = run_blender.run(self.input_path, self.output, workspace=project_root(),
                                      timeout_seconds=17.5, slot_timeout_seconds=4.25)
         return result
 
@@ -76,13 +75,13 @@ class RunBlenderContractTests(unittest.TestCase):
             "/resolved/blender", "--background", "--factory-startup", "--python-exit-code", "1",
             "--python", str(Path(run_blender.__file__).with_name("build_skeleton.py").resolve()),
             "--", "--input", str(self.input_path), "--output", str(self.output),
-            "--workspace", str(Path.cwd().resolve()),
+            "--workspace", str(project_root()),
         ])
         self.assertEqual(self.invocation_kwargs["timeout_seconds"], 17.5)
         self.assertEqual(self.invocation_kwargs["slot_timeout_seconds"], 4.25)
         self.assertEqual(self.invocation_kwargs["source_sha256"], self.prepared["content_sha256"])
         self.assertEqual(self.invocation_kwargs["operation"], "build")
-        self.assertIsNone(self.invocation_kwargs["workspace"])
+        self.assertEqual(self.invocation_kwargs["workspace"], project_root())
         self.assertEqual(self.expected_outputs[0]["allow_existing_sha256"],
                          file_sha256(self.input_path))
 
@@ -92,7 +91,7 @@ class RunBlenderContractTests(unittest.TestCase):
              mock.patch.object(run_blender, "inspect_blender") as probe, \
              mock.patch.object(run_blender, "invocation") as launch:
             with self.assertRaisesRegex(ValueError, "stale output preflight"):
-                run_blender.run(self.input_path, self.output)
+                run_blender.run(self.input_path, self.output, workspace=project_root())
         probe.assert_not_called()
         launch.assert_not_called()
 

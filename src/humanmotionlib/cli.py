@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         args = args[2:]
     if not args or args[0] in ("-h", "--help"):
         parser = argparse.ArgumentParser(prog="hml", description=__doc__)
-        parser.add_argument("--workspace", metavar="PATH", help="Writable workspace; defaults to invocation directory")
+        parser.add_argument("--workspace", metavar="PATH", help="Absolute caller-owned workspace for filesystem-writing commands")
         parser.add_argument("--version", action="version", version=f"humanmotionlib {__version__}")
         parser.add_argument("command", choices=sorted(_COMMANDS))
         parser.print_help()
@@ -45,6 +45,6 @@ def main(argv: list[str] | None = None) -> int:
     sys.argv = ["hml " + command, *args]
     if command == "check-environment":
         return module.main(["--check-environment", *args])
-    if command in ("prepare-skeleton", "run-blender", "review-pack"):
+    if command in ("prepare-skeleton", "run-blender", "verify-skeleton", "review-pack"):
         return module.main(workspace=workspace)
     return module.main()

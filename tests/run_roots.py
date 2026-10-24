@@ -11,6 +11,7 @@ from humanmotionlib.runtime import project_root
 _COMPONENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ENVIRONMENT_ROOT = "HUMANMOTIONLIB_TEST_RUN_ROOT"
 _ROOTS = {}
+_FRESH_ATTEMPTS = {}
 
 
 def test_run_root(module):
@@ -47,6 +48,20 @@ def test_case_root(module, name):
     case = root / "cases" / module / name
     case.mkdir(parents=False, exist_ok=False)
     return case
+
+
+def fresh_test_run_root(kind):
+    """Allocate one fresh flat developer run under the checkout build/ tree."""
+    build = (project_root() / "build").resolve()
+    prefix = f"portable-installed-runtime_e3dcbf_dev_try-"
+    attempt = _FRESH_ATTEMPTS.get(kind, 0)
+    while True:
+        attempt += 1
+        root = build / f"{prefix}{attempt}_{kind}"
+        if not root.exists():
+            root.mkdir(parents=False, exist_ok=False)
+            _FRESH_ATTEMPTS[kind] = attempt
+            return root
 
 
 def test_cases_directory(module):
