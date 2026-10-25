@@ -35,7 +35,8 @@ class BlenderBackendTests(unittest.TestCase):
             [executable, '--background', '--factory-startup', '--python-exit-code', '1',
              '--python', str(Path(next(iter(importlib.util.find_spec('humanmotionlib').submodule_search_locations)) /
                                   'build_skeleton.py').resolve()), '--', '--input', str(input_path),
-             '--output', str(output_dir), '--workspace', str(project_root())],
+             '--output', str(output_dir), '--workspace', str(project_root()),
+             '--expected-prepared-sha256', prepared['content_sha256']],
             run_root=output_dir, operation=operation, timeout_seconds=DEFAULT_BUILD_TIMEOUT,
             source_sha256=prepared['content_sha256'],
             expected_outputs=[output_dir / 'evaluated.json', output_dir / 'geometry-reference.json',

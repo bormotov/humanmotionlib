@@ -13,7 +13,8 @@ from referencing import Registry, Resource
 from humanmotionlib.package_resources import read_text
 
 
-SCHEMA_NAMES = {"profile", "mobility", "body-groups", "humanoid-map", "diagnostic", "review-scene"}
+SCHEMA_NAMES = {"profile", "mobility", "body-groups", "humanoid-map", "diagnostic",
+                "review-scene", "consumer-motion", "consumer-motion-snapshot"}
 
 
 from humanmotionlib.finite import SourceValidationError, require_finite

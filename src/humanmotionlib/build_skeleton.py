@@ -37,7 +37,7 @@ def _load_installed_package():
 
 _load_installed_package()
 
-from humanmotionlib.prepared import read_prepared, write_json
+from humanmotionlib.prepared import read_prepared_backend, write_json
 from humanmotionlib.blender_backend import SkeletonBackend
 from humanmotionlib.package_resources import verify_runtime_integrity
 from humanmotionlib.runtime import (resolve_workspace_path, validate_operation_root,
@@ -56,6 +56,8 @@ def main():
     parser.add_argument('--render-only',action='store_true',help='Build cleanly and render; full mesh measurements are a separate build')
     parser.add_argument('--workspace',type=Path,required=True)
     parser.add_argument('--owner-run',type=Path,help=argparse.SUPPRESS)
+    parser.add_argument('--expected-prepared-sha256', required=True,
+                        help=argparse.SUPPRESS)
     args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
     workspace=workspace_root(args.workspace)
     input_path=resolve_workspace_path(args.input,workspace)
@@ -96,7 +98,7 @@ def main():
     phase('script_started')
     manifest=verify_runtime_integrity()
     phase('package_verified', version=manifest['version'], resource_count=len(manifest['resources']))
-    prepared=read_prepared(input_path)
+    prepared=read_prepared_backend(input_path, args.expected_prepared_sha256)
     phase('input_loaded', prepared_sha256=prepared['content_sha256'], sample_count=len(prepared['samples']))
     backend=SkeletonBackend(prepared)
     phase('backend_ready', prepared_sha256=prepared['content_sha256'])

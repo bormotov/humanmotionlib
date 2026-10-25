@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/consumer-motion.schema.json",
+  "title": "HML consumer motion envelope",
+  "description": "Closed external input for one consumer-authored skeleton diagnostic or one packaged-fixture variant.",
+  "type": "object",
+  "properties": {
+    "format": { "const": "hml-consumer-motion/v1" },
+    "motion": {
+      "oneOf": [
+        { "$ref": "#/$defs/complete_definition" },
+        { "$ref": "#/$defs/variant" }
+      ]
+    },
+    "materials": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/clearance" }
+    }
+  },
+  "required": ["format", "motion", "materials"],
+  "additionalProperties": false,
+  "$defs": {
+    "complete_definition": {
+      "allOf": [
+        { "$ref": "https://humanmotionlib.example/schema/diagnostic.schema.json" },
+        {
+          "properties": {
+            "duration_beats": { "type": "integer", "minimum": 0, "maximum": 256 }
+          }
+        }
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "properties": {
+        "schema_version": { "const": 1 },
+        "kind": { "const": "skeleton-motion-variant" },
+        "format": { "const": "skeleton-motion-variant/v1" },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "profile": { "type": "string", "minLength": 1 },
+        "license": { "const": "CC-BY-4.0" },
+        "provenance": {
+          "$ref": "https://humanmotionlib.example/schema/common.schema.json#/$defs/provenance"
+        },
+        "base_fixture": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "track_scales": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": {
+            "type": "number",
+            "minimum": -1e+100,
+            "maximum": 1e+100
+          }
+        },
+        "track_overrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/track" }
+        }
+      },
+      "required": [
+        "schema_version", "kind", "format", "id", "description", "profile",
+        "license", "provenance", "base_fixture", "track_scales", "track_overrides"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        { "properties": { "track_scales": { "minProperties": 1 } } },
+        { "properties": { "track_overrides": { "minItems": 1 } } }
+      ]
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "channel": { "type": "string", "minLength": 1 },
+        "easing": { "enum": ["linear", "ease_in_out", "half_wave"] },
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": { "type": "integer", "minimum": 0, "maximum": 256 },
+              "value": { "type": "number", "minimum": -1e+100, "maximum": 1e+100 }
+            },
+            "required": ["beat", "value"],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": ["channel", "easing", "keys"],
+      "additionalProperties": false
+    },
+    "clearance": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "material": { "type": "string", "minLength": 1 },
+        "part_used": { "type": "string", "minLength": 1 },
+        "source_url": { "$ref": "#/$defs/http_url" },
+        "license": { "enum": ["CC-BY-4.0", "CC0-1.0", "MIT", "Apache-2.0"] },
+        "license_url": { "$ref": "#/$defs/http_url" },
+        "permission_basis": { "type": "string", "minLength": 1 },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "commercial_use": { "const": true },
+            "derivatives": { "const": true },
+            "cc_by_4_0_distribution": { "const": true }
+          },
+          "required": ["commercial_use", "derivatives", "cc_by_4_0_distribution"],
+          "additionalProperties": false
+        },
+        "obligations": {
+          "type": "object",
+          "properties": {
+            "retain_attribution": { "const": true },
+            "retain_license_text": { "const": true },
+            "retain_change_notice": { "const": true },
+            "retain_copyright_notice": { "const": true },
+            "retain_notice_if_present": { "const": true }
+          },
+          "additionalProperties": false
+        },
+        "conditions": { "type": "string", "minLength": 1 },
+        "attribution": { "type": "string" },
+        "checked_on": { "type": "string", "format": "date" },
+        "related_outputs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "id", "material", "part_used", "source_url", "license", "license_url",
+        "permission_basis", "permissions", "obligations", "conditions", "attribution",
+        "checked_on", "related_outputs"
+      ],
+      "additionalProperties": false
+    },
+    "http_url": {
+      "type": "string",
+      "pattern": "^https?://[^\\s]+$",
+      "format": "uri"
+    }
+  }
+}

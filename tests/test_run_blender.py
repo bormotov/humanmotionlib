@@ -80,7 +80,8 @@ class RunBlenderContractTests(unittest.TestCase):
             "/resolved/blender", "--background", "--factory-startup", "--python-exit-code", "1",
             "--python", str(Path(run_blender.__file__).with_name("build_skeleton.py").resolve()),
             "--", "--input", str(self.input_path), "--output", str(self.output),
-            "--workspace", str(self.workspace),
+            "--workspace", str(self.workspace), "--expected-prepared-sha256",
+            self.prepared["content_sha256"],
         ])
         self.assertEqual(self.invocation_kwargs["timeout_seconds"], 17.5)
         self.assertEqual(self.invocation_kwargs["slot_timeout_seconds"], 4.25)
@@ -103,19 +104,20 @@ class RunBlenderContractTests(unittest.TestCase):
         pass_root = owner / "clean-a"
         pass_root.mkdir()
         args = ["blender", "--", "--input", str(self.input_path), "--output", str(pass_root),
-                "--workspace", str(self.workspace), "--owner-run", str(owner), "--render-only",
+                "--workspace", str(self.workspace), "--owner-run", str(owner),
+                "--expected-prepared-sha256", self.prepared["content_sha256"], "--render-only",
                 "--render-dir", str(pass_root / "frames")]
         with mock.patch("sys.argv", args), \
              mock.patch.object(build_skeleton, "verify_runtime_integrity",
                                return_value={"version": __version__, "resources": {}}), \
-             mock.patch.object(build_skeleton, "read_prepared", return_value=self.prepared), \
+             mock.patch.object(build_skeleton, "read_prepared_backend", return_value=self.prepared), \
              mock.patch.object(build_skeleton, "SkeletonBackend", side_effect=RuntimeError("backend sentinel")) as backend:
             with self.assertRaisesRegex(RuntimeError, "backend sentinel"):
                 build_skeleton.main()
         backend.assert_called_once()
 
         wrong_owner = fresh_test_run_root("wrong-owner", module="run_blender")
-        with mock.patch("sys.argv", args[:-5] + ["--owner-run", str(wrong_owner), *args[-3:]]), \
+        with mock.patch("sys.argv", args[:-7] + ["--owner-run", str(wrong_owner), *args[-5:]]), \
              mock.patch.object(build_skeleton, "verify_runtime_integrity") as integrity:
             with self.assertRaisesRegex(ValueError, "managed render pass"):
                 build_skeleton.main()

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Small synchronous API for preparing and rendering packaged HML diagnostics.
+"""Synchronous API for packaged diagnostics and bounded consumer motions.
 
-The API currently covers the installed skeleton diagnostic pipeline only.  It
-does not accept arbitrary pose data or expose a general exercise authoring
-interface. Blender is an external, pinned backend used only by :func:`render`.
+Consumer inputs use the installed skeleton-diagnostic action contract; this is
+not a general pose or composition language. Blender is an external, pinned
+backend used only by :func:`render`.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from fractions import Fraction
 import json
 import math
 from pathlib import Path
+import re
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
@@ -37,7 +38,8 @@ from humanmotionlib.source_validation import SourceValidationError
 def _plain(value: Any) -> Any:
     """Convert a result to a detached JSON-compatible tree."""
     if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: _plain(getattr(value, field.name)) for field in fields(value)}
+        return {field.name: _plain(getattr(value, field.name)) for field in fields(value)
+                if not (field.name == "consumer_motion" and getattr(value, field.name) is None)}
     if isinstance(value, Path):
         return str(value.resolve())
     if isinstance(value, Fraction):
@@ -114,6 +116,7 @@ class PreparedResult(_Record):
     provenance: ProvenanceInfo
     units: Mapping[str, Any]
     limitations: tuple[str, ...]
+    consumer_motion: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -248,9 +251,37 @@ def _provenance(prepared: Mapping[str, Any]) -> ProvenanceInfo:
             nested_provenance=nested,
         ))
         materials.update(_material_ids(parsed))
+    consumer = prepared.get("consumer_motion")
+    register = read_text("docs/used-materials.md")
+    if consumer is not None:
+        submitted = consumer["document"]
+        resolved = consumer["resolved_definition"]
+        for label, digest, source in (
+            ("submitted", consumer["source_sha256"], submitted["motion"]),
+            ("resolved", consumer["resolved_sha256"], resolved),
+        ):
+            root_provenance = deepcopy(source.get("provenance"))
+            nested = _records_with_provenance(source)
+            source_records.append(SourceProvenance(
+                logical_path=f"consumer/{source['id']}/{label}", sha256=digest,
+                license=source.get("license"), provenance=root_provenance,
+                nested_provenance=nested,
+            ))
+        materials.update(_material_ids(submitted))
+        clearances = submitted.get("materials", [])
+        if clearances:
+            register += "\n\n## Consumer-supplied clearance declarations\n\n"
+            register += "| Identifier | Material / part | Source URL | License / terms URL | Permission basis | Conditions | Attribution | Checked on | Related outputs |\n"
+            register += "|---|---|---|---|---|---|---|---|---|\n"
+            for entry in clearances:
+                row = [entry["id"], entry["material"] + ": " + entry["part_used"],
+                       entry["source_url"], entry["license"] + ": " + entry["license_url"],
+                       entry["permission_basis"], entry["conditions"], entry["attribution"],
+                       entry["checked_on"], ", ".join(entry["related_outputs"])]
+                register += "| " + " | ".join(value.replace("|", "\\|").replace("\n", " ") for value in row) + " |\n"
     licenses = {name: read_text(name) for name in _LICENSE_RESOURCES}
     return ProvenanceInfo(tuple(source_records), tuple(sorted(materials)),
-                          read_text("docs/used-materials.md"), licenses)
+                          register, licenses)
 
 
 def _project(prepared: Mapping[str, Any], workspace: Path, prepared_path: Path) -> PreparedResult:
@@ -290,6 +321,7 @@ def _project(prepared: Mapping[str, Any], workspace: Path, prepared_path: Path) 
         stature_m=prepared["sources"]["profile"]["stature_m"], package_identity=package_identity,
         poses=tuple(poses), timelines=tuple(timelines), provenance=_provenance(prepared),
         units=deepcopy(prepared["units"]), limitations=tuple(prepared["limitations"]),
+        consumer_motion=deepcopy(prepared["consumer_motion"]) if "consumer_motion" in prepared else None,
     )
 
 
@@ -348,7 +380,30 @@ def _translate_error(error: Exception, operation: str, run_root: Path | None = N
             code = "backend-failed"
         else:
             code = "backend-unavailable"
-    elif isinstance(error, (PackageResourceError, SourceValidationError)):
+    elif isinstance(error, SourceValidationError):
+        code = "source-validation"
+        consumer_details = getattr(error, "consumer_details", None)
+        if isinstance(consumer_details, Mapping):
+            details.update(deepcopy(dict(consumer_details)))
+        else:
+            match = re.match(r"^([^\s:]+)\s+([^:]+):\s*(.*)$", str(error))
+            if match:
+                details["source_id"] = match.group(1)
+                details["field"] = match.group(2)
+                details["message"] = match.group(3)
+        beat = re.search(r"\bbeat=([-+0-9.eE]+)", str(error))
+        if beat:
+            try:
+                details["beat"] = float(beat.group(1))
+            except ValueError:
+                pass
+        channel = re.search(r"\bchannel=([^\s:]+)", str(error))
+        constraint = re.search(r"\bconstraint=([^\s:]+)", str(error))
+        if channel:
+            details["channel"] = channel.group(1)
+        if constraint:
+            details["constraint"] = constraint.group(1)
+    elif isinstance(error, PackageResourceError):
         code = "source-validation"
     elif isinstance(error, OSError):
         code = "io-error"
@@ -365,7 +420,8 @@ def _translate_error(error: Exception, operation: str, run_root: Path | None = N
 def prepare(*, workspace: str | Path, output: str | Path,
             profile: str = "adult-reference-v1", stature: float | None = None,
             fixtures: Sequence[str] | None = None,
-            bpms: Sequence[int | float] = (60, 120, 180)) -> PreparedResult:
+            bpms: Sequence[int | float] = (60, 120, 180),
+            motion: Mapping[str, Any] | str | Path | None = None) -> PreparedResult:
     """Validate packaged sources, persist prepared data and return joined records.
 
     This host-only operation never probes Blender. ``workspace`` must be an
@@ -380,6 +436,8 @@ def prepare(*, workspace: str | Path, output: str | Path,
         if stature is not None:
             stature = _positive_number(stature, "stature")
         fixture_ids = _validate_selection(fixtures, "fixtures", allow_none=True)
+        if motion is not None and fixture_ids is not None:
+            raise _RequestError("motion and fixtures are mutually exclusive")
         if fixture_ids is not None:
             if any(not isinstance(item, str) or not item for item in fixture_ids):
                 raise ValueError("fixtures must contain nonempty identifiers")
@@ -402,7 +460,11 @@ def prepare(*, workspace: str | Path, output: str | Path,
             raise _RequestError(f"prepared output already exists: {destination}")
         if run_root.exists() and (not run_root.is_dir() or any(run_root.iterdir())):
             raise _RequestError(f"prepare run root is occupied: {run_root}")
-        value = prepare_skeleton.prepare(profile, stature, fixture_ids, tuple(normalized_bpms))
+        if motion is None:
+            value = prepare_skeleton.prepare(profile, stature, fixture_ids, tuple(normalized_bpms))
+        else:
+            value = prepare_skeleton.prepare_consumer(profile, motion, root, run_root,
+                                                      stature, tuple(normalized_bpms))
         ensure_workspace_build(root)
         run_root.mkdir(parents=True, exist_ok=True)
         from humanmotionlib.prepared import write_json

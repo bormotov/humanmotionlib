@@ -17,18 +17,26 @@ from humanmotionlib.runtime import (backend_contract, ensure_workspace_build,
                                     resolve_workspace_path, validate_run_root, workspace_root)
 from humanmotionlib.package_resources import manifest_sha256, runtime_manifest
 from humanmotionlib.validate import load_sources, validate_sources
+from humanmotionlib.consumer_motion import (load_consumer_document,
+                                            preflight_consumer_motion,
+                                            resolve_consumer_document)
 
 
-def prepare(profile_id,stature=None,fixtures=None,bpms=(60,120,180)):
-    validation = validate_sources(profile_id)
-    sources,_ = load_sources(profile_id)
+def _prepare_sources(profile_id, sources, validation, stature=None, fixtures=None,
+                     bpms=(60,120,180), consumer=None):
+    sources = deepcopy(sources)
+    if consumer is not None:
+        sources["diagnostics"].append(deepcopy(consumer["resolved"]))
     reference_height = sources["profile"]["stature_m"]
     height = reference_height if stature is None else stature
-    sources = deepcopy(sources)
     sources["profile"] = scaled_profile(sources["profile"],height)
     # Placement bounds/neutral values are dimensioned; angles and H-ratios are not.
     sources["mobility"] = scale_meter_fields(sources["mobility"],height/reference_height)
     sources["diagnostics"] = scale_meter_fields(sources["diagnostics"],height/reference_height)
+    if consumer is not None:
+        consumer = deepcopy(consumer)
+        consumer["snapshot"] = preflight_consumer_motion(
+            sources, consumer["resolved"]["id"], tuple(bpms), consumer["snapshot"])
     evaluator = DiagnosticEvaluator(sources)
     samples,plans = [],{}
     fixture_ids = {f['id'] for f in sources['diagnostics']}
@@ -55,14 +63,37 @@ def prepare(profile_id,stature=None,fixtures=None,bpms=(60,120,180)):
                             'fk_deltas':to_deltas(sources['profile'],solved['frames']),
                             'static':beat.denominator==1,'animation':True})
     manifest=runtime_manifest()
-    return seal({'format':'skeleton-prepared/v1','sources':sources,
+    prepared = {'format':'skeleton-prepared/v1','sources':sources,
                  'source_hashes':validation['source_hashes'],'backend_contract':backend_contract(),
                  'package_identity':{'version':manifest['version'],'manifest_sha256':manifest_sha256(),
                                      'implementation':manifest['implementation']},
                  'samples':samples,'sampling':plans,'primary_bpm':120,
                  'units':{'positions':'m','rotations':'active-right-handed-matrix3','quaternion':'wxyz'},
                  'limitations':['Kinematic animation approximation; no clinical validation.',
-                                 'Prepared transforms do not establish evaluated-mesh, contact, render, or human acceptance.']})
+                                 'Prepared transforms do not establish evaluated-mesh, contact, render, or human acceptance.']}
+    if consumer is not None:
+        prepared["consumer_motion"] = consumer["snapshot"]
+    return seal(prepared)
+
+
+def prepare(profile_id,stature=None,fixtures=None,bpms=(60,120,180)):
+    validation = validate_sources(profile_id)
+    sources,_ = load_sources(profile_id)
+    return _prepare_sources(profile_id, sources, validation, stature, fixtures, bpms)
+
+
+def prepare_consumer(profile_id, source, workspace, output_run, stature=None,
+                     bpms=(60,120,180)):
+    """Internal shared preparation path for a validated consumer-motion source."""
+    validation = validate_sources(profile_id)
+    sources,_ = load_sources(profile_id)
+    document = load_consumer_document(source, workspace, output_run)
+    resolved = resolve_consumer_document(document, profile_id, sources,
+                                         validation["source_hashes"],
+                                         stature_m=(sources["profile"]["stature_m"] if stature is None else stature),
+                                         bpms=tuple(bpms))
+    return _prepare_sources(profile_id, sources, validation, stature,
+                            (resolved["resolved"]["id"],), bpms, resolved)
 
 
 def main(workspace=None, argv=None):

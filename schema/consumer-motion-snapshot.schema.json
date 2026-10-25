@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/consumer-motion-snapshot.schema.json",
+  "title": "Persisted consumer motion source snapshot",
+  "type": "object",
+  "properties": {
+    "format": { "const": "hml-consumer-motion-snapshot/v1" },
+    "document": { "$ref": "https://humanmotionlib.example/schema/consumer-motion.schema.json" },
+    "source_sha256": { "$ref": "#/$defs/sha256" },
+    "resolved_definition": { "$ref": "https://humanmotionlib.example/schema/diagnostic.schema.json" },
+    "resolved_sha256": { "$ref": "#/$defs/sha256" },
+    "base_lineage": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/base" },
+      "minItems": 1
+    },
+    "validation": { "$ref": "#/$defs/validation" }
+  },
+  "required": [
+    "format", "document", "source_sha256", "resolved_definition", "resolved_sha256",
+    "base_lineage", "validation"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "base": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "logical_path": { "type": "string", "minLength": 1 },
+        "raw_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["id", "logical_path", "raw_sha256"],
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "scope": { "const": "consumer-kinematic-preflight/v1" },
+        "stature_m": { "type": "number", "exclusiveMinimum": 0 },
+        "dense_step_beats": { "const": 0.01 },
+        "delivered_samples": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "checked_samples": { "type": "integer", "minimum": 1 },
+        "checked_contacts": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "scope", "stature_m", "dense_step_beats", "delivered_samples",
+        "checked_samples", "checked_contacts"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

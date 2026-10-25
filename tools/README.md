@@ -86,10 +86,36 @@ on the Darwin arm64 reference platform. The CI uv version is pinned in
 `.github/workflows/host-python.yml`; local uv should use that same version for
 reproducible lock operations. The workflow pins uv 0.13.5.
 
+The consumer-motion source and public API fault matrix is run from the locked
+candidate environment. Allocate the run before executing; these test modules
+write process/fault cases only beneath this owned root:
+
+```sh
+mkdir build/support-consumer-authored-motions_r1_dev_try-1_host-check
+export UV_PROJECT_ENVIRONMENT=build/support-consumer-authored-motions_r1_dev_try-1_host-check/environment
+export UV_CACHE_DIR=build/support-consumer-authored-motions_r1_dev_try-1_host-check/cache
+uv sync --locked --no-editable
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/support-consumer-authored-motions_r1_dev_try-1_host-check" \
+HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
+  uv run --locked --no-sync python -m unittest \
+    tests.test_consumer_motion tests.test_api tests.test_prepared_contract \
+    tests.test_run_blender tests.test_blender_bootstrap
+```
+
+Consumer rendering repeats full schema, provenance, base-lineage, preflight
+and solved-sample validation in host Python before Blender is probed. The
+supervised launcher passes the accepted canonical prepared hash to the private
+backend entry point. Blender checks that exact identity plus the prepared seal,
+package/resource hashes and consumer sample/timeline references using its
+standard library and HML; it does not load YAML, JSON Schema, or host validation
+modules. The dependency-isolated reader and substitution checks are included in
+`tests.test_consumer_motion`.
+
 The following entry points are approved by the change design. Validation,
 preparation, headless construction, numeric verification, render-pack assembly,
 and HTML-only presentation regeneration are available. The synchronous public
-Python generation API for packaged skeleton diagnostics is documented in
+Python generation API for packaged skeleton diagnostics and bounded consumer
+motion inputs is documented in
 [`docs/usage.md`](../docs/usage.md); it uses the same workspace and supervised
 Blender contracts as the CLI:
 

@@ -102,6 +102,7 @@ def run(input_path, output, *, render_dir=None, render_only=False,
     command = [probe["receipt"]["executable"], "--background", "--factory-startup",
                "--python-exit-code", "1", "--python", str(script), "--",
                "--input", str(input_path), "--output", str(output), "--workspace", str(workspace_root(workspace))]
+    command.extend(("--expected-prepared-sha256", prepared["content_sha256"]))
     if owner_run is not None:
         command.extend(("--owner-run", str(owner_root)))
     if render_dir is not None:
