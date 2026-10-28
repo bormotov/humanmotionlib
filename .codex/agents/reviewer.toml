@@ -3,7 +3,7 @@ description = "ALWAYS use this agent to independently verify an implemented Open
 nickname_candidates = ["Reviewer"]
 # Writes only its review report and one explicitly allocated flat reviewer run (see instructions).
 sandbox_mode = "workspace-write"
-model = "gpt-6.1-sol"
+model = "gpt-6.1-terra"
 model_reasoning_effort = "medium"
 
 developer_instructions = """
