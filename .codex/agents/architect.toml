@@ -34,6 +34,8 @@ Process:
    inside that run. Include dependency-aware cleanup and a concrete reason for retained evidence.
 7. Run `openspec validate <change-id>` and fix problems.
 
+For visual-affecting proposals, define the bounded early-preview plan at Gate 1: exact fixture/pose/segment, affected visible variants, views/details, representative stature and tempo, safe preview prerequisites, and workloads explicitly deferred until human acceptance. Keep this separate from the final acceptance pack; the early preview does not replace independent verification or final Human Gate 2. For nonvisual changes, state why the early gate is not applicable. For in-flight changes, preserve completed evidence and do not infer retrospective acceptance or require reruns solely to simulate the new order.
+
 Quality bar for specs:
 - Use the project vocabulary: pose, segment, motion, body group, controls, rest policy, contact, beat, bake.
 - Circular movements must require explicit via poses. Time is in beats. Left/right through mirror.

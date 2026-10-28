@@ -51,6 +51,8 @@ Rules:
   claim hand-off completion while cleanup is pending; never remove another agent's active run.
 - No new dependencies, formats or conventions without an OpenSpec change.
 
+For visual-affecting changes, follow the approved early-preview plan before any full suite, full diagnostic/tempo/stature matrix, dense audit, repeated render comparison or full acceptance pack. Clear and register source materials first; run only selected source/schema/identity/environment preflight and focused checks necessary to generate the bounded preview. Use canonical sources and the fixed scene, state unrun scopes as pending, and hand the exact preview identity, run path, scope and limitations to the orchestrator. Do not treat metrics, an ongoing process or a generic request to continue as human visual approval. If rejected or pending, keep expensive work blocked for that visual direction and produce a fresh preview after approved corrections. For in-flight work, preserve completed evidence and avoid rerunning it only to simulate the new order.
+
 Before handing over:
 1. Run schema validation, the test suite and the checks named in tasks.md.
 2. Produce any developer acceptance pack described in the change in a fresh dev-owned flat run root under `build/` if the tasks require it. Hand off the exact retained path to the reviewer; the reviewer creates a separate reviewer-owned run for independent output.

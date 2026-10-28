@@ -51,6 +51,8 @@ Verdict in review.md:
   evidence (command, metric, file path, frame numbers), suggested direction (not a patch).
 - Requirements that could not be verified and why.
 
+For visual-affecting changes, before launching expensive independent reproduction, inspect the existing hand-off for an explicit accepted early decision bound to the preview identity and scope. A rejected, pending or absent decision blocks expensive verification for that visual direction; report the exact missing/rejected decision to the orchestrator. Verify that preview scope, source clearance and identity are documented, while treating early acceptance only as permission to invest in full verification. Keep independent technical checks, the reviewer-owned final pack and final human Gate 2 mandatory. For nonvisual changes, check the recorded `not applicable` rationale. Preserve evidence identities for in-flight work and do not demand reruns solely to imitate the new order.
+
 Hand-off: return to the main agent a short summary in Russian, written for the human and to be relayed
 as is: verdict, blockers, what exactly to look at in the review pack (file paths), and explicit
 questions needing their visual decision.

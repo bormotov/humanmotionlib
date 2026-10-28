@@ -97,11 +97,12 @@ CLI (slash commands vary by version, check `openspec --help`): `openspec list`, 
 
 ### Flow
 1. The human states the task.
-2. The change is drafted (main agent, with architect for design). **Gate 1**: the human approves the spec before implementation.
-3. dev implements. Independent tasks may run concurrently when file ownership does not conflict; gates stay ordered.
-4. reviewer writes `review.md` in the change folder and its review pack in its own build run.
-5. **Gate 2 (visual)**: the human reviews the pack (contact sheets, GIF, onion-skin) and approves or rejects. Required before archiving any change touching poses, motions, scene or rendering.
-6. Fixes go back to dev (to the spec if requirements change). Then `openspec archive`.
+2. The change is drafted (main agent, with architect for design). **Gate 1**: the human approves the spec and, for visual-affecting work, its bounded early-preview plan before implementation.
+3. dev implements the smallest coherent visual result, clears/registers external sources before use, and runs only selected source/schema/identity/environment checks plus focused checks needed to produce the preview. The plan names exact fixture/pose/segment, visible variants, views/details, stature and tempo, and deferred full scopes. Do not start full suites, full diagnostic/tempo/stature matrices, dense audits, repeated render comparisons or full acceptance packs before an explicit human early decision.
+4. dev produces the bounded preview from canonical sources and the fixed scene. The orchestrator presents its identity, artifacts, scope and limitations and records **Early visual gate: accepted / rejected / pending** with the exact human-message reference in the existing change hand-off. Silence, a generic request to continue, developer opinion, passing metrics or a running process is not acceptance. Rejection or no decision blocks expensive verification for that visual direction; make only the approved correction and a fresh preview.
+5. After early acceptance, conduct the existing joint pre-freeze audit, resolve in-scope discrepancies, freeze and identify the candidate, then run required full verification and independent review. Early acceptance does not replace technical checks, independent review or final human visual approval. Nonvisual changes record `not applicable` with a reason.
+6. reviewer writes `review.md` and any final pack in its own build run. **Gate 2 (visual)**: the human reviews the independently verified final pack (contact sheets, GIF, onion-skin). Required before archiving any change touching poses, motions, visible characters, scene or rendering.
+7. Assess later source changes: appearance/pose/motion/scene/render changes require a fresh preview and renewed early acceptance before further expensive checks; technical-only changes record applicability while renewing checks required by identity rules. For in-flight changes, preserve completed evidence and its identity, do not invent retrospective early approval, and do not rerun completed expensive work only to simulate the new order. Keep final Gate 2. Fixes go back to dev (to the spec if requirements change). Then clean owned runs, record cleanup, and archive only after required gates.
 
 ### Rules
 - One logical change per proposal; small changes get a short one.

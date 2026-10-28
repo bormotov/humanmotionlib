@@ -137,6 +137,93 @@ except GenerationError as error:
 A command existing does not establish complete OpenSpec acceptance; the task
 list tracks the checks.
 
+## Early visual gate and bounded preview
+
+For a visual-affecting change, Gate 1 approves the exact preview plan with the change. Before an explicit early human decision, run only source/material clearance, selected source/schema/identity/environment checks, focused checks required for safe preview generation, and any one candidate-packaging step required by the installed workflow. Do not start full regression suites, full fixture/tempo/stature matrices, dense audits, duplicate render comparisons or the complete acceptance pack until the human accepts the identified preview. If no safe supported route can produce it, return to the architect for a bounded plan; do not relabel a full acceptance command as a preview.
+
+The plan and pack identify exact fixture/pose/segment, every affected visible variant, view and detail views, one representative stature and BPM (or explain why not applicable), source/package identity, fixed scene/backend, and deferred scopes. Include baseline and changed count poses; for motion, one complete representative segment or closed cycle as a correctly timed GIF plus a key-transition onion skin from the same keyed animation. State omitted full-matrix, dense, native, repeatability and independent-review scopes as pending. Clear and register every external source before preview use. For Blender-backed work, use the pinned backend and fixed scene; follow the uv interpreter/origin/`.pth`/cache/package and process-visibility preflight in `AGENTS.md` whenever the preview route creates or tests an isolated environment or supervises a process.
+
+Worked route (plan only; paths are illustrative and no render is started here): prepare one complete `arm-raise` fixture at the representative H=1.70 m and 120 BPM, then make one render batch for all three characters. This produces all 13 samples of the four-beat fixture (78 PNGs: fixed front/side views × three characters); no input or post-hoc renderer filtering is assumed. Beat 0 is the neutral baseline. A compact presentation may select already-rendered beats 0, 2 and 4 for labeled count sheets, while the timed GIF and transition onion use the complete generated animation timeline. Gate 1 fixes the crop rectangles from the fixed-camera projection before rendering; if the selected full views cannot expose a required detail through those crops, stop and return to the architect instead of moving a camera or adding an unplanned render. Build a distinct fresh presentation run using `result.images` and `prepared.timelines` plus the existing `humanmotionlib.review_graphics` sheet/GIF/onion helpers. This packages already generated images and makes no further Blender call; do not invoke `review-pack`, which starts duplicate clean renders. The exact supported API calls are:
+
+```python
+from pathlib import Path
+from humanmotionlib.api import prepare, render
+
+workspace = Path("/absolute/caller/workspace")
+prepared = prepare(workspace=workspace,
+                   output="build/add-shared-body-characters_r1_dev_try-1_prepare/input.json",
+                   profile="adult-reference-v1", stature=1.70,
+                   fixtures=("arm-raise",), bpms=(120,))
+result = render(prepared, workspace=workspace,
+                output="build/add-shared-body-characters_r1_dev_try-1_preview",
+                images=True, characters=("skeleton", "male", "female"),
+                render_only=True)
+```
+
+The presentation step is reproducible from the returned public records and paths:
+
+```python
+from fractions import Fraction
+from pathlib import Path
+from humanmotionlib.review_graphics import gif, onion, sheet
+
+characters = ("skeleton", "male", "female")
+images = {(image.character_id, image.sample_id, image.view): image.path
+          for image in result.images}
+animation = next(item for item in prepared.timelines
+                 if item.fixture_id == "arm-raise" and item.bpm == 120
+                 and item.mode == "animation")
+static = next(item for item in prepared.timelines
+              if item.fixture_id == "arm-raise" and item.bpm == 120
+              and item.mode == "static")
+presentation_root = workspace / "build/add-shared-body-characters_r1_dev_try-1_visual-pack"
+# Preflight this as a fresh, empty run root before creating files.
+presentation_root.mkdir()
+count_entries = [entry for entry in static.entries
+                 if entry.beat in (Fraction(0), Fraction(2), Fraction(4))]
+interval = animation.entries[1].seconds - animation.entries[0].seconds
+gif_reports = []
+for view in ("front", "side"):
+    count_paths = [images[(character, entry.sample_id, view)]
+                   for entry in count_entries for character in characters]
+    captions = [f"{entry.beat}-{character}"
+                for entry in count_entries for character in characters]
+    sheet(count_paths, captions, presentation_root / f"counts-{view}.png", columns=3)
+    transitions = [entry for entry in animation.entries
+                   if entry.beat in (Fraction(0), Fraction(1), Fraction(2),
+                                     Fraction(3), Fraction(4))]
+    for character in characters:
+        frames = [images[(character, entry.sample_id, view)]
+                  for entry in animation.entries]
+        gif_report = gif(frames, interval,
+                         presentation_root / f"{character}-{view}.gif")
+        if gif_report["status"] != "pass":
+            raise ValueError(f"GIF timing failed: {gif_report}")
+        gif_reports.append((character, view, gif_report))
+        onion([images[(character, entry.sample_id, view)] for entry in transitions],
+              presentation_root / f"{character}-{view}-onion.png")
+
+(presentation_root / "index.md").write_text(
+    "# Early visual preview\n\n"
+    f"Prepared identity: `{prepared.prepared_sha256}`\n\n"
+    f"Render identity: `{result.render_identity}`\n\n"
+    f"Package identity: `{prepared.package_identity}`\n\n"
+    f"Source/material provenance: `{prepared.provenance.sources}`; "
+    f"materials `{prepared.provenance.material_ids}`\n\n"
+    f"Character provenance: `{result.character_provenance}`\n\n"
+    f"Backend: `{result.backend_identity}`\n\n"
+    f"GIF timing checks: `{gif_reports}`\n\n"
+    "Scope: arm-raise, H=1.70 m, 120 BPM; all 13 generated samples, "
+    "three characters, fixed front and side views (78 PNGs). Beat 0 is "
+    "the neutral baseline.\n\n"
+    "Deferred: native/evaluated geometry checks; other fixtures, BPMs and "
+    "statures; diagnostic matrices; repeatability; independent review and "
+    "final human gate.\n"
+)
+```
+
+Add fixed pixel crops of the already rendered front/side images for shoulder, waist/hip, knee and sole details; record each crop rectangle and source image in the index. Cropping does not move the camera or add a Blender pass. The index records all created render samples, selected presentation samples, source/package identity, fixed scene/backend, chosen stature/BPM, crop rectangles, limitations, and deferred fixtures, statures, BPMs, diagnostic matrices, repeatability and independent-review scopes as pending. Retain provenance from `result.character_provenance` and `result.prepared.provenance`. The historical thoracic/squat examples below include `review-pack` and its repeated clean passes; they are not early-gate routes. Do not execute those pack commands before the human early decision for a new visual direction.
+
 ```sh
 uv run --locked --no-sync hml validate --profile adult-reference-v1
 uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
@@ -434,6 +521,13 @@ clinical validation or independent human visual acceptance. The headless
 backend must supply actual evaluated frames/geometry for the final reports.
 
 ### Focused thoracic preview
+
+The entire command sequence below is a historical, post-early-acceptance
+diagnostic/review workflow, not a bounded early-gate recipe. Preparation uses
+the default three BPMs; verification and `review-pack` add further work, and
+the pack launches clean render passes. For new visual work, do not run any
+command in this sequence before early acceptance. The word “focused” below
+refers only to its feature-specific diagnostic scope.
 
 Before regenerating full diagnostic packs, prepare just the two structural
 poses in a fresh flat build run, then build, measure and render them using the
@@ -749,7 +843,14 @@ the beat is an exact match; the image paths are relative to the review-pack
 root. Actual native delivered frames are verified separately. No dynamic
 stability, force, muscle or speed-dependent balance claim is made.
 
-Produce the early squat-only preview through the established commands:
+The entire command sequence below is a historical, post-early-acceptance
+diagnostic/review workflow, not a bounded early-gate route. Preparation uses
+the default three BPMs, the verifier runs feature diagnostics, and `review-pack`
+launches clean render passes. For new visual work, do not run any command in
+this sequence before early acceptance. Do not treat the word “preview” in this
+older change-specific instruction as authorization to start this workload.
+
+The original feature-specific command sequence was:
 
 ```sh
 uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
