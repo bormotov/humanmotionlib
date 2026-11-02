@@ -40,6 +40,16 @@ jobs:
           version: 0.13.5
           enable-cache: false
 
+      - name: Smoke Make help and matrix listing without Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          env PATH=/usr/bin:/bin make
+          env PATH=/usr/bin:/bin make matrix-list
+
+      - name: Exercise the standard development route
+        run: make dev
+
       - name: Allocate fresh package and sdist runs
         id: allocate
         shell: bash
@@ -110,12 +120,73 @@ jobs:
           second_wheel=("$output"/*.whl)
           test "${#second_wheel[@]}" -eq 1
           second_venv="$matrix_root/venv"
-          python -m venv "$second_venv"
-          uv pip install --python "$second_venv/bin/python" "${second_wheel[0]}" 2>&1 | tee "$matrix_root/install.log"
-          uv pip check --python "$second_venv/bin/python" 2>&1 | tee "$matrix_root/dependency-check.log"
+          uv venv --python 3.14 "$second_venv" 2>&1 | tee "$matrix_root/venv.log"
+          second_python="$second_venv/bin/python"
+          uv pip install --python "$second_python" "${second_wheel[0]}" 2>&1 | tee "$matrix_root/install.log"
+          uv pip check --python "$second_python" 2>&1 | tee "$matrix_root/dependency-check.log"
           (
             cd "$matrix_root"
-            env -u PYTHONPATH "$second_venv/bin/python" - "$HML_EXPECTED_VERSION" "${second_wheel[0]}" "$HML_DIRECT_WHEEL" <<'PY'
+            env -u PYTHONPATH "$second_python" - "${second_wheel[0]}" "$UV_CACHE_DIR" <<'PY' > "$matrix_root/pre-test-environment.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import pathlib
+          import site
+          import sys
+
+          wheel = pathlib.Path(sys.argv[1]).resolve()
+          prefix = pathlib.Path(sys.prefix).resolve()
+          base_prefix = pathlib.Path(sys.base_prefix).resolve()
+          site_dirs = [pathlib.Path(p).resolve() for p in site.getsitepackages()]
+          pth_files = {}
+          for site_dir in site_dirs:
+              for path in sorted(site_dir.glob("*.pth")):
+                  pth_files[str(path)] = path.read_text(errors="replace")
+          module_names = ("humanmotionlib", "yaml", "jsonschema", "PIL", "referencing", "attrs")
+          origins = {}
+          for name in module_names:
+              spec = importlib.util.find_spec(name)
+              origins[name] = None if spec is None else spec.origin
+          distributions = sorted(
+              {dist.metadata["Name"].lower(): {"name": dist.metadata["Name"], "version": dist.version,
+               "root": str(pathlib.Path(dist.locate_file("")).resolve())}
+               for dist in importlib.metadata.distributions()}.values(),
+              key=lambda item: item["name"].lower(),
+          )
+          unexpected_import_origins = {
+              name: origin for name, origin in origins.items()
+              if origin is not None and not pathlib.Path(origin).resolve().is_relative_to(prefix)
+          }
+          resolved_sys_path = [pathlib.Path(p or pathlib.Path.cwd()).resolve() for p in sys.path]
+          unexpected_external_paths = [
+              str(path) for path in resolved_sys_path
+              if not path.is_relative_to(prefix) and not path.is_relative_to(base_prefix)
+              and path != pathlib.Path.cwd().resolve()
+          ]
+          assert not unexpected_import_origins, unexpected_import_origins
+          assert not unexpected_external_paths, unexpected_external_paths
+          report = {
+              "python": {"executable": sys.executable, "version": sys.version, "prefix": str(prefix),
+                         "base_prefix": str(base_prefix)},
+              "package": {"wheel": str(wheel), "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                          "version": importlib.metadata.version("humanmotionlib")},
+              "dependencies": distributions,
+              "import_origins": origins,
+              "site_packages": [str(path) for path in site_dirs],
+              "pth_contents": pth_files,
+              "sys_path": sys.path,
+              "unexpected_external_paths": unexpected_external_paths,
+              "unexpected_import_origins": unexpected_import_origins,
+              "uv_cache_dir": str(pathlib.Path(sys.argv[2]).resolve()),
+              "uv_pip_check": "passed",
+          }
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          )
+          (
+            cd "$matrix_root"
+            env -u PYTHONPATH "$second_python" - "$HML_EXPECTED_VERSION" "${second_wheel[0]}" "$HML_DIRECT_WHEEL" <<'PY'
           import hashlib
           import importlib.metadata
           import json
@@ -147,7 +218,7 @@ jobs:
           assert humanmotionlib.__version__ == "0.91.7"
           print(json.dumps({"version": "0.91.7", "resource_files": len(second_resources)}, sort_keys=True))
           PY
-            env -u PYTHONPATH "$second_venv/bin/python" -m humanmotionlib --version | tee "$matrix_root/module-version.log"
+            env -u PYTHONPATH "$second_python" -m humanmotionlib --version | tee "$matrix_root/module-version.log"
             env -u PYTHONPATH "$second_venv/bin/hml" --version | tee "$matrix_root/cli-version.log"
           )
           grep -Fx "humanmotionlib 0.91.7" "$matrix_root/module-version.log"
@@ -219,11 +290,71 @@ jobs:
           outside="$HML_EXTERNAL_CALLER_ROOT/outside-cwd"
           workspace="$HML_ACCEPTANCE_WORKSPACE"
           mkdir "$install_root" "$outside" "$workspace"
-          python -m venv "$install_root/venv"
+          uv venv --python 3.14 "$install_root/venv" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/venv.log"
           installed_python="$install_root/venv/bin/python"
           export PYTHONDONTWRITEBYTECODE=1
           uv pip install --python "$installed_python" "$HML_DIRECT_WHEEL" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/install.log"
           uv pip check --python "$installed_python" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/dependency-check.log"
+          (
+            cd "$outside"
+            env -u PYTHONPATH "$installed_python" - "$HML_DIRECT_WHEEL" "$UV_CACHE_DIR" <<'PY' > "$HML_PACKAGE_RUN_ROOT/pre-test-environment.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import pathlib
+          import site
+          import sys
+
+          wheel = pathlib.Path(sys.argv[1]).resolve()
+          prefix = pathlib.Path(sys.prefix).resolve()
+          base_prefix = pathlib.Path(sys.base_prefix).resolve()
+          site_dirs = [pathlib.Path(p).resolve() for p in site.getsitepackages()]
+          pth_files = {}
+          for site_dir in site_dirs:
+              for path in sorted(site_dir.glob("*.pth")):
+                  pth_files[str(path)] = path.read_text(errors="replace")
+          module_names = ("humanmotionlib", "yaml", "jsonschema", "PIL", "referencing", "attrs")
+          origins = {}
+          for name in module_names:
+              spec = importlib.util.find_spec(name)
+              origins[name] = None if spec is None else spec.origin
+          distributions = sorted(
+              {dist.metadata["Name"].lower(): {"name": dist.metadata["Name"], "version": dist.version,
+               "root": str(pathlib.Path(dist.locate_file("")).resolve())}
+               for dist in importlib.metadata.distributions()}.values(),
+              key=lambda item: item["name"].lower(),
+          )
+          unexpected_import_origins = {
+              name: origin for name, origin in origins.items()
+              if origin is not None and not pathlib.Path(origin).resolve().is_relative_to(prefix)
+          }
+          resolved_sys_path = [pathlib.Path(p or pathlib.Path.cwd()).resolve() for p in sys.path]
+          unexpected_external_paths = [
+              str(path) for path in resolved_sys_path
+              if not path.is_relative_to(prefix) and not path.is_relative_to(base_prefix)
+              and path != pathlib.Path.cwd().resolve()
+          ]
+          assert not unexpected_import_origins, unexpected_import_origins
+          assert not unexpected_external_paths, unexpected_external_paths
+          report = {
+              "python": {"executable": sys.executable, "version": sys.version, "prefix": str(prefix),
+                         "base_prefix": str(base_prefix)},
+              "package": {"wheel": str(wheel), "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                          "version": importlib.metadata.version("humanmotionlib")},
+              "dependencies": distributions,
+              "import_origins": origins,
+              "site_packages": [str(path) for path in site_dirs],
+              "pth_contents": pth_files,
+              "sys_path": sys.path,
+              "unexpected_external_paths": unexpected_external_paths,
+              "unexpected_import_origins": unexpected_import_origins,
+              "uv_cache_dir": str(pathlib.Path(sys.argv[2]).resolve()),
+              "uv_pip_check": "passed",
+          }
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          )
           site_packages=$("$installed_python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
           chmod -R a-w "$site_packages"
           find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256"
@@ -306,6 +437,20 @@ jobs:
             --workspace "$workspace" \
             --run-root "$HML_ACCEPTANCE_RUN_ROOT" \
             2>&1 | tee "$HML_ACCEPTANCE_RUN_ROOT/installed-acceptance.log"
+
+          mkdir -p "$outside/characters"
+          printf 'not-a-real-character: true\n' > "$outside/characters/poison.yaml"
+          cp "$GITHUB_WORKSPACE/pyproject.toml" "$outside/pyproject.toml"
+          (
+            cd "$outside"
+            env -u PYTHONPATH \
+              HML_ACCEPTANCE_WORKSPACE="$workspace" \
+              HML_ACCEPTANCE_REPOSITORY="$workspace/character-installation-workspace" \
+              HML_ACCEPTANCE_ROOT="$HML_ACCEPTANCE_RUN_ROOT" \
+              PYTHONDONTWRITEBYTECODE=1 \
+              "$installed_python" -c 'import sys, unittest; sys.path.insert(0, sys.argv[1]); suite=unittest.defaultTestLoader.loadTestsFromName("tests.test_character_installation"); result=unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(not result.wasSuccessful())' \
+              "$GITHUB_WORKSPACE"
+          ) 2>&1 | tee "$HML_ACCEPTANCE_RUN_ROOT/character-installation-tests.log"
           find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
           cmp "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256" "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
 

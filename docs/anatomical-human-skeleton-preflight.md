@@ -42,10 +42,20 @@ not floating-point noise or a missing renderer setting.
 
 ## Reproduce
 
+The command sequence below is historical reproduction guidance from the
+pre-Make workflow. It records how that earlier calculation was checked; it is
+not the current project setup route. In a current checkout, prepare the project
+environment and package with `make dev`. The equivalent focused regression
+check was verified with the configured project interpreter:
+
 ```sh
-uv sync --locked
-uv run python -m unittest discover -s tests -v
+make dev
+build/project-tools_r1_contributor_current_environment/environment/bin/python -m unittest tests.test_walking_dossier
 ```
+
+The focused command above passed 5 tests in the configured environment. The
+old `uv sync`/`uv run` commands are retained only as a record of the historical
+preflight workflow.
 
 The seven runtime/walking tests pass, including checks that the original
 construction is rejected and that the corrected construction meets preflight

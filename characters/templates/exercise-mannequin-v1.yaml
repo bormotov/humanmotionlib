@@ -1,0 +1,220 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-surface-template
+id: exercise-mannequin-v1
+description: Shared procedural surface topology, attachment rules and authored envelope for the first HML exercise mannequins.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: The mesh layout, envelope and carrier-weight rules are original authored simplifications for readable exercise motion.
+  changes: The template describes stylized surfaces and is not measured or universal anatomy.
+compatible_profile: adult-reference-v1
+template_revision: 4
+binding_revision: 4
+expected_rest_contract_sha256: 1ecc54304f776fc1bee59cd7c5b75845aa2c5a80692a1efc3ca18a205763d9cc
+rest_contract_structures: [C1, C3, C7, L1, L5, T1, T12, T6, clavicle.L, clavicle.R, elbow.L, elbow.R, femur.L, femur.R, hindfoot.L, hindfoot.R, humerus.L, humerus.R, knee.L, knee.R, mtp.L, mtp.R, pelvis, radius.L, radius.R, skull, toe.1.L, toe.1.R, toe.5.L, toe.5.R, wrist.L, wrist.R]
+space:
+  positions: stature_normalized
+  basis: right_handed_profile_space
+  rest_pose: skeletal_T_pose
+  stature_source: render_request
+  mirror_plane: x_zero
+topology:
+  kind: loft_and_ellipsoid
+  loft_ring_vertices: 32
+  intervals_per_control_interval: 4
+  ring_interpolation: linear
+  weight_interpolation: smoothstep
+  face_diagonal: lower_vertex_id
+  cap_style: center_fan
+  head_longitudes: 32
+  head_latitude_intervals: 16
+  subdivision: none
+  remesh: none
+  automatic_weights: false
+  modifiers_may_change_topology: false
+shoulder_join:
+  constructor: welded_shoulder_bridge
+  torso_lower_rings: [24, 31]
+  torso_lower_sectors_right: [28, 29, 30, 31, 0, 1, 2, 3]
+  arm_join_ring: 8
+  bridge_intermediate_loops: 3
+  weight_interpolation: smoothstep_3t2_minus_2t3
+  maximum_influences_bridge: 3
+  maximum_influences_elsewhere: 2
+  refinement_passes: 2
+  position_rule: midpoint_then_neighbor_average
+  interior_relaxation: 0.25
+  boundary_rule: fixed_conforming_midpoints
+  weight_rule: construction_coordinates
+  maximum_rest_deviation_h: 0.005
+  arms_down_profile:
+    kind: canonical_neutral_upper_plateau_v1
+    support_start_z_h: 0.810
+    support_end_z_h: 0.840
+    plateau_end_u: 0.5
+    maximum_rest_deviation_h: 0.020
+components:
+  - id: torso
+    geometry: loft
+    section_frame: world_xy
+    control_rings:
+      - {z_h: 0.430, radius_h: [0.080, 0.050]}
+      - {z_h: 0.470, radius_h: [0.100, 0.065]}
+      - {z_h: 0.520, radius_h: [0.098, 0.065]}
+      - {z_h: 0.580, radius_h: [0.082, 0.052]}
+      - {z_h: 0.650, radius_h: [0.100, 0.062]}
+      - {z_h: 0.720, radius_h: [0.115, 0.070]}
+      - {z_h: 0.780, radius_h: [0.110, 0.063]}
+      - {z_h: 0.810, radius_h: [0.114, 0.055]}
+      - {z_h: 0.840, radius_h: [0.028, 0.029]}
+      - {z_h: 0.875, radius_h: [0.027, 0.028]}
+    center_h: [0.0, 0.0]
+    weighting:
+      kind: longitudinal_chain
+      carriers: [pelvis, L5, L1, T12, T6, T1, C7, C3, C1]
+      coordinate: rest_carrier_origin_z
+      outside_chain: clamp_to_end_carrier
+      equal_z_origins: reject
+      maximum_influences: 2
+    junctions: [shoulder_torso, hip_torso, neck_head]
+    material: suit
+  - id: head
+    geometry: ellipsoid
+    center_h: [0.0, 0.008, 0.9375]
+    radii_source: appearance.head_radii_h
+    weighting:
+      kind: rigid
+      carrier: skull
+    material: head_mitten
+  - id: arm.R
+    geometry: mirrored_loft
+    source_side: R
+    mirror_side: L
+    mirror_plane: x_zero
+    endpoints:
+      shoulder: shoulder.R
+      elbow: elbow.R.origin
+      wrist: wrist.R.origin
+      hand_tip: wrist_plus_forearm_direction
+      hand_tip_distance_h: 0.105
+    section_axes: [rest_world_anterior_projected_off_tangent, right_handed_cross_product]
+    radius_source: arm_control_rings
+    radius_scale_source: appearance.radius_scales.arm
+    control_rings:
+      - {span: shoulder_to_elbow, t: -0.12, radius_h: [0.020, 0.020]}
+      - {span: shoulder_to_elbow, t: 0.00, radius_h: [0.038, 0.038]}
+      - {span: shoulder_to_elbow, t: 0.25, radius_h: [0.040, 0.037]}
+      - {span: shoulder_to_elbow, t: 0.65, radius_h: [0.032, 0.030]}
+      - {span: shoulder_to_elbow, t: 0.90, radius_h: [0.025, 0.025]}
+      - {span: shoulder_to_elbow, t: 1.00, radius_h: [0.025, 0.025]}
+      - {span: elbow_to_wrist, t: 0.10, radius_h: [0.026, 0.026]}
+      - {span: elbow_to_wrist, t: 0.35, radius_h: [0.029, 0.027]}
+      - {span: elbow_to_wrist, t: 0.70, radius_h: [0.022, 0.021]}
+      - {span: elbow_to_wrist, t: 1.00, radius_h: [0.017, 0.018]}
+      - {span: wrist_to_hand_tip, t: 0.15, radius_h: [0.016, 0.023]}
+      - {span: wrist_to_hand_tip, t: 0.45, radius_h: [0.015, 0.025]}
+      - {span: wrist_to_hand_tip, t: 0.85, radius_h: [0.011, 0.019]}
+      - {span: wrist_to_hand_tip, t: 1.00, radius_h: [0.004, 0.007]}
+    weighting:
+      maximum_influences: 2
+      bands:
+        - {id: shoulder, center: shoulder, radius: 0.12, reference: upper_arm_length, from: clavicle.R, to: humerus.R, interval: [-0.12, 0.10]}
+        - {id: elbow, center: elbow, radius: 0.08, reference: min_adjacent_arm_length, from: humerus.R, to: elbow.R}
+        - {id: forearm_twist, span: elbow_to_wrist, interval: [0.15, 0.85], from: elbow.R, to: radius.R}
+        - {id: wrist, center: wrist, radius: 0.06, reference: forearm_length, from: radius.R, to: wrist.R}
+      hand_carrier: wrist.R
+      interpolation: smoothstep_3t2_minus_2t3
+      unit_weight_outside_bands: true
+    mirror_winding: reverse
+    junctions: [shoulder_torso, wrist_mitten]
+    material_sections:
+      - {from_span: wrist_to_hand_tip, material: head_mitten}
+      - {other: suit}
+  - id: leg.R
+    geometry: mirrored_loft
+    source_side: R
+    mirror_side: L
+    mirror_plane: x_zero
+    endpoints:
+      hip: hip.R
+      knee: knee.R.origin
+      ankle: ankle.R
+    section_axes: [rest_world_anterior_projected_off_tangent, right_handed_cross_product]
+    radius_scale_source: appearance.radius_scales
+    control_rings:
+      - {span: hip_to_knee, t: -0.12, radius_h: [0.027, 0.027], scale_key: leg_thigh}
+      - {span: hip_to_knee, t: 0.00, radius_h: [0.047, 0.044], scale_key: leg_thigh}
+      - {span: hip_to_knee, t: 0.25, radius_h: [0.050, 0.046], scale_key: leg_thigh}
+      - {span: hip_to_knee, t: 0.65, radius_h: [0.038, 0.035], scale_key: leg_thigh}
+      - {span: hip_to_knee, t: 0.90, radius_h: [0.029, 0.028], scale_key: leg_thigh}
+      - {span: hip_to_knee, t: 1.00, radius_h: [0.029, 0.028], scale_key: leg_knee}
+      - {span: knee_to_ankle, t: 0.15, radius_h: [0.034, 0.032], scale_key: leg_shank}
+      - {span: knee_to_ankle, t: 0.35, radius_h: [0.036, 0.033], scale_key: leg_shank}
+      - {span: knee_to_ankle, t: 0.70, radius_h: [0.026, 0.024], scale_key: leg_shank}
+      - {span: knee_to_ankle, t: 0.95, radius_h: [0.020, 0.019], scale_key: leg_shank}
+      - {span: knee_to_ankle, t: 1.03, radius_h: [0.019, 0.018], scale_key: leg_shank}
+    weighting:
+      maximum_influences: 2
+      bands:
+        - {id: hip, center: hip, radius: 0.12, reference: thigh_length, from: pelvis, to: femur.R, interval: [-0.12, 0.10]}
+        - {id: knee, center: knee, radius: 0.08, reference: min_adjacent_leg_length, from: femur.R, to: knee.R}
+        - {id: ankle, center: ankle, radius: 0.08, reference: shank_length, from: knee.R, to: hindfoot.R, terminal: true}
+      interpolation: smoothstep_3t2_minus_2t3
+      unit_weight_outside_bands: true
+    mirror_winding: reverse
+    junctions: [hip_torso, ankle_foot]
+    material: suit
+  - id: foot.R
+    geometry: mirrored_sole_loft
+    source_side: R
+    mirror_side: L
+    mirror_plane: x_zero
+    center_xy_source: ankle.R_neutral_xy
+    sole_z_source: floor_z
+    radial_vertices: 32
+    ring_rule: x_offset_half_width_cos_theta_z_offset_top_height_max_zero_sin_theta
+    control_rings:
+      - {y_h: -0.040, half_width_h: 0.010, top_height_h: 0.020}
+      - {y_h: -0.025, half_width_h: 0.021, top_height_h: 0.032}
+      - {y_h: 0.000, half_width_h: 0.024, top_height_h: 0.055}
+      - {y_h: 0.045, half_width_h: 0.025, top_height_h: 0.040}
+      - {y_h: 0.075, half_width_h: 0.023, top_height_h: 0.030}
+      - {y_h: 0.100, half_width_h: 0.018, top_height_h: 0.020}
+      - {y_h: 0.118, half_width_h: 0.004, top_height_h: 0.008}
+    weighting:
+      maximum_influences: 2
+      hindfoot_only_at_or_below_y_h: 0.065
+      smooth_transition:
+        y_h: [0.065, 0.075]
+        from: hindfoot.R
+        to: mtp.R
+        interpolation: smoothstep_3t2_minus_2t3
+      mtp_only_at_or_above_y_h: 0.075
+      interpolation: smoothstep_3t2_minus_2t3
+      unit_weight_outside_bands: true
+    mirror_winding: reverse
+    sole_thickness_below_floor_h: 0.0
+    junctions: [ankle_foot]
+    material: foot
+materials:
+  suit:
+    rgb_source: appearance.materials_rgb.suit
+    alpha: 1.0
+  head_mitten:
+    rgb_source: appearance.materials_rgb.head_mitten
+    alpha: 1.0
+  foot:
+    rgb_source: appearance.materials_rgb.foot
+    alpha: 1.0
+limits:
+  normalized_weight_sum_tolerance: 1.0e-12
+  maximum_influences_per_vertex: 3
+  native_vertex_residual_h: 1.0e-5
+  minimum_triangle_area_h2: 1.0e-12
+  surface_floor_minimum_z_h: -1.0e-4
+  visible_sole_to_contact_anchor_m: 1.0e-3
+  torso_rest_slice_tolerance_h: 1.0e-4
+  rest_expansion_tolerance_h: 1.0e-9

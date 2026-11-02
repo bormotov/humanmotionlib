@@ -10,29 +10,71 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass
 from fractions import Fraction
+import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
+import stat
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
 from humanmotionlib import prepare_skeleton, run_blender
 from humanmotionlib.package_resources import PackageResourceError, read_bytes, read_text
-from humanmotionlib.prepared import read_prepared
+from humanmotionlib.prepared import canonical_bytes, content_hash, read_prepared, write_json
 from humanmotionlib.runtime import (
     DEFAULT_BUILD_TIMEOUT,
     DEFAULT_SLOT_TIMEOUT,
     InvocationError,
+    MATRIX_DESTINATIONS,
     SlotTimeout,
     ensure_workspace_build,
     resolve_workspace_path,
     validate_run_root,
+    validate_managed_pass_root,
+    validate_matrix_content_destination,
     validate_timeout,
     workspace_root,
 )
 from humanmotionlib.source_validation import SourceValidationError
+
+
+def _matrix_destination(value: Mapping[str, Any] | None, *, operation: str,
+                        output: str | Path, workspace: Path,
+                        allowed_destinations: frozenset[str],
+                        inputs: Sequence[str | Path] = ()) -> tuple[Path, Path] | None:
+    """Validate an explicit stable matrix binding before any filesystem writes.
+
+    Matrix authority is conveyed only by the structured binding; path spelling
+    alone never relaxes the standalone fresh-run rules.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != {"element_root", "allowed_destinations"}:
+        raise _RequestError("matrix_destination must contain element_root and allowed_destinations")
+    declared = value["allowed_destinations"]
+    if (isinstance(declared, (str, bytes)) or not isinstance(declared, Sequence)
+            or not declared or len(set(declared)) != len(declared)
+            or any(not isinstance(item, str) or item not in allowed_destinations for item in declared)):
+        raise _RequestError(f"matrix_destination has an invalid {operation} destination allowlist")
+    declared_set = frozenset(declared)
+
+    try:
+        element, destination, _relative_destination = validate_matrix_content_destination(
+            output, value["element_root"], workspace, operation=operation,
+            allowed_destinations=declared_set)
+    except (TypeError, ValueError, OSError) as error:
+        raise _RequestError(str(error)) from error
+    for source in inputs:
+        source_path = resolve_workspace_path(source, workspace)
+        if source_path == destination or source_path in destination.parents or destination in source_path.parents:
+            raise _RequestError("matrix output overlaps a protected input")
+    # Existing element content is allowed for repeat runs, but every existing
+    # component from the stable root to the declared output must be a real,
+    # non-symlink directory/file path.
+    return element, destination
 
 
 def _plain(value: Any) -> Any:
@@ -124,6 +166,23 @@ class RenderedImage(_Record):
     sample_id: str
     view: str
     path: Path
+    character_id: str = "skeleton"
+
+
+@dataclass(frozen=True)
+class CharacterInfo(_Record):
+    character_id: str
+    renderer_kind: str
+    profile_id: str
+    template_id: str | None
+    appearance_id: str | None
+    source_hashes: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class CharacterArtifactSet(_Record):
+    character_id: str
+    artifacts: Mapping[str, Path]
 
 
 @dataclass(frozen=True)
@@ -136,6 +195,10 @@ class GenerationResult(_Record):
     backend_identity: Mapping[str, Any]
     numerical_acceptance: str
     visual_acceptance: str
+    characters: tuple[CharacterInfo, ...] = ()
+    character_artifacts: tuple[CharacterArtifactSet, ...] = ()
+    character_provenance: Mapping[str, Any] | None = None
+    render_identity: str | None = None
 
 
 class GenerationError(RuntimeError):
@@ -225,6 +288,12 @@ def _provenance(prepared: Mapping[str, Any]) -> ProvenanceInfo:
     source_records: list[SourceProvenance] = []
     materials: set[str] = set()
     for logical, digest in sorted(prepared["source_hashes"].items()):
+        # Character sources are rendered dependencies, not preparation inputs.
+        # Their bytes are covered by the package manifest and per-character
+        # closure; parsing them here would make skeleton preparation depend on
+        # surface templates.
+        if logical.startswith("characters/"):
+            continue
         document_key = logical
         if logical.startswith("rig/profiles/"):
             document_key = "profile"
@@ -421,7 +490,8 @@ def prepare(*, workspace: str | Path, output: str | Path,
             profile: str = "adult-reference-v1", stature: float | None = None,
             fixtures: Sequence[str] | None = None,
             bpms: Sequence[int | float] = (60, 120, 180),
-            motion: Mapping[str, Any] | str | Path | None = None) -> PreparedResult:
+            motion: Mapping[str, Any] | str | Path | None = None,
+            matrix_destination: Mapping[str, Any] | None = None) -> PreparedResult:
     """Validate packaged sources, persist prepared data and return joined records.
 
     This host-only operation never probes Blender. ``workspace`` must be an
@@ -455,11 +525,22 @@ def prepare(*, workspace: str | Path, output: str | Path,
             seen_bpms.add(normalized)
             normalized_bpms.append(bpm)
         destination = resolve_workspace_path(output, root)
-        run_root = validate_run_root(destination.parent, root)
-        if destination.exists():
-            raise _RequestError(f"prepared output already exists: {destination}")
-        if run_root.exists() and (not run_root.is_dir() or any(run_root.iterdir())):
-            raise _RequestError(f"prepare run root is occupied: {run_root}")
+        matrix_binding = _matrix_destination(
+            matrix_destination, operation="prepare", output=output, workspace=root,
+            allowed_destinations=MATRIX_DESTINATIONS["prepare"],
+            inputs=(motion,) if isinstance(motion, (str, Path)) else ())
+        if matrix_binding is None:
+            run_root = validate_run_root(destination.parent, root)
+            if destination.exists():
+                raise _RequestError(f"prepared output already exists: {destination}")
+            if run_root.exists() and (not run_root.is_dir() or any(run_root.iterdir())):
+                raise _RequestError(f"prepare run root is occupied: {run_root}")
+        else:
+            run_root, _ = matrix_binding
+            if run_root.exists() and not run_root.is_dir():
+                raise _RequestError(f"matrix element root is not a directory: {run_root}")
+            if destination.exists() and not destination.is_file():
+                raise _RequestError(f"prepared output is not a regular file: {destination}")
         if motion is None:
             value = prepare_skeleton.prepare(profile, stature, fixture_ids, tuple(normalized_bpms))
         else:
@@ -467,6 +548,7 @@ def prepare(*, workspace: str | Path, output: str | Path,
                                                       stature, tuple(normalized_bpms))
         ensure_workspace_build(root)
         run_root.mkdir(parents=True, exist_ok=True)
+        destination.parent.mkdir(parents=True, exist_ok=True)
         from humanmotionlib.prepared import write_json
         write_json(destination, value)
         persisted = read_prepared(destination)
@@ -497,11 +579,102 @@ def _load_render_prepared(prepared: PreparedResult | str | Path,
     return actual, _project(actual, workspace, path)
 
 
-def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
+def _build_render_request(actual: Mapping[str, Any], prepared_result: PreparedResult,
+                          characters: Sequence[str], *, render_only: bool
+                          ) -> tuple[dict[str, Any], tuple[str, ...], tuple[dict[str, Any], ...]]:
+    """Build the canonical sealed request without allocating output or probing Blender."""
+    from humanmotionlib.characters import expand_surface, resolve_character_selection
+    from humanmotionlib.runtime import backend_contract
+
+    selected_characters = resolve_character_selection(tuple(characters), profile_id=prepared_result.profile_id)
+    selected_ids = tuple(item["id"] if isinstance(item, Mapping) else item.character_id
+                         for item in selected_characters)
+    surface_documents: list[dict[str, Any]] = []
+    surface_identities: dict[str, str] = {}
+    for item in selected_characters:
+        if item["renderer_kind"] == "skinned-surface":
+            surface = expand_surface(actual["sources"]["profile"], item["template"],
+                                     item["appearance"], prepared_result.stature_m)
+            surface_identities[item["id"]] = surface["surface_sha256"]
+            surface_documents.append({"id": item["id"], "definition": {
+                key: item[key] for key in ("id", "renderer_kind", "profile_id", "template_id", "appearance_id")},
+                "template": item["template"], "appearance": item["appearance"],
+                "source_hashes": item["source_hashes"], "surface_sha256": surface["surface_sha256"]})
+    native_midpoint_samples = (
+        _native_surface_midpoint_samples(actual)
+        if surface_documents and not render_only else []
+    )
+    if surface_documents and not render_only:
+        from humanmotionlib.character_midpoints import validate_native_midpoint_samples
+        validate_native_midpoint_samples(actual, native_midpoint_samples)
+    request_payload = {
+        "format": "character-render-request/v1",
+        "prepared_sha256": actual["content_sha256"],
+        "character_ids": list(selected_ids),
+        "characters": surface_documents,
+        "character_descriptors": [{key: item.get(key) for key in
+            ("id", "renderer_kind", "profile_id", "template_id", "appearance_id", "source_hashes")}
+            for item in selected_characters],
+        "surface_identities": dict(sorted(surface_identities.items())),
+        "native_midpoint_samples": native_midpoint_samples,
+        "package_identity": actual["package_identity"],
+        "backend_contract": backend_contract(),
+    }
+    return {**request_payload, "render_identity": content_hash(request_payload)}, selected_ids, selected_characters
+
+
+def _expected_render_request(prepared: PreparedResult | str | Path, *, workspace: str | Path,
+                             characters: Sequence[str] = ("skeleton",),
+                             render_only: bool = False) -> Mapping[str, Any]:
+    """Return the exact current request identity for read-only managed-pass reuse checks."""
+    if isinstance(characters, (str, bytes)) or not isinstance(characters, Sequence) or not characters:
+        raise _RequestError("characters must be a nonempty sequence of character IDs")
+    if any(not isinstance(item, str) or not item for item in characters) or len(set(characters)) != len(characters):
+        raise _RequestError("characters must contain unique nonempty IDs")
+    if not isinstance(render_only, bool):
+        raise _RequestError("render_only must be a boolean")
+    root = workspace_root(workspace)
+    actual, prepared_result = _load_render_prepared(prepared, root)
+    request, _selected_ids, _selected = _build_render_request(
+        actual, prepared_result, tuple(characters), render_only=render_only)
+    return request
+
+
+def _native_surface_midpoint_samples(prepared: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Resolve key-interval audit samples on the host for the Blender runtime.
+
+    The sealed render request carries these solved samples to Blender so the
+    embedded runtime needs no YAML/schema dependencies to evaluate diagnostics.
+    """
+    from humanmotionlib.character_midpoints import expected_midpoint_inventory
+    from humanmotionlib.diagnostics import DiagnosticEvaluator
+
+    sources = prepared["sources"]
+    evaluator = DiagnosticEvaluator({name: sources[name] for name in
+                                     ("profile", "mobility", "body-groups", "diagnostics")})
+    dense_samples: list[dict[str, Any]] = []
+    for fixture_id, beat in expected_midpoint_inventory(prepared):
+        solved = evaluator.evaluate(fixture_id, beat)
+        dense_samples.append({
+            "id": f"{fixture_id}/native-midpoint/{len(dense_samples):05d}",
+            "fixture": fixture_id,
+            "beat": beat,
+            "frames": solved["frames"],
+            "guides": solved["guides"],
+            "world_root": solved["world_root"],
+            "contacts": solved["contacts"],
+        })
+    return dense_samples
+
+
+def _render_operation(prepared: PreparedResult | str | Path, *, workspace: str | Path,
            output: str | Path, images: bool = True,
+           characters: Sequence[str] = ("skeleton",),
            render_dir: str | Path | None = None, render_only: bool = False,
            timeout_seconds: float = DEFAULT_BUILD_TIMEOUT,
-           slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT) -> GenerationResult:
+           slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT,
+           _owner_run: str | Path | None = None,
+           matrix_destination: Mapping[str, Any] | None = None) -> GenerationResult:
     """Build/render a persisted preparation with the pinned external Blender.
 
     ``output`` is a fresh flat run root. Relative paths resolve from the
@@ -516,6 +689,12 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
         output_root = resolve_workspace_path(output, root)
         if not isinstance(images, bool) or not isinstance(render_only, bool):
             raise _RequestError("images and render_only must be booleans")
+        if isinstance(characters, (str, bytes)) or not isinstance(characters, Sequence) or not characters:
+            raise _RequestError("characters must be a nonempty sequence of character IDs")
+        if any(not isinstance(item, str) or not item for item in characters):
+            raise _RequestError("characters must contain nonempty IDs")
+        if len(set(characters)) != len(characters):
+            raise _RequestError("characters must not contain duplicates")
         if not images and render_dir is not None:
             raise _RequestError("render_dir cannot be supplied when images are disabled")
         timeout_seconds = _positive_number(timeout_seconds, "timeout_seconds")
@@ -527,19 +706,86 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
         except (ValueError, TypeError, KeyError, OSError, PackageResourceError) as error:
             raise GenerationError("input-integrity", "render", str(error),
                                   run_root=output_root) from error
+        matrix_binding = _matrix_destination(
+            matrix_destination, operation="render", output=output, workspace=root,
+            allowed_destinations=MATRIX_DESTINATIONS["render"],
+            inputs=(prepared_result.prepared_path,))
+        render_request, selected_ids, selected_characters = _build_render_request(
+            actual, prepared_result, tuple(characters), render_only=render_only)
         if images:
+            if matrix_binding is not None and render_dir is not None and ".." in Path(os.fspath(render_dir)).parts:
+                raise _RequestError("matrix render directory cannot contain traversal components")
             frames = resolve_workspace_path(render_dir, root) if render_dir is not None else output_root / "frames"
             try:
                 frames.relative_to(output_root)
             except ValueError as error:
                 raise _RequestError("render directory must remain inside the output run") from error
+            if matrix_binding is not None and frames != output_root / "frames":
+                raise _RequestError("matrix render directory must be the declared output's frames directory")
         else:
             frames = None
+        render_identity = render_request["render_identity"]
+        owner_root = None
+        if matrix_binding is not None:
+            element_root, declared_output = matrix_binding
+            if declared_output != output_root:
+                raise _RequestError("matrix render output does not match its declared destination")
+            if output_root.exists() and not output_root.is_dir():
+                raise _RequestError(f"matrix render output is not a directory: {output_root}")
+        elif _owner_run is None:
+            output_root = validate_run_root(output_root, root)
+            if output_root.exists() and (not output_root.is_dir() or any(output_root.iterdir())):
+                raise _RequestError(f"render output run root is occupied: {output_root}")
+        else:
+            owner = validate_run_root(resolve_workspace_path(_owner_run, root), root)
+            output_root = validate_managed_pass_root(output_root, owner, root)
+            if output_root.exists():
+                raise _RequestError(f"managed render pass must be fresh: {output_root}")
+            owner_root = owner
+        ensure_workspace_build(root)
+        request_path = output_root / "character-render-request.json"
+        managed_claim = None
+        request_bytes = canonical_bytes(render_request)
+        if owner_root is None:
+            output_root.mkdir(parents=True, exist_ok=True)
+            write_json(request_path, render_request)
+        else:
+            # Atomically claim the designated child before creating the sealed
+            # request. The backend must match this inode and exact request bytes
+            # both before and after its own Blender version probe.
+            output_root.mkdir(parents=False, exist_ok=False)
+            directory_stat = output_root.lstat()
+            if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(directory_stat.st_mode):
+                raise _RequestError("managed render pass directory is not a real directory")
+            with request_path.open("xb") as stream:
+                stream.write(request_bytes)
+                stream.flush()
+                os.fsync(stream.fileno())
+            request_stat = request_path.lstat()
+            if stat.S_ISLNK(request_stat.st_mode) or not stat.S_ISREG(request_stat.st_mode):
+                raise _RequestError("managed render request is not a regular file")
+            managed_claim = run_blender._ManagedOutputClaim(
+                owner_run=str(owner_root), pass_root=str(output_root),
+                directory_device=directory_stat.st_dev, directory_inode=directory_stat.st_ino,
+                request_path=str(request_path), request_device=request_stat.st_dev,
+                request_inode=request_stat.st_ino,
+                request_sha256=hashlib.sha256(request_bytes).hexdigest(),
+                prepared_sha256=actual["content_sha256"], render_identity=render_identity,
+                character_ids=tuple(selected_ids))
         phase = "backend"
+        backend_kwargs = {
+            "render_dir": frames, "render_only": render_only,
+            "timeout_seconds": timeout_seconds, "slot_timeout_seconds": slot_timeout_seconds,
+            "workspace": root, "owner_run": _owner_run,
+            "characters": selected_ids, "render_identity": render_identity,
+            "character_request": request_path,
+        }
+        if matrix_binding is not None:
+            backend_kwargs["matrix_element_root"] = str(matrix_binding[0])
+        if managed_claim is not None:
+            backend_kwargs["managed_claim"] = managed_claim
         receipt = run_blender.run(
-            prepared_result.prepared_path, output_root, render_dir=frames,
-            render_only=render_only, timeout_seconds=timeout_seconds,
-            slot_timeout_seconds=slot_timeout_seconds, workspace=root,
+            prepared_result.prepared_path, output_root, **backend_kwargs,
         )
         receipt_path = Path(receipt["stdout_log"]).parent / "outcome.json"
         image_records: tuple[RenderedImage, ...] = ()
@@ -549,9 +795,21 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
             from humanmotionlib.render_contract import read_supervised_receipt, validate_manifest
             try:
                 manifest = json.loads(manifest_path.read_text(), object_pairs_hook=_unique_json)
-                required_paths = validate_manifest(manifest, actual, frames, output=output_root)
+                if manifest.get("render_identity") != render_identity:
+                    raise ValueError("render manifest identity does not match sealed character request")
+                if any(identifier != "skeleton" for identifier in selected_ids):
+                    from humanmotionlib.render_contract import validate_character_manifest
+                    required_paths = validate_character_manifest(manifest, actual, frames,
+                                                                 output=output_root,
+                                                                 character_ids=selected_ids)
+                else:
+                    required_paths = validate_manifest(manifest, actual, frames, output=output_root)
+                    required_paths.append(Path("character-render-request.json"))
                 if not render_only:
                     required_paths.extend((Path("evaluated.json"), Path("geometry-reference.json")))
+                    if any(identifier != "skeleton" for identifier in selected_ids):
+                        required_paths.extend(Path(path.relative_to(output_root))
+                                              for path in sorted((output_root / "characters").glob("*/surface-*.json")))
                 read_supervised_receipt(output_root, actual, required_paths)
             except (ValueError, TypeError, AttributeError, OSError, KeyError, json.JSONDecodeError) as error:
                 raise GenerationError("output-integrity", "render", str(error), run_root=output_root,
@@ -559,9 +817,16 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
             by_id = {pose.sample_id: pose for pose in prepared_result.poses}
             collected: list[RenderedImage] = []
             for sample in actual["samples"]:
-                record = next(item for item in manifest["samples"] if item["id"] == sample["id"])
-                for view, relative in sorted(record["images"].items()):
-                    collected.append(RenderedImage(sample["id"], view, (frames / relative).resolve()))
+                if any(identifier != "skeleton" for identifier in selected_ids):
+                    for character in manifest["characters"]:
+                        record = next(item for item in character["samples"] if item["id"] == sample["id"])
+                        for view, relative in sorted(record["images"].items()):
+                            collected.append(RenderedImage(sample["id"], view, (frames / relative).resolve(),
+                                                           character["id"]))
+                else:
+                    record = next(item for item in manifest["samples"] if item["id"] == sample["id"])
+                    for view, relative in sorted(record["images"].items()):
+                        collected.append(RenderedImage(sample["id"], view, (frames / relative).resolve(), "skeleton"))
             image_records = tuple(collected)
             # A sample must have its corresponding structured pose before it is exposed.
             if any(item.sample_id not in by_id for item in image_records):
@@ -570,21 +835,47 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
             "prepared": (output_root / "input.json").resolve(),
             "scene": (output_root / "skeleton.blend").resolve(),
             "metadata": (output_root / "build-metadata.json").resolve(),
+            "character_render_request": (output_root / "character-render-request.json").resolve(),
         }
         if not render_only:
             artifacts.update({"evaluated": (output_root / "evaluated.json").resolve(),
                               "geometry": (output_root / "geometry-reference.json").resolve()})
         if images:
             artifacts["render_manifest"] = (output_root / "render-manifest.json").resolve()
+        for identifier in selected_ids:
+            if identifier != "skeleton":
+                artifacts[f"characters/{identifier}/surface_reference"] = (output_root / "characters" / identifier / "surface-reference.json").resolve()
+                if not render_only:
+                    artifacts[f"characters/{identifier}/surface_evaluated"] = (output_root / "characters" / identifier / "surface-evaluated.json").resolve()
         metadata = json.loads(artifacts["metadata"].read_text())
         backend_identity = {
             "version": metadata.get("blender_version"),
             "build_hash": metadata.get("blender_build"),
             "platform": metadata.get("platform"),
         }
+        character_records = tuple(CharacterInfo(
+            character_id=item["id"], renderer_kind=item["renderer_kind"],
+            profile_id=item.get("profile_id", prepared_result.profile_id),
+            template_id=item.get("template_id"), appearance_id=item.get("appearance_id"),
+            source_hashes=deepcopy(item.get("source_hashes", {})))
+            for item in selected_characters)
+        character_artifacts = tuple(CharacterArtifactSet(
+            character_id=item.character_id,
+            artifacts={key: value for key, value in artifacts.items()
+                       if key.startswith(f"characters/{item.character_id}/")})
+            for item in character_records)
+        character_provenance = {}
+        for info, source in zip(character_records, selected_characters):
+            character_provenance[info.character_id] = {
+                "source_hashes": deepcopy(info.source_hashes),
+                "definition": deepcopy(source.get("provenance")),
+                "template": deepcopy(source.get("template", {}).get("provenance")),
+                "appearance": deepcopy(source.get("appearance", {}).get("provenance")),
+            }
         return GenerationResult(prepared_result, output_root.resolve(), image_records,
                                 artifacts, receipt_path.resolve(), backend_identity,
-                                "not-run", "pending")
+                                "not-run", "pending", character_records, character_artifacts,
+                                character_provenance, render_identity)
     except GenerationError:
         raise
     except KeyboardInterrupt:
@@ -602,8 +893,42 @@ def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
         raise _translate_error(error, "render", output_root) from error
 
 
+def render(prepared: PreparedResult | str | Path, *, workspace: str | Path,
+           output: str | Path, images: bool = True,
+           characters: Sequence[str] = ("skeleton",),
+           render_dir: str | Path | None = None, render_only: bool = False,
+           timeout_seconds: float = DEFAULT_BUILD_TIMEOUT,
+           slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT,
+           matrix_destination: Mapping[str, Any] | None = None) -> GenerationResult:
+    """Build/render one fresh, flat public run root."""
+    return _render_operation(prepared, workspace=workspace, output=output, images=images,
+                             characters=characters, render_dir=render_dir,
+                             render_only=render_only, timeout_seconds=timeout_seconds,
+                             slot_timeout_seconds=slot_timeout_seconds,
+                             matrix_destination=matrix_destination)
+
+
+def _render_owned_pass(prepared: PreparedResult | str | Path, *, workspace: str | Path,
+                       output: str | Path, owner_run: str | Path, images: bool = True,
+                       characters: Sequence[str] = ("skeleton",),
+                       render_dir: str | Path | None = None, render_only: bool = True,
+                       timeout_seconds: float = DEFAULT_BUILD_TIMEOUT,
+                       slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT) -> GenerationResult:
+    """Internal review-pack pass using the normal sealed, supervised render path.
+
+    The owner is an existing flat run and ``output`` must be a fresh direct
+    child with one of the finite managed pass names. This is intentionally
+    private; public callers can only create independent flat run roots.
+    """
+    return _render_operation(prepared, workspace=workspace, output=output, images=images,
+                             characters=characters, render_dir=render_dir,
+                             render_only=render_only, timeout_seconds=timeout_seconds,
+                             slot_timeout_seconds=slot_timeout_seconds,
+                             _owner_run=owner_run)
+
+
 __all__ = [
-    "GenerationError", "GenerationResult", "PoseSample", "PreparedResult",
+    "CharacterArtifactSet", "CharacterInfo", "GenerationError", "GenerationResult", "PoseSample", "PreparedResult",
     "ProvenanceInfo", "RenderedImage", "SourceProvenance", "Timeline",
     "TimelineEntry", "prepare", "render",
 ]

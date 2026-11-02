@@ -100,6 +100,162 @@ its stable `code`, `operation`, `run_root`, `receipt_path` and JSON-compatible
 `output-integrity` and `cleanup-pending`. Numerical acceptance remains
 `not-run` and visual acceptance remains `pending` until their separate checks.
 
+### Select a character at render time
+
+The public character IDs are `skeleton`, `male` and `female`. The skeleton is
+the default and a complete public character on its own. Male and female use the
+same prepared movement, profile and rig as the skeleton; this release changes
+surface appearance only. Character selection does not change mass, mobility or
+range of motion. See [the character source and compatibility guide](character-models.md)
+for the authored mannequin limits and binding rules.
+
+Prepare once, then pass the same result to one or more render calls. The full
+batch is normalized to registry order (`skeleton`, `male`, `female`), regardless
+of the order supplied by the caller:
+
+```python
+prepared = prepare(
+    workspace=workspace,
+    output="build/library-use_r1_app_try-1_prepare/input.json",
+    fixtures=("neutral", "arm-raise"),
+    bpms=(90,),
+)
+result = render(
+    prepared,
+    workspace=workspace,
+    output="build/library-use_r1_app_try-1_render",
+    characters=("skeleton", "male", "female"),
+)
+
+portable = result.to_dict()
+images = {(image.character_id, image.sample_id, image.view): image.path
+          for image in result.images}
+character_ids = [character.character_id for character in result.characters]
+character_attribution = result.character_provenance
+assert character_ids == ["skeleton", "male", "female"]
+```
+
+For a single surface, pass `characters=("male",)` or `characters=("female",)`.
+For example, reuse the preparation above with a fresh output root:
+
+```python
+single = render(
+    prepared,
+    workspace=workspace,
+    output="build/library-use_r1_app_try-2_single-render",
+    characters=("female",),
+)
+female_images = {(image.character_id, image.sample_id, image.view): image.path
+                 for image in single.images}
+female_attribution = single.character_provenance
+assert set(female_attribution) == {"female"}
+```
+
+Each writing call uses its own fresh run root. Batch results keep the existing
+pose and timeline identities; use `RenderedImage.character_id` together with
+`sample_id` and `view` to join images to the shared timeline. The result also
+reports per-character artifact paths, provenance and a sealed `render_identity`.
+`character_provenance` provides the source-attribution union for the selected
+character set.
+
+Character rendering adds `RenderedImage.character_id`, per-character artifact
+records, `character_provenance` and a sealed `render_identity` to the existing
+result projection. The host persists a `character-render-request/v1`; a render
+with surfaces also writes a registry-ordered
+`character-render-manifest/v1`. Receipts bind the request and complete union of
+character outputs. These are additive character fields; the prepared pose and
+timeline contract stays shared. Canonical resource edits invalidate the normal
+package identity, so prepare again with the installed HML version before
+rendering. The feature adds no runtime dependency or generated character mesh
+download.
+
+The command line offers the same selection on `run-blender`:
+
+```sh
+hml --workspace /path/to/workspace run-blender \
+  --input build/library-use_r1_app_try-1_prepare/input.json \
+  --output build/library-use_r1_app_try-1_render \
+  --characters skeleton male female
+```
+
+### Numeric-only character verification
+
+For a full no-images build, `verify-skeleton --character-output RUN
+--numeric-only` verifies the native surface artifacts and dense host reference
+without requiring a render manifest or PNGs. It still checks the complete
+registry, sealed request, package/source identities, supervised `build` receipt
+and exact numeric artifact hash inventory. The command reports rendering as
+`not-run` and visual judgment as `not-assessed`; this scoped numeric success is
+not a render or visual acceptance result. Without `--numeric-only`, character
+verification continues to require the complete render manifest and image set.
+
+To compare the supported statures, give one evaluated build for each height via
+`--stature-builds`; `--input` must identify the same primary run as
+`--character-output`:
+
+```sh
+hml --workspace /path/to/workspace verify-skeleton \
+  --input build/add-shared-body-characters_r1_dev_try-1_h170-build \
+  --output build/add-shared-body-characters_r1_dev_try-1_numeric-check/report.json \
+  --character-output build/add-shared-body-characters_r1_dev_try-1_h170-build \
+  --numeric-only \
+  --stature-builds \
+    build/add-shared-body-characters_r1_dev_try-1_h150-build \
+    build/add-shared-body-characters_r1_dev_try-1_h170-build \
+    build/add-shared-body-characters_r1_dev_try-1_h190-build
+```
+
+The aggregate passes only when all three heights have complete numeric
+evidence, their candidate package/source/scene/diagnostic/sampling identities
+agree, and evaluated cross-stature comparisons pass. Render repeatability,
+pixel parity, and the human visual gate remain separate.
+
+### Character review pack
+
+`review-pack` can create a standalone comparison pack for any ordered subset of
+`skeleton`, `male`, and `female`. The complete acceptance presentation uses all
+three. It creates its clean repeatability pair and the required default,
+explicit-skeleton, and single-character regression passes through the same
+supervised render API. The complete pack also compares an immutable historical
+skeleton baseline and actual renders at H=1.50m and H=1.90m against the H=1.70m
+primary input. Supply the additional evidence with repeatable
+`--stature-input H=RUN` and `--skeleton-baseline RUN` options:
+
+```sh
+hml --workspace /path/to/workspace review-pack \
+  --input build/add-shared-body-characters_r1_app_try-1_candidate \
+  --characters skeleton male female \
+  --stature-input 1.50=build/add-shared-body-characters_r1_app_try-2_short \
+  --stature-input 1.90=build/add-shared-body-characters_r1_app_try-3_tall \
+  --skeleton-baseline build/add-shared-body-characters_r0_baseline_try-1_render \
+  --output build/add-shared-body-characters_r1_app_try-1_pack
+```
+
+The supplementary inputs must be evaluated candidate runs with matching
+profile, mobility and scene identities, and with neutral and squat beat 2
+available. The primary input must be H=1.70m. Labels are checked against the
+prepared stature; inputs and outputs must be disjoint. No image is resized to
+fill a missing stature. A preview may omit the baseline or supplementary
+heights, but its report names each missing item and returns `incomplete`; it
+does not claim the complete acceptance pack. Omit these options for an ordinary
+skeleton-only pack, which retains its existing behavior.
+
+The character pack links front/side motion sheets, neutral/rest front/side/rear
+silhouettes, shared-joint overlays, sole/contact crops, GIFs and onion skins.
+It copies the required historical baseline images into `reference/baseline/`
+for a standalone report and records source hashes. Managed render passes live
+under the fresh output root in `clean-a/`, `clean-b/`, regression pass
+directories and any supplied stature pass directories. JSON reports record
+exact sample keys, pixel comparisons, source identities, missing evidence and
+coverage. A numerical `pass` does not record visual acceptance.
+
+Selection must be a nonempty sequence of distinct registered IDs. A bare
+string, duplicate, unknown or incompatible ID fails during host preflight,
+before output allocation or Blender probing. Character sources and their
+versioned schemas are included in the installed package integrity manifest;
+editing canonical sources requires regenerating preparations under the normal
+package identity rules.
+
 ## Commands
 
 The global `--workspace PATH` is required for every command that writes files
@@ -192,28 +348,47 @@ backend identity, enforce deadlines and record receipts.
 
 ## Source contributors
 
-For development, use the repository's pinned CPython selector and locked uv
-environment. `uv sync --locked --no-editable` builds and installs the project
-wheel with its contributor/build dependencies. Use `uv run --locked --no-sync`
-afterward so uv does not request an editable install. Source and installed
-writing commands both require an absolute workspace; for checkout work, pass
-`"$PWD"`. Keep every new run in a fresh direct child of that workspace's
-`build/`.
+For repository development, start from the checkout with `make`. GNU Make and
+a POSIX shell are required to read help; uv is additionally required for
+package and development workflows. The Make workflow obtains CPython 3.14,
+installs the locked build dependencies, rebuilds the current package and
+records the project tools/cache under the configured `build/` tools root.
+Blender is needed only by rendering workflows. No shell activation or manual
+Python/cache/run paths are needed for the normal routes.
+Host workflows are supported on macOS arm64 and Ubuntu 24.04 x64; native
+Windows is unsupported and WSL is unverified. Rendering currently requires
+macOS arm64 Blender 5.2.2 LTS build `d13f752e3b9c`.
 
 ```sh
-uv lock --check
-uv sync --locked --no-editable
-uv run --locked --no-sync hml check-environment
-uv run --locked --no-sync hml validate --profile adult-reference-v1
-HUMANMOTIONLIB_SOURCE_ROOT="$PWD" uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
+make
+make dev
+make package
+make matrix-list
+make matrix-build CHARACTER=male HEIGHT=1.70
+make matrix-check CHARACTER=male HEIGHT=1.70
 ```
 
-Test discovery is a contributor-only operation with the repository's explicit
-`tests/` root. Set `HUMANMOTIONLIB_SOURCE_ROOT` to the checkout when running
-source-oriented contributor tests; installed commands do not infer a checkout.
-The installed package does not include tests or discover tests from the caller's current directory. Installed `check-environment` inspects the active
-interpreter, distribution dependencies and packaged resources without requiring
-repository metadata.
+`make dev` validates the current package and canonical library sources, then
+prints next actions. `make package` builds both archives, compares the wheel
+rebuilt from the source archive, and checks the exact wheel in an independent
+environment without Blender or publication. Matrix list/help need no Python,
+uv or Blender. Matrix build renders only its selected pair; matrix check checks
+existing compatible results and does not rebuild them. The direct `hml` and
+`uv` commands remain available for advanced or separately managed workflows;
+their options are documented by each command's help.
+
+If a selected matrix result root or `build.json` is missing, `make matrix-check`
+prints the exact selected `make matrix-build CHARACTER=... HEIGHT=...` command
+and returns without creating result files, logs or reports. A check against an
+existing result starts an attempt and retains its log and current report even
+when validation fails.
+
+`make mostlyclean`, `make clean` and `make distclean` remove the exact fixed
+areas listed in [the matrix/build guide](build-matrix.md). Every object inside
+a selected area is disposable, including unknown files, matrix logs and local
+R6/history. Cleanup needs Make, a POSIX shell, `ps`, `lsof` and the basic
+filesystem tools named by `make help`, not Python/uv/Blender. It checks active
+work and containment and never follows links to their targets.
 
 ### Consumer-authored movement
 

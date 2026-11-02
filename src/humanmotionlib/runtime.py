@@ -3,7 +3,6 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import json
 import math
@@ -27,6 +26,18 @@ TERMINATE_GRACE_SECONDS = 5.0
 KILL_REAP_SECONDS = 5.0
 MAX_TIMEOUT_SECONDS = 86400.0
 _RUN_COMPONENT = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_MANAGED_RENDER_PASS_NAMES = frozenset({
+    "clean-a", "clean-b", "skeleton-default", "skeleton-explicit",
+    "male-singleton", "female-singleton", "stature-150", "stature-190",
+})
+_MATRIX_RENDER_PASSES = frozenset({
+    "clean-a", "clean-b", "skeleton-default", "skeleton-explicit",
+    "male-singleton", "female-singleton", "stature-150", "stature-190",
+})
+MATRIX_DESTINATIONS = {
+    "prepare": frozenset({"prepared/input.json"}),
+    "render": frozenset({"render", *(f"presentation/{name}" for name in _MATRIX_RENDER_PASSES)}),
+}
 
 
 class InvocationError(RuntimeError):
@@ -38,7 +49,7 @@ class InvocationError(RuntimeError):
 
 
 class SlotTimeout(TimeoutError):
-    """The checkout's backend slot was not available before its deadline."""
+    """Deprecated compatibility exception; backend slots are no longer used."""
 
 
 def project_root():
@@ -152,8 +163,8 @@ def validate_managed_pass_root(pass_root, owner_run, workspace):
     if not owner.is_dir():
         raise ValueError(f"managed render pass owner must be an existing run directory: {owner}")
     path = resolve_workspace_path(pass_root, workspace)
-    if path.parent != owner or path.name not in {"clean-a", "clean-b"}:
-        raise ValueError(f"managed render pass must be clean-a or clean-b directly inside its owner: {path}")
+    if path.parent != owner or path.name not in _MANAGED_RENDER_PASS_NAMES:
+        raise ValueError(f"managed render pass must use a designated name directly inside its owner: {path}")
     return path
 
 
@@ -162,6 +173,73 @@ def validate_operation_root(run_root, workspace, owner_run=None):
     if owner_run is None:
         return validate_run_root(run_root, workspace)
     return validate_managed_pass_root(run_root, owner_run, workspace)
+
+
+def validate_matrix_content_root(content_root, element_root, workspace, *, relative_path):
+    """Validate one declared nested matrix destination without inferring authority."""
+    workspace = workspace_root(workspace)
+    operand = Path(os.fspath(element_root))
+    if ".." in operand.parts:
+        raise ValueError("matrix element root cannot contain traversal components")
+    if not operand.is_absolute():
+        operand = workspace / operand
+    lexical_element = Path(os.path.abspath(operand))
+    element = validate_run_root(lexical_element, workspace)
+    if lexical_element != element:
+        raise ValueError("matrix element root contains a symlink or noncanonical path")
+    expected = element / relative_path
+    content_operand = Path(os.fspath(content_root))
+    if ".." in content_operand.parts:
+        raise ValueError("matrix content root cannot contain traversal components")
+    lexical_path = Path(os.path.abspath(
+        content_operand if content_operand.is_absolute() else workspace / content_operand))
+    if lexical_path != expected:
+        raise ValueError(f"matrix content destination must be {expected}")
+    cursor = element
+    for part in Path(relative_path).parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError(f"matrix content path contains a symlink: {cursor}")
+    path = resolve_workspace_path(content_operand, workspace)
+    if path != expected:
+        raise ValueError(f"matrix content destination resolves outside its declared path: {path}")
+    return path
+
+
+def validate_matrix_content_destination(content_root, element_root, workspace, *, operation,
+                                        allowed_destinations=None):
+    """Validate one explicit destination in the finite matrix content allowlist."""
+    if operation not in MATRIX_DESTINATIONS:
+        raise ValueError(f"unsupported matrix content operation: {operation}")
+    allowed = MATRIX_DESTINATIONS[operation]
+    if allowed_destinations is not None:
+        allowed_destinations = frozenset(allowed_destinations)
+        if not allowed_destinations or not allowed_destinations <= allowed:
+            raise ValueError(f"invalid matrix destination allowlist for {operation}")
+        allowed = allowed_destinations
+    operand = Path(os.fspath(content_root))
+    if ".." in operand.parts:
+        raise ValueError("matrix content root cannot contain traversal components")
+    workspace_path = workspace_root(workspace)
+    lexical = Path(os.path.abspath(operand if operand.is_absolute() else workspace_path / operand))
+    element_operand = Path(os.fspath(element_root))
+    if ".." in element_operand.parts:
+        raise ValueError("matrix element root cannot contain traversal components")
+    if not element_operand.is_absolute():
+        element_operand = workspace_path / element_operand
+    lexical_element = Path(os.path.abspath(element_operand))
+    try:
+        relative_path = lexical.relative_to(lexical_element).as_posix()
+    except ValueError as error:
+        raise ValueError("matrix content destination is outside its declared element") from error
+    if relative_path not in allowed:
+        raise ValueError(f"matrix content destination is not allowed for {operation}: {relative_path}")
+    element = validate_run_root(lexical_element, workspace_path)
+    if lexical_element != element:
+        raise ValueError("matrix element root contains a symlink or noncanonical path")
+    destination = validate_matrix_content_root(
+        content_root, element_root, workspace_path, relative_path=relative_path)
+    return element, destination, relative_path
 
 
 def validate_existing_run_root(run_root, workspace):
@@ -262,46 +340,9 @@ def _raw_group_state(pgid):
 
 
 def _group_state(pgid, *, anchor_pid=None, ps_timeout=2.0):
-    # Darwin's reference Python omits waitid and killpg can return EPERM for
-    # zombie-only groups. On Linux, waitid(WNOWAIT) leaves the leader zombie
-    # as the PGID anchor, so killpg alone would report an empty group present.
-    # A bounded process-table snapshot distinguishes zombies from live work on
-    # both systems while preserving the unreaped anchor until cleanup is safe.
-    if platform.system() in ("Darwin", "Linux"):
-        ps_executable = next((path for path in ("/bin/ps", "/usr/bin/ps")
-                              if Path(path).is_file()), None)
-        if ps_executable is None:
-            return "ambiguous"
-        try:
-            listing = subprocess.run([ps_executable, "-Ao", "pid=,pgid=,stat="], check=True,
-                                     capture_output=True, text=True, timeout=max(0.01, ps_timeout))
-        except (OSError, subprocess.SubprocessError):
-            return "ambiguous"
-        entries = []
-        try:
-            for line in listing.stdout.splitlines():
-                if not line.strip():
-                    continue
-                fields = line.split()
-                if len(fields) != 3:
-                    return "ambiguous"
-                pid, group, process_state = int(fields[0]), int(fields[1]), fields[2]
-                if group == int(pgid):
-                    entries.append((pid, process_state))
-        except (TypeError, ValueError):
-            return "ambiguous"
-        if entries:
-            if anchor_pid is not None and not any(pid == int(anchor_pid) for pid, _ in entries):
-                return "ambiguous"
-            if all(process_state.startswith("Z") for _, process_state in entries):
-                return "absent"
-            return "present"
-        if anchor_pid is not None:
-            return "ambiguous"
-        # A complete readable snapshot with no group entry is only accepted
-        # when the kernel independently confirms ESRCH. EPERM stays unknown.
-        return "absent" if _raw_group_state(pgid) == "absent" else "ambiguous"
-
+    # Inspect only the process group created by this invocation. A zombie-only
+    # group may remain visible until the OS reaps it; report that conservatively
+    # as present/cleanup-pending rather than querying the global process table.
     state = _raw_group_state(pgid)
     if state != "present":
         return state
@@ -330,45 +371,23 @@ def _wait_group_absent(pgid, deadline, *, anchor_pid=None):
 
 
 def _wait_child_unreaped(child, pgid, timeout):
-    """Wait for leader exit without releasing its process-group identity anchor."""
+    """Wait for the owned leader; group cleanup uses its invocation PGID."""
     deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "running"
-        if hasattr(os, "waitid"):
-            result = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-            if result is not None and result.si_pid:
-                return "exited"
-        elif platform.system() == "Darwin":
-            # The reference Python build omits os.waitid despite the OS libc
-            # providing the operation. Observe the owned leader's zombie state
-            # without reaping it; its PID continues to anchor the process group.
-            try:
-                status = subprocess.run(["/bin/ps", "-o", "pid=,pgid=,stat=", "-p", str(child.pid)],
-                                        check=True, capture_output=True, text=True,
-                                        timeout=max(0.01, min(0.2, remaining)))
-            except (OSError, subprocess.SubprocessError):
-                return "ambiguous"
-            fields = status.stdout.split()
-            if len(fields) != 3 or fields[0] != str(child.pid) or fields[1] != str(pgid):
-                return "ambiguous"
-            process_state = fields[2]
-            if process_state.startswith("Z"):
-                return "exited"
-            if not process_state:
-                return "ambiguous"
-        else:
-            return "unsupported"
+        if child.poll() is not None:
+            return "exited"
         time.sleep(min(0.02, remaining))
 
 
 def _cleanup_owned_group(child, pgid):
     """Terminate one owned group within fixed grace and reap budgets.
 
-    Keep the unreaped direct child as a PGID identity anchor until all signals
-    are sent. Reap it with the remaining kill budget, then confirm no live
-    descendants remain before releasing the checkout slot.
+    Signal only the group allocated for this invocation, reap the direct child
+    within the remaining budget, then confirm that the group is absent. Group
+    state uses killpg(0); an ambiguous or lingering group remains cleanup-pending.
     """
     _signal_group(pgid, signal.SIGTERM)
     term_deadline = time.monotonic() + TERMINATE_GRACE_SECONDS
@@ -396,60 +415,14 @@ def _observed_phases(stdout_path):
     return phases
 
 
-def _slot_paths(workspace=None):
-    build = _build_root(workspace)
-    return build / ".backend-execution.lock", build / ".backend-execution-state.json"
-
-
 @contextmanager
 def backend_slot(timeout_seconds=DEFAULT_SLOT_TIMEOUT, *, operation_id=None, workspace=None):
-    """Hold the selected workspace slot; never unlink its persistent lock file."""
-    timeout = validate_timeout(timeout_seconds, "slot_timeout_seconds")
-    root = workspace_root(workspace)
-    ensure_workspace_build(root)
-    lock_path, state_path = _slot_paths(workspace)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    if lock_path.is_symlink() or state_path.is_symlink():
-        raise InvocationError("backend ownership files may not be symlinks", str(lock_path))
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    start = time.monotonic()
-    acquired = False
-    try:
-        while not acquired:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-            except BlockingIOError:
-                if time.monotonic() - start >= timeout:
-                    raise SlotTimeout(f"backend slot contention after {timeout:g} seconds")
-                time.sleep(min(0.05, timeout - (time.monotonic() - start)))
-        if state_path.exists():
-            try:
-                state = json.loads(state_path.read_text())
-            except (OSError, json.JSONDecodeError) as error:
-                raise InvocationError("backend ownership state is unreadable; operator resolution required", str(state_path)) from error
-            if state.get("state") == "preparing":
-                raise InvocationError("backend ownership is ambiguous before child identity was recorded; operator resolution required", str(state_path))
-            if state.get("state") == "running":
-                pgid = state.get("process_group_id")
-                group_state = _group_state(pgid)
-                if group_state == "ambiguous":
-                    raise InvocationError("backend ownership is ambiguous; operator resolution required", str(state_path))
-                if group_state == "present":
-                    while group_state == "present" and time.monotonic() - start < timeout:
-                        time.sleep(min(0.05, timeout - (time.monotonic() - start)))
-                        group_state = _group_state(pgid)
-                    if group_state == "present":
-                        raise SlotTimeout(f"unfinished backend owner still has process group {pgid}")
-                    if group_state == "ambiguous":
-                        raise InvocationError("backend ownership became ambiguous; operator resolution required", str(state_path))
-                state.update({"state": "interrupted", "recovery": "previous process group confirmed absent", "recovered_at": _utc_now()})
-                _atomic_json(state_path, state)
-        yield
-    finally:
-        if acquired:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
+    """Deprecated no-op retained for callers using the former slot API.
+
+    ``timeout_seconds`` remains accepted for source compatibility. Calls do
+    not read, create, or update legacy workspace lock/state files.
+    """
+    yield
 
 
 def _make_receipt(operation_root, operation_id):
@@ -481,11 +454,8 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
         owning_root = validate_run_root(owner_run, root)
     timeout = validate_timeout(timeout_seconds)
     slot_timeout = validate_timeout(slot_timeout_seconds, "slot_timeout_seconds")
-    wait_anchor_supported = (hasattr(os, "waitid") and
-                             all(hasattr(os, item) for item in ("P_PID", "WEXITED", "WNOHANG", "WNOWAIT")))
-    wait_anchor_supported = wait_anchor_supported or (platform.system() == "Darwin" and Path("/bin/ps").is_file())
-    if os.name != "posix" or not hasattr(os, "killpg") or not hasattr(fcntl, "flock") or not wait_anchor_supported:
-        raise RuntimeError("supervised backend execution requires POSIX process groups and advisory file locks")
+    if os.name != "posix" or not hasattr(os, "killpg"):
+        raise RuntimeError("supervised backend execution requires POSIX process groups")
     args = [os.fspath(item) for item in command]
     if not args:
         raise ValueError("command must contain an executable")
@@ -589,8 +559,6 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
             break
     try:
         with backend_slot(slot_timeout, operation_id=operation_id, workspace=workspace):
-            _atomic_json(_slot_paths(workspace)[1], {"state": "preparing", "invocation_id": operation_id,
-                                            "operation": operation, "updated_at": _utc_now()})
             with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                 try:
                     child_env = os.environ.copy()
@@ -612,13 +580,9 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                                                    "status": "retained-for-diagnostics",
                                                    "reason": "backend process could not be started"}
                     _atomic_json(receipt_path, receipt)
-                    _atomic_json(_slot_paths(workspace)[1], {"state": "finished", "invocation_id": operation_id,
-                                                    "updated_at": _utc_now()})
                     raise InvocationError(f"could not start {operation}: {error}", str(receipt_path)) from error
                 pgid = child.pid
                 receipt["process_group_id"] = pgid
-                _atomic_json(_slot_paths(workspace)[1], {"state": "running", "invocation_id": operation_id,
-                                                "process_group_id": pgid, "updated_at": _utc_now()})
                 _atomic_json(receipt_path, receipt)
                 previous_handlers = {}
 
@@ -712,13 +676,6 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                                                   "reason": f"{outcome}, return code {return_code}"}
                 receipt["state"] = "succeeded" if successful else "failed"
                 _atomic_json(receipt_path, receipt)
-                slot_state = {"state": "finished", "invocation_id": operation_id,
-                              "updated_at": _utc_now()}
-                if receipt["cleanup"].get("status") == "cleanup_pending":
-                    slot_state.update({"state": "running", "process_group_id": pgid,
-                                       "cleanup_pending": True,
-                                       "updated_at": _utc_now()})
-                _atomic_json(_slot_paths(workspace)[1], slot_state)
                 if not successful:
                     raise InvocationError(f"{operation} failed ({outcome}, return code {return_code}); see {receipt_path}", str(receipt_path))
                 return receipt
@@ -739,19 +696,6 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
         receipt["phases"] = _observed_phases(stdout_path)
         receipt["last_script_phase"] = receipt["phases"][-1].get("phase", "unknown") if receipt["phases"] else "unknown"
         _atomic_json(receipt_path, receipt)
-        # If cancellation interrupted setup after spawn, retain running ownership
-        # until the next caller confirms this exact group is absent. Never touch
-        # a state record that now belongs to another invocation.
-        if pgid is not None and cleanup_status == "confirmed":
-            try:
-                with backend_slot(slot_timeout, operation_id=operation_id, workspace=workspace):
-                    state_path = _slot_paths(workspace)[1]
-                    state = json.loads(state_path.read_text())
-                    if state.get("invocation_id") == operation_id:
-                        _atomic_json(state_path, {"state": "finished", "invocation_id": operation_id,
-                                                  "updated_at": _utc_now()})
-            except (SlotTimeout, InvocationError, OSError, json.JSONDecodeError):
-                pass
         raise InvocationError(f"{operation} cancelled; see {receipt_path}", str(receipt_path)) from error
     except SlotTimeout as error:
         receipt.update({"state": "failed", "outcome": "contention", "error": str(error),

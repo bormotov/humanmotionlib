@@ -20,6 +20,7 @@ from typing import Any
 _ROOT = Path(__file__).resolve().parent
 _RESOURCE_DIR = Path("resources")
 _RESOURCE_PATTERNS = (
+    ("characters", "*.yaml"),
     ("rig/profiles", "*.yaml"),
     ("rig/mobility", "*.yaml"),
     ("rig/diagnostics", "*.yaml"),
@@ -32,6 +33,7 @@ _RESOURCE_FILES = (
     "docs/used-materials.md",
     "docs/anatomical-skeleton-acceptance.md",
     "docs/usage.md",
+    "docs/character-models.md",
     "LICENSE-CODE",
     "LICENSE-DATA",
     "THIRD-PARTY-NOTICES.md",
@@ -56,7 +58,15 @@ def _copy_python_package(source: Path, target: Path) -> None:
         source,
         target,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"),
+        # The candidate snapshot is intentionally read-only.  copy2 preserves
+        # that mode and prevents the staging backend from adding generated
+        # runtime resources or removing its temporary tree.  A byte copy keeps
+        # the adapter-owned staging tree writable without touching the source.
+        copy_function=shutil.copyfile,
     )
+    for directory in (target, *target.rglob("*")):
+        if directory.is_dir():
+            directory.chmod(directory.stat().st_mode | 0o700)
 
 
 def _canonical_resources(root: Path) -> dict[str, bytes]:
@@ -65,7 +75,7 @@ def _canonical_resources(root: Path) -> dict[str, bytes]:
         directory = root / relative_dir
         if not directory.is_dir() or not directory.resolve().is_relative_to(root.resolve()):
             raise RuntimeError(f"Required resource directory is missing: {relative_dir}")
-        for path in sorted(directory.glob(pattern)):
+        for path in sorted(directory.rglob(pattern)):
             if path.is_file():
                 if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
                     raise RuntimeError(f"Packaged resource must not use a symlink: {path.relative_to(root)}")
@@ -191,6 +201,51 @@ def _valid_run_root(path: Path, build_root: Path) -> bool:
 
 def _select_stage_run(output_dir: Path | None) -> tuple[Path, bool, bool]:
     """Return (run root, adapter-owned run, adapter-created build directory)."""
+    override_workspace = os.environ.get("HML_PACKAGE_BUILD_WORKSPACE")
+    override_run_root = os.environ.get("HML_PACKAGE_BUILD_RUN_ROOT")
+    if (override_workspace is None) != (override_run_root is None):
+        raise RuntimeError("HML_PACKAGE_BUILD_WORKSPACE and HML_PACKAGE_BUILD_RUN_ROOT must be set together")
+    if override_workspace is not None and override_run_root is not None:
+        workspace_input = Path(override_workspace)
+        run_input = Path(override_run_root)
+        if (not workspace_input.is_absolute() or not run_input.is_absolute()
+                or ".." in workspace_input.parts or ".." in run_input.parts):
+            raise RuntimeError("matrix package build workspace and run root must be absolute traversal-free paths")
+        if workspace_input.is_symlink() or run_input.is_symlink():
+            raise RuntimeError("matrix package build workspace and run root must not be symlinks")
+        workspace = workspace_input.resolve(strict=True)
+        if workspace != workspace_input:
+            raise RuntimeError("matrix package build workspace must be a real nonsymlink path")
+        build_root = workspace / "build"
+        if (not workspace.is_dir() or build_root.is_symlink() or not build_root.is_dir()
+                or build_root.resolve(strict=True).parent != workspace):
+            raise RuntimeError("matrix package build workspace must have a real direct build/ directory")
+        run_root = run_input.resolve(strict=True)
+        if run_root != run_input:
+            raise RuntimeError("matrix package build run path must not traverse a symlink")
+        if run_root.parent != build_root.resolve(strict=True):
+            raise RuntimeError("matrix package build run must be a direct child of workspace build/")
+        components = run_root.name.split("_")
+        if len(components) != 5 or not all(_RUN_COMPONENT.fullmatch(item) for item in components):
+            raise RuntimeError("matrix package build run must use a five-component flat identity")
+        if _ROOT.resolve() == run_root or _ROOT.resolve() in run_root.parents or run_root in _ROOT.resolve().parents:
+            raise RuntimeError("matrix package source and output run roots must be disjoint")
+        if output_dir is not None:
+            requested_output = Path(output_dir)
+            if not requested_output.is_absolute() or ".." in requested_output.parts:
+                raise RuntimeError("matrix package build output must be absolute and traversal-free")
+            output = requested_output.resolve(strict=False)
+            if output == run_root or run_root not in output.parents:
+                raise RuntimeError("matrix package build output must be contained by the selected candidate run")
+            current = requested_output
+            while current != run_root:
+                if current.is_symlink():
+                    raise RuntimeError("matrix package build output path must not contain symlinks")
+                current = current.parent
+                if run_root not in current.parents and current != run_root:
+                    raise RuntimeError("matrix package build output escaped the selected candidate run")
+        return run_root, False, False
+
     project_root = _ROOT.resolve()
     build_root = project_root / "build"
     build_root_existed = build_root.exists()

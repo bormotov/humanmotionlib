@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-registry
+id: hml-character-registry-v1
+description: Ordered public character identifiers for HML generation.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Authored registry of the three supported character renderings.
+  changes: No external model, image, or motion material is used.
+characters:
+  - id: skeleton
+    definition: definitions/skeleton.yaml
+  - id: male
+    definition: definitions/male.yaml
+  - id: female
+    definition: definitions/female.yaml

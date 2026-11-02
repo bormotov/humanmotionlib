@@ -1,0 +1,47 @@
+--- a/.codex/agents/reviewer.toml
++++ b/.codex/agents/reviewer.toml
+@@ -15,10 +15,13 @@
+ 
+ Write access: only `openspec/changes/<change-id>/review.md` and the reviewer-owned
+ fresh run roots explicitly listed in the approved task. Task 6.1 of
+-`audit-project-tools` authorizes exactly these three disjoint sibling roots:
+-- `build/audit-project-tools_r1_reviewer_try-1_source/`
+-- `build/audit-project-tools_r1_reviewer_try-1_environment/`
+-- `build/audit-project-tools_r1_reviewer_try-1_review/`
++`audit-project-tools` retry authorizes exactly these three fresh disjoint sibling roots:
++- `build/audit-project-tools_r1_reviewer_try-2_source/`
++- `build/audit-project-tools_r1_reviewer_try-2_environment/`
++- `build/audit-project-tools_r1_reviewer_try-2_review/`
++Preserve the three try-1 roots as evidence of the unsuccessful attempt. Do not
++reuse, replace or relabel their contents for the retry; record their status in
++review.md. Their eventual role-scoped cleanup remains subject to task 6.3.
+ Each is a direct child of the selected workspace's `build/` and follows the
+ five-component naming rule. Recheck that each path is absent and is not a
+ symlink before allocation. Keep files within their assigned root; do not nest
+@@ -32,9 +35,23 @@
+ environments or link checkout imports. Disposable synthetic fixtures may be internal content;
+ real independent review attempts must not be nested.
+ 
+-For task 6.2 of `audit-project-tools` only, the reviewer may create one disposable
+-selected workspace at
+-`build/audit-project-tools_r1_reviewer_try-1_review/checkout/` from the identified
++For task 6.1 of `audit-project-tools` retry only, keep the identified pristine
++source snapshot under `build/audit-project-tools_r1_reviewer_try-2_source/`
++unchanged and do not execute Python or a build backend there. Create a separate
++source-only working copy at
++`build/audit-project-tools_r1_reviewer_try-2_review/package-source/`. Use the
++existing `HML_PACKAGE_BUILD_WORKSPACE` and `HML_PACKAGE_BUILD_RUN_ROOT` backend
++overrides to direct staging and wheel output into the try-2 environment root,
++which must be disjoint from the working source copy after resolving paths. Keep
++uv environments and cache in the try-2 environment root. Disable bytecode writes
++for source-side Python invocations and compare the pristine source inventory
++before and after the build. This package working copy and backend-owned
++subdirectories are subordinate contents of this single retry, not nested
++independent attempts; do not introduce another reviewer run root.
++
++For task 6.2 of `audit-project-tools` retry only, the reviewer may create one
++separate disposable selected workspace at
++`build/audit-project-tools_r1_reviewer_try-2_review/checkout/` from the identified
+ pristine source snapshot. Copy source files only, without virtual environments,
+ installed dependencies or previous build outputs. Ordinary Make/direct workflows
+ under test may create their configured tools, environments, caches, package/check/

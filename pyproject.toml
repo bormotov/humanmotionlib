@@ -38,3 +38,7 @@ blender-build = "d13f752e3b9c"
 reference-platform = "Darwin-arm64"
 mpfb = "not-used"
 rigify = "not-used"
+
+[tool.humanmotionlib.workflow]
+tools-root = "build/project-tools_r1_contributor_current_environment"
+uv-minimum = "0.11.21"

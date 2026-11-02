@@ -1,0 +1,1252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/character-template.schema.json",
+  "title": "HML shared procedural character-surface template",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "character-surface-template"
+    },
+    "id": {
+      "const": "exercise-mannequin-v1"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "license": {
+      "const": "CC-BY-4.0"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "compatible_profile": {
+      "const": "adult-reference-v1"
+    },
+    "template_revision": {
+      "const": 4
+    },
+    "binding_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expected_rest_contract_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rest_contract_structures": {
+      "type": "array",
+      "minItems": 32,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "space": {
+      "$ref": "#/$defs/space"
+    },
+    "topology": {
+      "$ref": "#/$defs/topology"
+    },
+    "shoulder_join": {
+      "$ref": "#/$defs/shoulderJoin"
+    },
+    "components": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/torso"
+          },
+          {
+            "$ref": "#/$defs/head"
+          },
+          {
+            "$ref": "#/$defs/arm"
+          },
+          {
+            "$ref": "#/$defs/leg"
+          },
+          {
+            "$ref": "#/$defs/foot"
+          }
+        ]
+      }
+    },
+    "materials": {
+      "$ref": "#/$defs/materials"
+    },
+    "limits": {
+      "$ref": "#/$defs/limits"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "description",
+    "license",
+    "provenance",
+    "compatible_profile",
+    "template_revision",
+    "binding_revision",
+    "expected_rest_contract_sha256",
+    "rest_contract_structures",
+    "space",
+    "topology",
+    "shoulder_join",
+    "components",
+    "materials",
+    "limits"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "positive": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 10
+    },
+    "nonnegative": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "pair": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/positive"
+        },
+        {
+          "$ref": "#/$defs/positive"
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "vector3": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/nonnegative"
+        },
+        {
+          "$ref": "#/$defs/nonnegative"
+        },
+        {
+          "$ref": "#/$defs/nonnegative"
+        }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "authored",
+            "adapted"
+          ]
+        },
+        "license": {
+          "const": "CC-BY-4.0"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "material": {
+                "type": "string"
+              },
+              "locator": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "material",
+              "locator"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "changes": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "license",
+        "sources",
+        "rationale",
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "space": {
+      "type": "object",
+      "properties": {
+        "positions": {
+          "const": "stature_normalized"
+        },
+        "basis": {
+          "const": "right_handed_profile_space"
+        },
+        "rest_pose": {
+          "const": "skeletal_T_pose"
+        },
+        "stature_source": {
+          "const": "render_request"
+        },
+        "mirror_plane": {
+          "const": "x_zero"
+        }
+      },
+      "required": [
+        "positions",
+        "basis",
+        "rest_pose",
+        "stature_source",
+        "mirror_plane"
+      ],
+      "additionalProperties": false
+    },
+    "topology": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "loft_and_ellipsoid"
+        },
+        "loft_ring_vertices": {
+          "const": 32
+        },
+        "intervals_per_control_interval": {
+          "const": 4
+        },
+        "ring_interpolation": {
+          "const": "linear"
+        },
+        "weight_interpolation": {
+          "const": "smoothstep"
+        },
+        "face_diagonal": {
+          "const": "lower_vertex_id"
+        },
+        "cap_style": {
+          "const": "center_fan"
+        },
+        "head_longitudes": {
+          "const": 32
+        },
+        "head_latitude_intervals": {
+          "const": 16
+        },
+        "subdivision": {
+          "const": "none"
+        },
+        "remesh": {
+          "const": "none"
+        },
+        "automatic_weights": {
+          "const": false
+        },
+        "modifiers_may_change_topology": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "loft_ring_vertices",
+        "intervals_per_control_interval",
+        "ring_interpolation",
+        "weight_interpolation",
+        "face_diagonal",
+        "cap_style",
+        "head_longitudes",
+        "head_latitude_intervals",
+        "subdivision",
+        "remesh",
+        "automatic_weights",
+        "modifiers_may_change_topology"
+      ],
+      "additionalProperties": false
+    },
+    "shoulderJoin": {
+      "type": "object",
+      "properties": {
+        "constructor": {
+          "const": "welded_shoulder_bridge"
+        },
+        "torso_lower_rings": {
+          "const": [
+            24,
+            31
+          ]
+        },
+        "torso_lower_sectors_right": {
+          "const": [
+            28,
+            29,
+            30,
+            31,
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        "arm_join_ring": {
+          "const": 8
+        },
+        "bridge_intermediate_loops": {
+          "const": 3
+        },
+        "weight_interpolation": {
+          "const": "smoothstep_3t2_minus_2t3"
+        },
+        "maximum_influences_bridge": {
+          "const": 3
+        },
+        "maximum_influences_elsewhere": {
+          "const": 2
+        },
+        "refinement_passes": {
+          "const": 2
+        },
+        "position_rule": {
+          "const": "midpoint_then_neighbor_average"
+        },
+        "interior_relaxation": {
+          "const": 0.25
+        },
+        "boundary_rule": {
+          "const": "fixed_conforming_midpoints"
+        },
+        "weight_rule": {
+          "const": "construction_coordinates"
+        },
+        "maximum_rest_deviation_h": {
+          "const": 0.005
+        },
+        "arms_down_profile": {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "canonical_neutral_upper_plateau_v1"},
+            "support_start_z_h": {"const": 0.81},
+            "support_end_z_h": {"const": 0.84},
+            "plateau_end_u": {"const": 0.5},
+            "maximum_rest_deviation_h": {"const": 0.02}
+          },
+          "required": ["kind", "support_start_z_h", "support_end_z_h", "plateau_end_u", "maximum_rest_deviation_h"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "constructor",
+        "torso_lower_rings",
+        "torso_lower_sectors_right",
+        "arm_join_ring",
+        "bridge_intermediate_loops",
+        "weight_interpolation",
+        "maximum_influences_bridge",
+        "maximum_influences_elsewhere",
+        "refinement_passes",
+        "position_rule",
+        "interior_relaxation",
+        "boundary_rule",
+        "weight_rule",
+        "maximum_rest_deviation_h",
+        "arms_down_profile"
+      ],
+      "additionalProperties": false
+    },
+    "torsoRing": {
+      "type": "object",
+      "properties": {
+        "z_h": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "radius_h": {
+          "$ref": "#/$defs/pair"
+        }
+      },
+      "required": [
+        "z_h",
+        "radius_h"
+      ],
+      "additionalProperties": false
+    },
+    "torsoWeighting": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "longitudinal_chain"
+        },
+        "carriers": {
+          "const": [
+            "pelvis",
+            "L5",
+            "L1",
+            "T12",
+            "T6",
+            "T1",
+            "C7",
+            "C3",
+            "C1"
+          ]
+        },
+        "coordinate": {
+          "const": "rest_carrier_origin_z"
+        },
+        "outside_chain": {
+          "const": "clamp_to_end_carrier"
+        },
+        "equal_z_origins": {
+          "const": "reject"
+        },
+        "maximum_influences": {
+          "const": 2
+        }
+      },
+      "required": [
+        "kind",
+        "carriers",
+        "coordinate",
+        "outside_chain",
+        "equal_z_origins",
+        "maximum_influences"
+      ],
+      "additionalProperties": false
+    },
+    "torso": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "torso"
+        },
+        "geometry": {
+          "const": "loft"
+        },
+        "section_frame": {
+          "const": "world_xy"
+        },
+        "control_rings": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/torsoRing"
+          }
+        },
+        "center_h": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "weighting": {
+          "$ref": "#/$defs/torsoWeighting"
+        },
+        "junctions": {
+          "const": [
+            "shoulder_torso",
+            "hip_torso",
+            "neck_head"
+          ]
+        },
+        "material": {
+          "const": "suit"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "section_frame",
+        "control_rings",
+        "center_h",
+        "weighting",
+        "junctions",
+        "material"
+      ],
+      "additionalProperties": false
+    },
+    "headWeighting": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "rigid"
+        },
+        "carrier": {
+          "const": "skull"
+        }
+      },
+      "required": [
+        "kind",
+        "carrier"
+      ],
+      "additionalProperties": false
+    },
+    "head": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "head"
+        },
+        "geometry": {
+          "const": "ellipsoid"
+        },
+        "center_h": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": 0
+            },
+            {
+              "const": 0.008
+            },
+            {
+              "const": 0.9375
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "radii_source": {
+          "const": "appearance.head_radii_h"
+        },
+        "weighting": {
+          "$ref": "#/$defs/headWeighting"
+        },
+        "material": {
+          "const": "head_mitten"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "center_h",
+        "radii_source",
+        "weighting",
+        "material"
+      ],
+      "additionalProperties": false
+    },
+    "armRing": {
+      "type": "object",
+      "properties": {
+        "span": {
+          "enum": [
+            "shoulder_to_elbow",
+            "elbow_to_wrist",
+            "wrist_to_hand_tip"
+          ]
+        },
+        "t": {
+          "type": "number",
+          "minimum": -0.12,
+          "maximum": 1
+        },
+        "radius_h": {
+          "$ref": "#/$defs/pair"
+        }
+      },
+      "required": [
+        "span",
+        "t",
+        "radius_h"
+      ],
+      "additionalProperties": false
+    },
+    "armBand": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "enum": [
+            "shoulder",
+            "elbow",
+            "forearm_twist",
+            "wrist"
+          ]
+        },
+        "center": {
+          "enum": [
+            "shoulder",
+            "elbow",
+            "wrist"
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "reference": {
+          "enum": [
+            "upper_arm_length",
+            "min_adjacent_arm_length",
+            "forearm_length"
+          ]
+        },
+        "span": {
+          "const": "elbow_to_wrist"
+        },
+        "interval": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "armWeighting": {
+      "type": "object",
+      "properties": {
+        "maximum_influences": {
+          "const": 2
+        },
+        "bands": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/armBand"
+          }
+        },
+        "hand_carrier": {
+          "const": "wrist.R"
+        },
+        "interpolation": {
+          "const": "smoothstep_3t2_minus_2t3"
+        },
+        "unit_weight_outside_bands": {
+          "const": true
+        }
+      },
+      "required": [
+        "maximum_influences",
+        "bands",
+        "hand_carrier",
+        "interpolation",
+        "unit_weight_outside_bands"
+      ],
+      "additionalProperties": false
+    },
+    "materialSection": {
+      "type": "object",
+      "properties": {
+        "from_span": {
+          "const": "wrist_to_hand_tip"
+        },
+        "material": {
+          "const": "head_mitten"
+        },
+        "other": {
+          "const": "suit"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "from_span",
+            "material"
+          ]
+        },
+        {
+          "required": [
+            "other"
+          ]
+        }
+      ]
+    },
+    "arm": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "arm.R"
+        },
+        "geometry": {
+          "const": "mirrored_loft"
+        },
+        "source_side": {
+          "const": "R"
+        },
+        "mirror_side": {
+          "const": "L"
+        },
+        "mirror_plane": {
+          "const": "x_zero"
+        },
+        "endpoints": {
+          "type": "object",
+          "properties": {
+            "shoulder": {
+              "const": "shoulder.R"
+            },
+            "elbow": {
+              "const": "elbow.R.origin"
+            },
+            "wrist": {
+              "const": "wrist.R.origin"
+            },
+            "hand_tip": {
+              "const": "wrist_plus_forearm_direction"
+            },
+            "hand_tip_distance_h": {
+              "const": 0.105
+            }
+          },
+          "required": [
+            "shoulder",
+            "elbow",
+            "wrist",
+            "hand_tip",
+            "hand_tip_distance_h"
+          ],
+          "additionalProperties": false
+        },
+        "section_axes": {
+          "const": [
+            "rest_world_anterior_projected_off_tangent",
+            "right_handed_cross_product"
+          ]
+        },
+        "radius_source": {
+          "const": "arm_control_rings"
+        },
+        "radius_scale_source": {
+          "const": "appearance.radius_scales.arm"
+        },
+        "control_rings": {
+          "type": "array",
+          "minItems": 14,
+          "maxItems": 14,
+          "items": {
+            "$ref": "#/$defs/armRing"
+          }
+        },
+        "weighting": {
+          "$ref": "#/$defs/armWeighting"
+        },
+        "mirror_winding": {
+          "const": "reverse"
+        },
+        "junctions": {
+          "const": [
+            "shoulder_torso",
+            "wrist_mitten"
+          ]
+        },
+        "material_sections": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/materialSection"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "source_side",
+        "mirror_side",
+        "mirror_plane",
+        "endpoints",
+        "section_axes",
+        "radius_source",
+        "radius_scale_source",
+        "control_rings",
+        "weighting",
+        "mirror_winding",
+        "junctions",
+        "material_sections"
+      ],
+      "additionalProperties": false
+    },
+    "legRing": {
+      "type": "object",
+      "properties": {
+        "span": {
+          "enum": [
+            "hip_to_knee",
+            "knee_to_ankle"
+          ]
+        },
+        "t": {
+          "type": "number",
+          "minimum": -0.12,
+          "maximum": 1.03
+        },
+        "radius_h": {
+          "$ref": "#/$defs/pair"
+        },
+        "scale_key": {
+          "enum": [
+            "leg_thigh",
+            "leg_knee",
+            "leg_shank"
+          ]
+        }
+      },
+      "required": [
+        "span",
+        "t",
+        "radius_h",
+        "scale_key"
+      ],
+      "additionalProperties": false
+    },
+    "legBand": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "enum": [
+            "hip",
+            "knee",
+            "ankle"
+          ]
+        },
+        "center": {
+          "enum": [
+            "hip",
+            "knee",
+            "ankle"
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "reference": {
+          "enum": [
+            "thigh_length",
+            "min_adjacent_leg_length",
+            "shank_length"
+          ]
+        },
+        "interval": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "terminal": {
+          "const": true
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "legWeighting": {
+      "type": "object",
+      "properties": {
+        "maximum_influences": {
+          "const": 2
+        },
+        "bands": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/legBand"
+          }
+        },
+        "interpolation": {
+          "const": "smoothstep_3t2_minus_2t3"
+        },
+        "unit_weight_outside_bands": {
+          "const": true
+        }
+      },
+      "required": [
+        "maximum_influences",
+        "bands",
+        "interpolation",
+        "unit_weight_outside_bands"
+      ],
+      "additionalProperties": false
+    },
+    "leg": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "leg.R"
+        },
+        "geometry": {
+          "const": "mirrored_loft"
+        },
+        "source_side": {
+          "const": "R"
+        },
+        "mirror_side": {
+          "const": "L"
+        },
+        "mirror_plane": {
+          "const": "x_zero"
+        },
+        "endpoints": {
+          "type": "object",
+          "properties": {
+            "hip": {
+              "const": "hip.R"
+            },
+            "knee": {
+              "const": "knee.R.origin"
+            },
+            "ankle": {
+              "const": "ankle.R"
+            }
+          },
+          "required": [
+            "hip",
+            "knee",
+            "ankle"
+          ],
+          "additionalProperties": false
+        },
+        "section_axes": {
+          "const": [
+            "rest_world_anterior_projected_off_tangent",
+            "right_handed_cross_product"
+          ]
+        },
+        "radius_scale_source": {
+          "const": "appearance.radius_scales"
+        },
+        "control_rings": {
+          "type": "array",
+          "minItems": 11,
+          "maxItems": 11,
+          "items": {
+            "$ref": "#/$defs/legRing"
+          }
+        },
+        "weighting": {
+          "$ref": "#/$defs/legWeighting"
+        },
+        "mirror_winding": {
+          "const": "reverse"
+        },
+        "junctions": {
+          "const": [
+            "hip_torso",
+            "ankle_foot"
+          ]
+        },
+        "material": {
+          "const": "suit"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "source_side",
+        "mirror_side",
+        "mirror_plane",
+        "endpoints",
+        "section_axes",
+        "radius_scale_source",
+        "control_rings",
+        "weighting",
+        "mirror_winding",
+        "junctions",
+        "material"
+      ],
+      "additionalProperties": false
+    },
+    "footRing": {
+      "type": "object",
+      "properties": {
+        "y_h": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "half_width_h": {
+          "$ref": "#/$defs/positive"
+        },
+        "top_height_h": {
+          "$ref": "#/$defs/positive"
+        }
+      },
+      "required": [
+        "y_h",
+        "half_width_h",
+        "top_height_h"
+      ],
+      "additionalProperties": false
+    },
+    "footWeighting": {
+      "type": "object",
+      "properties": {
+        "maximum_influences": {
+          "const": 2
+        },
+        "hindfoot_only_at_or_below_y_h": {
+          "const": 0.065
+        },
+        "smooth_transition": {
+          "type": "object",
+          "properties": {
+            "y_h": {
+              "const": [
+                0.065,
+                0.075
+              ]
+            },
+            "from": {
+              "const": "hindfoot.R"
+            },
+            "to": {
+              "const": "mtp.R"
+            },
+            "interpolation": {
+              "const": "smoothstep_3t2_minus_2t3"
+            }
+          },
+          "required": [
+            "y_h",
+            "from",
+            "to",
+            "interpolation"
+          ],
+          "additionalProperties": false
+        },
+        "mtp_only_at_or_above_y_h": {
+          "const": 0.075
+        },
+        "interpolation": {
+          "const": "smoothstep_3t2_minus_2t3"
+        },
+        "unit_weight_outside_bands": {
+          "const": true
+        }
+      },
+      "required": [
+        "maximum_influences",
+        "hindfoot_only_at_or_below_y_h",
+        "smooth_transition",
+        "mtp_only_at_or_above_y_h",
+        "interpolation",
+        "unit_weight_outside_bands"
+      ],
+      "additionalProperties": false
+    },
+    "foot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "const": "foot.R"
+        },
+        "geometry": {
+          "const": "mirrored_sole_loft"
+        },
+        "source_side": {
+          "const": "R"
+        },
+        "mirror_side": {
+          "const": "L"
+        },
+        "mirror_plane": {
+          "const": "x_zero"
+        },
+        "center_xy_source": {
+          "const": "ankle.R_neutral_xy"
+        },
+        "sole_z_source": {
+          "const": "floor_z"
+        },
+        "radial_vertices": {
+          "const": 32
+        },
+        "ring_rule": {
+          "const": "x_offset_half_width_cos_theta_z_offset_top_height_max_zero_sin_theta"
+        },
+        "control_rings": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/footRing"
+          }
+        },
+        "weighting": {
+          "$ref": "#/$defs/footWeighting"
+        },
+        "mirror_winding": {
+          "const": "reverse"
+        },
+        "sole_thickness_below_floor_h": {
+          "const": 0
+        },
+        "junctions": {
+          "const": [
+            "ankle_foot"
+          ]
+        },
+        "material": {
+          "const": "foot"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "source_side",
+        "mirror_side",
+        "mirror_plane",
+        "center_xy_source",
+        "sole_z_source",
+        "radial_vertices",
+        "ring_rule",
+        "control_rings",
+        "weighting",
+        "mirror_winding",
+        "sole_thickness_below_floor_h",
+        "junctions",
+        "material"
+      ],
+      "additionalProperties": false
+    },
+    "rgbSource": {
+      "type": "object",
+      "properties": {
+        "rgb_source": {
+          "type": "string",
+          "pattern": "^appearance\\.materials_rgb\\.(suit|head_mitten|foot)$"
+        },
+        "alpha": {
+          "const": 1.0
+        }
+      },
+      "required": [
+        "rgb_source",
+        "alpha"
+      ],
+      "additionalProperties": false
+    },
+    "materials": {
+      "type": "object",
+      "properties": {
+        "suit": {
+          "$ref": "#/$defs/rgbSource"
+        },
+        "head_mitten": {
+          "$ref": "#/$defs/rgbSource"
+        },
+        "foot": {
+          "$ref": "#/$defs/rgbSource"
+        }
+      },
+      "required": [
+        "suit",
+        "head_mitten",
+        "foot"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "normalized_weight_sum_tolerance": {
+          "const": 1e-12
+        },
+        "maximum_influences_per_vertex": {
+          "const": 3
+        },
+        "native_vertex_residual_h": {
+          "const": 1e-05
+        },
+        "minimum_triangle_area_h2": {
+          "const": 1e-12
+        },
+        "surface_floor_minimum_z_h": {
+          "const": -0.0001
+        },
+        "visible_sole_to_contact_anchor_m": {
+          "const": 0.001
+        },
+        "torso_rest_slice_tolerance_h": {
+          "const": 0.0001
+        },
+        "rest_expansion_tolerance_h": {
+          "const": 1e-09
+        }
+      },
+      "required": [
+        "normalized_weight_sum_tolerance",
+        "maximum_influences_per_vertex",
+        "native_vertex_residual_h",
+        "minimum_triangle_area_h2",
+        "surface_floor_minimum_z_h",
+        "visible_sole_to_contact_anchor_m",
+        "torso_rest_slice_tolerance_h",
+        "rest_expansion_tolerance_h"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

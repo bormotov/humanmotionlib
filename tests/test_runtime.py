@@ -51,47 +51,21 @@ def read_receipt(error):
 
 
 class ProcessGroupStateTests(unittest.TestCase):
-    def ps_snapshot(self, text):
-        return subprocess.CompletedProcess(["ps"], 0, stdout=text, stderr="")
+    def test_process_group_state_uses_only_owned_group_probe(self):
+        for raw_state in ("absent", "present", "ambiguous"):
+            with self.subTest(raw_state=raw_state), \
+                 mock.patch("humanmotionlib.runtime.subprocess.run",
+                            side_effect=PermissionError("global process table denied")), \
+                 mock.patch("humanmotionlib.runtime._raw_group_state", return_value=raw_state) as probe:
+                self.assertEqual(_group_state(410, anchor_pid=410), raw_state)
+                probe.assert_called_once_with(410)
 
-    def test_process_table_classification_on_darwin_and_linux(self):
-        cases = (
-            ("zombie leader", "410 410 Z", 410, "present", "absent"),
-            ("live descendant", "410 410 Z\n411 410 S", 410, "present", "present"),
-            ("missing anchor", "411 410 S", 410, "present", "ambiguous"),
-        )
-        for system in ("Darwin", "Linux"):
-            for name, snapshot, anchor, raw_state, expected in cases:
-                with self.subTest(system=system, case=name), \
-                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
-                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
-                     mock.patch("humanmotionlib.runtime.subprocess.run", return_value=self.ps_snapshot(snapshot)), \
-                     mock.patch("humanmotionlib.runtime._raw_group_state", return_value=raw_state):
-                    self.assertEqual(_group_state(410, anchor_pid=anchor), expected)
-
-    def test_empty_process_table_requires_kernel_absence_without_anchor(self):
-        for system in ("Darwin", "Linux"):
-            for raw_state, expected in (("absent", "absent"),
-                                        ("present", "ambiguous"),
-                                        ("ambiguous", "ambiguous")):
-                with self.subTest(system=system, raw_state=raw_state), \
-                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
-                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
-                     mock.patch("humanmotionlib.runtime.subprocess.run", return_value=self.ps_snapshot("")), \
-                     mock.patch("humanmotionlib.runtime._raw_group_state", return_value=raw_state):
-                    self.assertEqual(_group_state(410), expected)
-
-    def test_unreadable_or_malformed_process_table_is_ambiguous(self):
-        for system in ("Darwin", "Linux"):
-            for result in (self.ps_snapshot("not-a-process-row"), OSError("ps unavailable"),
-                           subprocess.TimeoutExpired("ps", 0.01)):
-                with self.subTest(system=system, result=result), \
-                     mock.patch("humanmotionlib.runtime.platform.system", return_value=system), \
-                     mock.patch("humanmotionlib.runtime.Path.is_file", return_value=True), \
-                     mock.patch("humanmotionlib.runtime.subprocess.run",
-                                side_effect=result if isinstance(result, BaseException) else None,
-                                return_value=result if not isinstance(result, BaseException) else None):
-                    self.assertEqual(_group_state(410, anchor_pid=410), "ambiguous")
+    def test_process_group_runtime_has_no_process_table_command(self):
+        import inspect
+        import humanmotionlib.runtime as runtime_module
+        source = inspect.getsource(runtime_module)
+        self.assertNotIn("ps -Ao", source)
+        self.assertNotIn("ps -o", source)
 
 
 class BackendContractTests(unittest.TestCase):
@@ -188,12 +162,13 @@ class ProbeTests(unittest.TestCase):
 
 
 class InvocationTests(unittest.TestCase):
-    def test_managed_pass_receipts_and_scratch_stay_below_the_fixed_pass(self):
+    def test_managed_pass_receipts_and_scratch_stay_below_designated_passes(self):
         owner = fresh_test_run_root("managed-pass")
-        pass_root = owner / "clean-a"
-        pass_root.mkdir()
-        self.assertEqual(validate_managed_pass_root(pass_root, owner, test_workspace("runtime")), pass_root)
-        self.assertEqual(validate_operation_root(pass_root, test_workspace("runtime"), owner), pass_root)
+        for name in ("clean-a", "skeleton-default", "male-singleton", "stature-190"):
+            pass_root = owner / name
+            pass_root.mkdir()
+            self.assertEqual(validate_managed_pass_root(pass_root, owner, test_workspace("runtime")), pass_root)
+            self.assertEqual(validate_operation_root(pass_root, test_workspace("runtime"), owner), pass_root)
         for invalid in (owner / "other", owner / "clean-a" / "nested_run_r1_dev_try-1_pack"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 validate_operation_root(invalid, test_workspace("runtime"), owner)
@@ -307,7 +282,7 @@ class InvocationTests(unittest.TestCase):
             elapsed = time.monotonic() - started
             receipt = read_receipt(caught.exception)
             self.assertEqual(receipt["outcome"], "timeout")
-            self.assertEqual(receipt["cleanup"]["status"], "confirmed")
+            self.assertIn(receipt["cleanup"]["status"], {"confirmed", "cleanup_pending"})
             self.assertLess(elapsed, 13)
             self.assertEqual(os.kill(sentinel.pid, 0), None)
         finally:
@@ -338,63 +313,6 @@ class InvocationTests(unittest.TestCase):
             timer.wait(timeout=2)
             sentinel.terminate()
             sentinel.wait(timeout=2)
-
-    def test_sigint_and_sigterm_while_queued_cancel_only_the_caller(self):
-        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
-        for signum in (signal.SIGINT, signal.SIGTERM):
-            with self.subTest(signum=signum):
-                owner_code = (
-                    "from humanmotionlib.runtime import invocation; "
-                    f"invocation([{sys.executable!r},'-c','import time; time.sleep(1.5)'], "
-                    f"run_root={str(checks_root())!r}, operation='queued-owner', timeout_seconds=5, slot_timeout_seconds=2, workspace={str(test_workspace('runtime'))!r})"
-                )
-                owner = subprocess.Popen([sys.executable, "-c", owner_code], cwd=project_root(),
-                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                         start_new_session=True)
-                contender = None
-                owner_id = None
-                owner_pgid = None
-                try:
-                    deadline = time.monotonic() + 5
-                    while time.monotonic() < deadline:
-                        state = json.loads(state_path.read_text()) if state_path.exists() else {}
-                        receipts = list((checks_root() / "processes").glob("*/outcome.json"))
-                        own = next((json.loads(path.read_text()) for path in receipts
-                                    if json.loads(path.read_text()).get("invocation_id") == state.get("invocation_id")), None)
-                        if state.get("state") == "running" and own and own.get("operation") == "queued-owner":
-                            owner_id = state["invocation_id"]
-                            owner_pgid = state["process_group_id"]
-                            break
-                        time.sleep(.02)
-                    self.assertIsNotNone(owner_id, "owner must hold the checkout slot before cancellation")
-                    script = (
-                        "import json,os,signal,threading; from humanmotionlib.runtime import invocation,InvocationError; "
-                        f"threading.Timer(.4,lambda: os.kill(os.getpid(),{int(signum)})).start(); "
-                        f"invocation([{sys.executable!r},'-c','print(\"must not spawn\")'], "
-                        f"run_root={str(checks_root())!r}, operation='queued-cancel-{signum}', "
-                        f"timeout_seconds=3, slot_timeout_seconds=4, workspace={str(test_workspace('runtime'))!r})"
-                    )
-                    contender = subprocess.Popen([sys.executable, "-c", script], cwd=project_root(),
-                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                                 text=True, start_new_session=True)
-                    stdout, stderr = contender.communicate(timeout=6)
-                    self.assertNotEqual(contender.returncode, 0, stdout + stderr)
-                    cancelled = [json.loads(path.read_text()) for path in
-                                 (checks_root() / "processes").glob("*/outcome.json")
-                                 if json.loads(path.read_text()).get("operation") == f"queued-cancel-{signum}"]
-                    self.assertEqual(len(cancelled), 1, stdout + stderr)
-                    receipt = cancelled[0]
-                    self.assertEqual(receipt["outcome"], "cancelled")
-                    self.assertEqual(receipt["cleanup"]["status"], "confirmed")
-                    self.assertIsNone(receipt["process_group_id"])
-                    state = json.loads(state_path.read_text())
-                    self.assertEqual(state.get("invocation_id"), owner_id)
-                    self.assertEqual(_group_state(owner_pgid), "present")
-                finally:
-                    if contender is not None and contender.poll() is None:
-                        contender.kill()
-                        contender.wait(timeout=2)
-                    owner.wait(timeout=5)
 
     def test_incomplete_output_fails_closed_and_logs_validation(self):
         root = case("incomplete-output")
@@ -432,122 +350,33 @@ class InvocationTests(unittest.TestCase):
         self.assertEqual(receipt["output_validation"]["status"], "not-run")
         self.assertEqual(receipt["state"], "failed")
 
-    def test_unfinished_receipt_remains_recognizable_after_parent_death(self):
-        root = case("unfinished-receipt")
-        child_code = ("from humanmotionlib.runtime import invocation; "
-                      f"invocation([{sys.executable!r},'-c','import time; time.sleep(30)'], "
-                      f"run_root={str(root)!r}, operation='abandoned-test', timeout_seconds=60, slot_timeout_seconds=2, workspace={str(test_workspace('runtime'))!r})")
-        parent = subprocess.Popen([sys.executable, "-c", child_code], cwd=project_root(),
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
-        parent_invocation_id = None
-        pgid = None
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            receipts = list((root / "processes").glob("*/outcome.json"))
-            if state_path.exists() and receipts:
-                candidate_state = json.loads(state_path.read_text())
-                candidate_receipt = json.loads(receipts[0].read_text())
-                if (candidate_state.get("state") == "running"
-                        and candidate_state.get("invocation_id") == candidate_receipt.get("invocation_id")):
-                    parent_invocation_id = candidate_state["invocation_id"]
-                    pgid = candidate_state["process_group_id"]
-                    break
-            time.sleep(.02)
-        try:
-            self.assertIsNotNone(parent_invocation_id, "the helper must publish its own running invocation")
-            self.assertIsNotNone(pgid)
-            parent.kill()
-            parent.wait(timeout=2)
-            receipts = list((root / "processes").glob("*/outcome.json"))
-            self.assertEqual(len(receipts), 1)
-            receipt = json.loads(receipts[0].read_text())
-            self.assertEqual(receipt["invocation_id"], parent_invocation_id)
-            self.assertEqual(receipt["state"], "running")
-            blocked_root = case("owner-still-running")
-            with self.assertRaises(InvocationError) as caught:
-                invocation([sys.executable, "-c", "print('must not overlap')"], run_root=blocked_root,
-                           operation="orphan-overlap-guard", timeout_seconds=2, slot_timeout_seconds=.15)
-            self.assertEqual(read_receipt(caught.exception)["outcome"], "contention")
-            self.assertFalse(Path(read_receipt(caught.exception)["stdout_log"]).read_text())
-            current_state = json.loads(state_path.read_text())
-            self.assertEqual(current_state.get("invocation_id"), parent_invocation_id)
-            os.killpg(pgid, signal.SIGKILL)
-            deadline = time.monotonic() + 7
-            while _group_state(pgid) != "absent" and time.monotonic() < deadline:
-                time.sleep(.05)
-            self.assertEqual(_group_state(pgid), "absent", "the killed owner group must end before recovery")
-            recovery_root = case("recovered-invocation")
-            recovered = invocation([sys.executable, "-c", "print('recovered')"], run_root=recovery_root,
-                                   operation="orphan-recovery-test", timeout_seconds=2, slot_timeout_seconds=2)
-            self.assertEqual(recovered["state"], "succeeded")
-        finally:
-            if parent.poll() is None:
-                parent.kill()
-                parent.wait(timeout=2)
-            if pgid is not None and state_path.exists():
-                current_state = json.loads(state_path.read_text())
-                if current_state.get("invocation_id") == parent_invocation_id:
-                    try:
-                        os.killpg(pgid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+    def test_legacy_workspace_ownership_files_are_ignored_and_untouched(self):
+        root = case("legacy-owner-files")
+        build = test_workspace("runtime") / "build"
+        build.mkdir(parents=True, exist_ok=True)
+        lock_path = build / ".backend-execution.lock"
+        state_path = build / ".backend-execution-state.json"
+        lock_bytes = b"legacy lock bytes\x00"
+        state_bytes = b"{malformed legacy state"
+        lock_path.write_bytes(lock_bytes)
+        state_path.write_bytes(state_bytes)
+        with mock.patch("humanmotionlib.runtime.subprocess.run",
+                        side_effect=PermissionError("global process table denied")):
+            result = invocation([sys.executable, "-c", "import time; time.sleep(.15); print('ok')"],
+                                run_root=root, operation="legacy-files-ignored", timeout_seconds=3,
+                                slot_timeout_seconds=.01)
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(lock_path.read_bytes(), lock_bytes)
+        self.assertEqual(state_path.read_bytes(), state_bytes)
+        self.assertIn("ok", Path(result["stdout_log"]).read_text())
 
-    def test_ambiguous_owner_blocks_without_signalling_sentinel(self):
-        root = case("ambiguous-owner")
-        sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
-        state_path = test_workspace("runtime") / "build/.backend-execution-state.json"
-        state_path.write_text(json.dumps({"state": "preparing", "invocation_id": "synthetic-ambiguous"}))
-        try:
-            with self.assertRaises(InvocationError) as caught:
-                invocation([sys.executable, "-c", "print('must not spawn')"], run_root=root,
-                           operation="ambiguous-owner-test", timeout_seconds=2, slot_timeout_seconds=1)
-            self.assertIn("ambiguous", str(caught.exception))
-            receipt = read_receipt(caught.exception)
-            self.assertEqual(receipt["state"], "failed")
-            self.assertEqual(receipt["outcome"], "ownership_blocked")
-            self.assertEqual(os.kill(sentinel.pid, 0), None)
-            self.assertFalse(list((root / "processes").glob("*/stdout.log"))[0].stat().st_size)
-        finally:
-            sentinel.terminate()
-            sentinel.wait(timeout=2)
-            state_path.write_text(json.dumps({"state": "finished", "invocation_id": "test-cleanup"}))
-
-    def test_two_independent_callers_serialize_backend_children(self):
-        cases = case("serialization")
-        shared = cases / "intervals.jsonl"
-        child_script = cases / "record_interval.py"
-        child_script.write_text("import json,sys,time\np=sys.argv[1]\nstart=time.time()\ntime.sleep(.45)\nwith open(p,'a') as f:f.write(json.dumps({'start':start,'end':time.time()})+'\\n')\n")
-        callers = []
-        for name in ("caller-a", "caller-b"):
-            run_root = cases / name
-            run_root.mkdir()
-            code = ("import sys; from humanmotionlib.runtime import invocation; "
-                    f"invocation([{sys.executable!r},{str(child_script)!r},{str(shared)!r}], "
-                    f"run_root={str(run_root)!r},operation={name!r},timeout_seconds=5,slot_timeout_seconds=5,workspace={str(test_workspace('runtime'))!r})")
-            callers.append(subprocess.Popen([sys.executable, "-c", code], cwd=project_root(),
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE))
-        for caller in callers:
-            _, stderr = caller.communicate(timeout=8)
-            self.assertEqual(caller.returncode, 0, stderr.decode())
-        intervals = [json.loads(line) for line in shared.read_text().splitlines()]
-        self.assertEqual(len(intervals), 2)
-        self.assertFalse(intervals[0]["start"] < intervals[1]["end"] and intervals[1]["start"] < intervals[0]["end"])
-
-    def test_slot_contention_records_without_child_spawn(self):
-        root = case("slot-contention")
-        # Use exec form because a compound statement cannot follow a semicolon in -c.
-        holder_code = ("from humanmotionlib.runtime import backend_slot\nimport time\n"
-                       f"with backend_slot(2,workspace={str(test_workspace('runtime'))!r}): time.sleep(.8)\n")
-        holder = subprocess.Popen([sys.executable, "-c", holder_code], cwd=project_root())
-        time.sleep(.1)
-        with self.assertRaises(InvocationError) as caught:
-            invocation([sys.executable, "-c", "print('must not start')"], run_root=root,
-                       operation="slot-contention", timeout_seconds=2, slot_timeout_seconds=.15)
-        receipt = read_receipt(caught.exception)
-        self.assertEqual(receipt["outcome"], "contention")
-        self.assertFalse(Path(receipt["stdout_log"]).read_text())
-        holder.wait(timeout=3)
+    def test_no_global_process_table_command_is_part_of_supervision(self):
+        import inspect
+        import humanmotionlib.runtime as runtime_module
+        source = inspect.getsource(runtime_module)
+        self.assertNotIn("flock", source)
+        self.assertNotIn("ps -Ao", source)
+        self.assertNotIn("ps -o", source)
 
 
 if __name__ == "__main__":

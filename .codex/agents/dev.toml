@@ -44,11 +44,13 @@ Rules:
 - Before generating, reject occupied roots, nested run identities, or input/output roots that
   coincide or contain one another after symlink resolution. Preparation and construction may
   share one owned build root.
-- After checks finish, including failure or interruption, inventory and clean obsolete whole
-  run roots. Keep only dependency closure, active/resumable work, unresolved diagnostic evidence
-  with a revisit trigger, or explicitly protected history. Record removed paths/bytes, retained
-  reasons, dependency checks and pending cleanup in an existing review/hand-off record. Do not
-  claim hand-off completion while cleanup is pending; never remove another agent's active run.
+- After checks finish, including failure or interruption, clean only the developer-assigned work
+  area and record removed paths/bytes and pending failures. Do not use owner markers, file
+  inventories, history exemptions or legacy-reference scans. Explicit Make cleanup uses the
+  fixed build areas in AGENTS.md and removes every inactive object inside its selected area;
+  run it only against disposable trees during verification. Check process activity and path
+  containment first, unlink selected symlinks without traversing targets, and never remove
+  another agent's active work or objects outside the selected area.
 - No new dependencies, formats or conventions without an OpenSpec change.
 
 For visual-affecting changes, follow the approved early-preview plan before any full suite, full diagnostic/tempo/stature matrix, dense audit, repeated render comparison or full acceptance pack. Clear and register source materials first; run only selected source/schema/identity/environment preflight and focused checks necessary to generate the bounded preview. Use canonical sources and the fixed scene, state unrun scopes as pending, and hand the exact preview identity, run path, scope and limitations to the orchestrator. Do not treat metrics, an ongoing process or a generic request to continue as human visual approval. If rejected or pending, keep expensive work blocked for that visual direction and produce a fresh preview after approved corrections. For in-flight work, preserve completed evidence and avoid rerunning it only to simulate the new order.

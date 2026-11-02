@@ -2,6 +2,7 @@
 """Workspace ownership for numerical verification outputs."""
 
 import contextlib
+from copy import deepcopy
 import io
 import json
 from pathlib import Path
@@ -9,7 +10,10 @@ import unittest
 from unittest import mock
 
 from humanmotionlib.verify_skeleton import main
+from humanmotionlib.verify_skeleton import (_matrix_definition_failures,
+                                           _matrix_shared_identity_failures)
 from humanmotionlib.verification_run import verify_collection
+from humanmotionlib.poses import scale_meter_fields, scaled_profile
 from tests.run_roots import test_case_root
 
 
@@ -30,6 +34,77 @@ class VerificationWorkspaceTests(unittest.TestCase):
         root = self.build / f"portable-installed-runtime_e3dcbf_test_try-{self._attempt}_verify"
         root.mkdir()
         return root
+
+    @staticmethod
+    def matrix_sources():
+        return {
+            "profile": {"id": "adult-reference-v1", "stature_m": 1.5,
+                        "landmark_m": [0.2, 0.4, 0.8]},
+            "mobility": {"couplings": [{"parameters": {"glenoid_m": [0.1575, 0.2],
+                                                            "elevation_deg": [0, 90]}}]},
+            "diagnostics": [{"id": "walk", "tracks": [{"contact_id": "left-foot",
+                          "target_m": [-0.0825, 0.1, 0.2], "angle_deg": 30}]}],
+            "review-scene": {"id": "fixed-scene"},
+        }
+
+    @staticmethod
+    def matrix_input(canonical, height, hashes=None):
+        factor = height / canonical["profile"]["stature_m"]
+        return {"source_hashes": hashes or {"profile": "same"}, "sampling": {},
+                "sources": {"profile": scaled_profile(canonical["profile"], height),
+                            "mobility": scale_meter_fields(canonical["mobility"], factor),
+                            "diagnostics": scale_meter_fields(canonical["diagnostics"], factor),
+                            "review-scene": deepcopy(canonical["review-scene"])}}
+
+    def test_matrix_accepts_exact_stature_scaled_canonical_definitions(self):
+        canonical = self.matrix_sources()
+        rows = [self.matrix_input(canonical, height) for height in (1.5, 1.7, 1.9)]
+        self.assertEqual(_matrix_definition_failures(rows, canonical), [])
+        self.assertEqual(_matrix_shared_identity_failures(rows), [])
+
+    def test_matrix_rejects_noncanonical_scaled_fields_and_identity_changes(self):
+        canonical = self.matrix_sources()
+        cases = (
+            ("mobility dimensioned value", lambda row: row["sources"]["mobility"]["couplings"][0]["parameters"]["glenoid_m"].__setitem__(0, 0.18)),
+            ("mobility non-dimensional value", lambda row: row["sources"]["mobility"]["couplings"][0]["parameters"]["elevation_deg"].__setitem__(0, 1)),
+            ("diagnostic dimensioned value", lambda row: row["sources"]["diagnostics"][0]["tracks"][0]["target_m"].__setitem__(0, -0.09)),
+            ("diagnostic identity", lambda row: row["sources"]["diagnostics"][0]["tracks"][0].__setitem__("contact_id", "right-foot")),
+            ("missing field", lambda row: row["sources"]["mobility"]["couplings"][0]["parameters"].pop("glenoid_m")),
+            ("extra field", lambda row: row["sources"]["diagnostics"][0].__setitem__("unexpected", True)),
+            ("scene identity", lambda row: row["sources"]["review-scene"].__setitem__("id", "moved-scene")),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                row = self.matrix_input(canonical, 1.7)
+                mutate(row)
+                failures = _matrix_definition_failures([self.matrix_input(canonical, 1.5), row],
+                                                       canonical)
+                self.assertTrue(failures, label)
+
+    def test_matrix_rejects_hash_drift_and_requires_consumer_lineage_resolution(self):
+        canonical = self.matrix_sources()
+        row = self.matrix_input(canonical, 1.7, {"profile": "changed"})
+        row["consumer_motion"] = {"snapshot": "sealed"}
+        row["sampling"] = {"custom": [{"bpm": 60}, {"bpm": 120}]}
+        failures = _matrix_definition_failures([row], canonical)
+        self.assertTrue(any("no canonical lineage resolver" in item for item in failures))
+        matrix_peer = self.matrix_input(canonical, 1.5, {"profile": "same"})
+        self.assertTrue(any("hash closure" in item for item in
+                            _matrix_shared_identity_failures([matrix_peer, row])))
+        observed = {}
+        def resolve(snapshot, sources, hashes, profile, bpms, stature):
+            observed.update(snapshot=snapshot, sources=sources, hashes=hashes,
+                            profile=profile, bpms=bpms, stature=stature)
+            return {"id": "custom", "target_m": [0.1]}
+        row = self.matrix_input(canonical, 1.7)
+        row["consumer_motion"] = {"snapshot": "sealed"}
+        row["sampling"] = {"custom": [{"bpm": 60}, {"bpm": 120}]}
+        row["sources"]["diagnostics"].append(
+            scale_meter_fields({"id": "custom", "target_m": [0.1]}, 1.7 / 1.5))
+        failures = _matrix_definition_failures([row], canonical, resolve)
+        self.assertFalse(failures, failures)
+        self.assertEqual(observed["bpms"], (60, 120))
+        self.assertEqual(observed["stature"], 1.7)
 
     @staticmethod
     def prepared(fixtures=("neutral", "rest")):

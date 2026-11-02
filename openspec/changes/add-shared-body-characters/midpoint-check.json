@@ -1,0 +1,47 @@
+{
+  "blender_version": "5.2.2 LTS",
+  "delivered_samples": 22,
+  "midpoint_fixture_beats": [
+    [
+      "arm-raise",
+      0.5
+    ],
+    [
+      "arm-raise",
+      1.5
+    ],
+    [
+      "arm-raise",
+      2.5
+    ],
+    [
+      "arm-raise",
+      3.5
+    ]
+  ],
+  "output_root": "/Users/bormotov/work/humanmotionlib/build/add-shared-body-characters_r1_dev_try-195_midpoint-native",
+  "prepared_file_sha256": "5a808418aa746ec767287e01166e318fe52cf4143d429f9d6aee2d284e88ac91",
+  "prepared_sha256": "ead73921f9514dc4de1b7c8d559581d77537170c136dd1fb07863140f5e19b95",
+  "processes": 2,
+  "render_identity": "085a03a9fbae8d2c1e812b862bb5bdb2911b96c61ccd6c22796aef4445687ffb",
+  "runtime_manifest_sha256": "addf63b4976678582e575893a92b1d66716d9755326e6a7f852e527270e16cfd",
+  "scope": "try191 installed candidate; H=1.70; BPM60 neutral+arm-raise; 4 nonempty native midpoints; no images",
+  "status": "pass",
+  "surface_summary": {
+    "female": {
+      "components_checked": 32,
+      "dense_midpoints": 4,
+      "max_canonical_world_residual_m": 8.53693616979829e-07,
+      "max_closest_sole_distance_m": 8.940696716308594e-08,
+      "minimum_vertex_z_m": -8.940696716308594e-08
+    },
+    "male": {
+      "components_checked": 32,
+      "dense_midpoints": 4,
+      "max_canonical_world_residual_m": 8.552004131126148e-07,
+      "max_closest_sole_distance_m": 8.940696716308594e-08,
+      "minimum_vertex_z_m": -8.940696716308594e-08
+    }
+  },
+  "wheel_sha256": "7c76101d29e9e2c89a2336f76238db3ec937527d5ab910b3b254d45eb29875cf"
+}

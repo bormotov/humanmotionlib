@@ -1,0 +1,33 @@
+--- a/.codex/agents/reviewer.toml
++++ b/.codex/agents/reviewer.toml
+@@ -30,7 +30,29 @@
+ 
+ Keep the review environment and writable caches in the listed owned roots. Do not copy
+ environments or link checkout imports. Disposable synthetic fixtures may be internal content;
+-real independent stages must not be nested. Do not write into or clean developer runs, other
++real independent review attempts must not be nested.
++
++For task 6.2 of `audit-project-tools` only, the reviewer may create one disposable
++selected workspace at
++`build/audit-project-tools_r1_reviewer_try-1_review/checkout/` from the identified
++pristine source snapshot. Copy source files only, without virtual environments,
++installed dependencies or previous build outputs. Ordinary Make/direct workflows
++under test may create their configured tools, environments, caches, package/check/
++stage roots and fixed selected matrix destinations inside that workspace's
++`build/`. These are subordinate workflow-fixture contents, not additional
++independent reviewer attempts. Each producer must still use a direct child of
++the selected fixture workspace's `build/` with its required naming and disjoint
++input/output paths. Create every environment through uv and record the required
++pre-test diagnostics. Explicit Make cleanup is permitted only against this
++disposable fixture workspace. It removes all contents selected by its fixed
++rules, including unknown files and local history, with normal activity and
++containment safeguards. Generation checks use controlled fixtures only; no real
++Blender render, character matrix or visual acceptance is authorized by this plan.
++This grants no write access to the real checkout's
++generated state or to any developer/other-reviewer run. Independent retries and
++additional selected workspaces still need fresh explicitly authorized sibling roots.
++
++Do not write into or clean developer runs, other
+ reviewers' runs, external workspaces, accepted history or any unlisted root. Additional paths
+ require new explicit authorization. Do not edit code, specs, schemas or YAML sources. Report
+ findings; the dev fixes, the architect changes specs.

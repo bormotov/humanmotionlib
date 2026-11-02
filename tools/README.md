@@ -1,5 +1,52 @@
 # Skeleton tooling
 
+## Repository build workflows
+
+After cloning, install GNU Make 3.81+ and a POSIX shell, then run `make` for concise help.
+`make dev` prepares the project tools and current library, validates canonical
+sources, and prints next actions. `make package` independently checks its exact
+wheel and source archive without Blender. `make matrix-build
+CHARACTER=male HEIGHT=1.70` prepares current sources and renders one selected
+preview; `make matrix-check CHARACTER=male HEIGHT=1.70` checks existing output
+without rebuilding it. Help and matrix-list work without Python, uv or Blender.
+
+The workflow reads the tools location from `[tool.humanmotionlib.workflow]` in
+`pyproject.toml`. Its environment, uv cache and uv-managed Python live below
+that project-owned path. First use requires uv and may download the locked
+CPython/dependencies. Rendering additionally requires the pinned Blender
+version described below. Host workflows are supported on macOS arm64 and
+Ubuntu 24.04 x64; native Windows is unsupported and WSL is unverified.
+Rendering currently requires macOS arm64. The optional `WORKSPACE` Make variable selects a
+different absolute checkout path.
+
+Examples later in this file that invoke the installed CLI use the default
+configured executable `build/project-tools_r1_contributor_current_environment/environment/bin/hml`.
+If `tools-root` is changed in `pyproject.toml`, use the corresponding path under
+that configured root. They do not rely on shell variables exported only inside
+the Make process.
+
+`make mostlyclean`, `make clean` and `make distclean` use fixed areas described
+in [the cleanup guide](../docs/build-matrix.md). Every selected object is
+removed, including unknown files, matrix logs and local R6/history. Cleanup
+checks process activity and path containment, unlinks selected links without
+traversing them, and needs `ps`, `lsof`, `find`, `wc`, `awk`, `grep`, `basename`
+and `rm`. It does not invoke Python, uv or Blender.
+
+The lower-level commands below remain useful for dedicated host checks,
+acceptance runs and release work. They are not required for the ordinary
+clone-to-development or clone-to-package paths.
+
+## Contributor matrix runner
+
+Use [the build matrix guide](../docs/build-matrix.md) for the fixed
+character/height table and `matrix-list`, `matrix-build` and `matrix-check`
+commands. The runner wraps the installed public generation API and existing
+presentation assembler. The ordinary Make build route prepares current sources
+before a selected build; direct runner use assumes an already prepared
+compatible environment. Each selected result uses one stable root; every
+repeated build repeats preparation, rendering and presentation, while check
+validates current output without generating it.
+
 ## Versioned GitHub releases
 
 Each newly archived OpenSpec change on `main` triggers the serialized release
@@ -23,7 +70,7 @@ and acceptance commits in release notes. It never publishes to PyPI.
 Inspect a proposed selection without writing a commit or calling GitHub:
 
 ```sh
-uv run --locked --no-sync python tools/release.py plan \
+build/project-tools_r1_contributor_current_environment/environment/bin/python3.14 tools/release.py plan \
   --boundary <published-release-commit> --target main
 ```
 
@@ -37,8 +84,12 @@ workflow does not bypass branch protection or use a permanent token.
 
 HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
-`>=3.14,<3.15`. `uv sync --locked --no-editable` creates the environment with exact
-dependencies from `uv.lock`. Blender supplies its own embedded Python; it is
+`>=3.14,<3.15`. The ordinary Make workflow creates/reuses its configured
+environment with uv and installs locked build dependencies before building a
+fresh wheel. Independent acceptance environments use `uv venv`, locked
+dependencies and the exact wheel under review; do not copy another
+environment's files.
+Blender supplies its own embedded Python; it is
 selected and verified through the pinned Blender executable and is not required
 to match the HML host Python version.
 Blender must be available as `blender` on PATH. The backend contract lives in
@@ -48,7 +99,7 @@ are not used. No tool requires a workstation-specific executable path or GUI sta
 
 Commands that write files or invoke Blender require an explicit absolute
 workspace before the subcommand, for example
-`uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton ...`.
+`build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton ...`.
 Relative path operands are resolved from that workspace, not the process cwd.
 Read-only `help`, `version`, `validate`, and `check-environment` need no
 workspace. All managed output, receipts, locks and backend scratch stay under
@@ -62,16 +113,25 @@ The example below is a single developer host-check attempt:
 
 ```sh
 mkdir build/upgrade-host-python-314_r1_dev_try-1_host
-export UV_PROJECT_ENVIRONMENT=build/upgrade-host-python-314_r1_dev_try-1_host/environment
-export UV_CACHE_DIR=build/upgrade-host-python-314_r1_dev_try-1_host/cache
+HOST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
+HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
+export UV_CACHE_DIR="$PWD/$HOST_RUN/cache"
 uv lock --check
-uv sync --locked --no-editable
-uv run --locked --no-sync hml check-environment
-uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
-uv run --locked --no-sync hml validate --profile adult-reference-v1
-HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/upgrade-host-python-314_r1_dev_try-1_host" \
+uv venv --python 3.14 "$HOST_RUN/environment"
+uv export --locked --no-dev --no-emit-project --no-hashes \
+  --output-file "$HOST_RUN/requirements.txt"
+uv pip install --python "$HOST_PYTHON" --requirement "$HOST_RUN/requirements.txt"
+uv pip install --python "$HOST_PYTHON" --no-deps .
+"$HOST_PYTHON" -c 'import sys; print("executable:", sys.executable); print("prefix:", sys.prefix); assert sys.prefix == sys.exec_prefix'
+"$HOST_PYTHON" -c 'import importlib.metadata as m, importlib.util as u, pathlib, site; names=("humanmotionlib", "yaml", "PIL", "jsonschema", "referencing"); print("distribution:", m.version("humanmotionlib")); print("module origins:", {n: u.find_spec(n).origin for n in names}); print("site:", site.getsitepackages()); print("pth files:", {str(p): p.read_text() for d in site.getsitepackages() for p in pathlib.Path(d).glob("*.pth")})'
+"$HOST_PYTHON" -c 'import os; print("uv cache:", os.path.realpath(os.environ["UV_CACHE_DIR"]))'
+"$HOST_RUN/environment/bin/hml" check-environment
+uv pip check --python "$HOST_PYTHON"
+"$HOST_RUN/environment/bin/hml" validate --profile adult-reference-v1
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_RUN" \
 HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
-  uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
+  "$HOST_PYTHON" -m humanmotionlib.check_host --test-root "$PWD/tests" \
+  --json-report "$PWD/$HOST_RUN/host-checks.json"
 ```
 
 The installed `hml check-environment` command checks the interpreter, dependency
@@ -84,7 +144,43 @@ host-suite command applies only the two explicit Blender-module exclusions
 listed above. Real-backend acceptance runs separately with the pinned Blender
 on the Darwin arm64 reference platform. The CI uv version is pinned in
 `.github/workflows/host-python.yml`; local uv should use that same version for
-reproducible lock operations. The workflow pins uv 0.13.5.
+reproducible lock operations. The workflow pins uv 0.13.5 and uses `make dev`
+to prepare and install the current package before running host checks against
+that project-owned environment. The package workflow separately verifies a
+distribution wheel in a fresh independent installation.
+
+When passed `--json-report`, the host command atomically writes
+`matrix-test-outcome/v1`: selected/discovered, passed, failed, error, skipped
+and excluded counts, per-case outcomes and tracebacks, process exit status, and
+the interpreter/package import identity. Discovery/import failures and an empty
+selection are recorded as non-success. Installed acceptance remains a
+separate package/host workflow with its own explicitly allocated run root;
+the contributor matrix does not invoke it. Its structured outcome is
+`installed-acceptance/installed-acceptance.json`, and fixtures and negative
+control outputs live under `installed-generated/<kind>/`. The package CI
+invocation in `.github/workflows/package.yml` shows its isolated installed
+environment setup.
+For an explicitly selected candidate runtime physically located under the
+checkout's `build/`, the host checker accepts its package import only when all
+five declarations are supplied together: `--expected-python`,
+`--expected-prefix`, `--expected-purelib`, `--expected-package-origin`, and
+`--candidate-manifest`. It compares each declaration with the live interpreter
+and verifies the successful candidate manifest, selected role, wheel bytes and
+installed `direct_url.json` binding, package version, and runtime-manifest
+hash. This exception applies only to that exact candidate environment; imports
+from checkout source or another build environment still fail. External
+installed-environment checks omit these declarations and retain the
+outside-checkout import requirement.
+Before process-supervision checks, confirm the printed cache path is inside the
+run root. Run `ps -axo pid,ppid,pgid,state,command >/dev/null` with the same
+privileges as the check to confirm process-table visibility; success alone does
+not prove an owned process group is empty. Run the test's process-visibility
+preflight as that same user. If the OS denies inspection, record the limitation
+and obtain the required access before proceeding; do not bypass ownership or
+liveness guards. The module-origin probe should resolve the package and each
+locked dependency from this environment's `site-packages`. Review the contents
+of every listed `.pth` file and investigate unexpected external import paths
+before running acceptance checks.
 
 The consumer-motion source and public API fault matrix is run from the locked
 candidate environment. Allocate the run before executing; these test modules
@@ -92,12 +188,23 @@ write process/fault cases only beneath this owned root:
 
 ```sh
 mkdir build/support-consumer-authored-motions_r1_dev_try-1_host-check
-export UV_PROJECT_ENVIRONMENT=build/support-consumer-authored-motions_r1_dev_try-1_host-check/environment
-export UV_CACHE_DIR=build/support-consumer-authored-motions_r1_dev_try-1_host-check/cache
-uv sync --locked --no-editable
+HOST_RUN=build/support-consumer-authored-motions_r1_dev_try-1_host-check
+HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
+export UV_CACHE_DIR="$PWD/$HOST_RUN/cache"
+uv venv --python 3.14 "$HOST_RUN/environment"
+uv export --locked --no-dev --no-emit-project --no-hashes \
+  --output-file "$HOST_RUN/requirements.txt"
+uv pip install --python "$HOST_PYTHON" --requirement "$HOST_RUN/requirements.txt"
+uv pip install --python "$HOST_PYTHON" --no-deps .
+"$HOST_PYTHON" -c 'import sys; print("executable:", sys.executable); print("prefix:", sys.prefix); assert sys.prefix == sys.exec_prefix'
+"$HOST_PYTHON" -c 'import importlib.metadata as m, importlib.util as u, pathlib, site; names=("humanmotionlib", "yaml", "PIL", "jsonschema", "referencing"); print("distribution:", m.version("humanmotionlib")); print("module origins:", {n: u.find_spec(n).origin for n in names}); print("site:", site.getsitepackages()); print("pth files:", {str(p): p.read_text() for d in site.getsitepackages() for p in pathlib.Path(d).glob("*.pth")})'
+"$HOST_PYTHON" -c 'import os; print("uv cache:", os.path.realpath(os.environ["UV_CACHE_DIR"]))'
+uv pip check --python "$HOST_PYTHON"
+"$HOST_RUN/environment/bin/hml" check-environment
+ps -axo pid,ppid,pgid,state,command >/dev/null
 HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/support-consumer-authored-motions_r1_dev_try-1_host-check" \
 HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
-  uv run --locked --no-sync python -m unittest \
+  "$HOST_PYTHON" -m unittest \
     tests.test_consumer_motion tests.test_api tests.test_prepared_contract \
     tests.test_run_blender tests.test_blender_bootstrap
 ```
@@ -224,13 +331,118 @@ for view in ("front", "side"):
 
 Add fixed pixel crops of the already rendered front/side images for shoulder, waist/hip, knee and sole details; record each crop rectangle and source image in the index. Cropping does not move the camera or add a Blender pass. The index records all created render samples, selected presentation samples, source/package identity, fixed scene/backend, chosen stature/BPM, crop rectangles, limitations, and deferred fixtures, statures, BPMs, diagnostic matrices, repeatability and independent-review scopes as pending. Retain provenance from `result.character_provenance` and `result.prepared.provenance`. The historical thoracic/squat examples below include `review-pack` and its repeated clean passes; they are not early-gate routes. Do not execute those pack commands before the human early decision for a new visual direction.
 
+## Character selection
+
+`skeleton`, `male` and `female` are equal render character IDs. The skeleton is
+the default and has no surface template. Male and female use the same prepared
+movement and rig; only the authored surface appearance differs. Prepare the
+movement once and select one or all IDs when rendering:
+
 ```sh
-uv run --locked --no-sync hml validate --profile adult-reference-v1
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
-uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
-HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/upgrade-host-python-314_r1_dev_try-1_host" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$PWD/tests"
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender \
+  --input build/add-shared-body-characters_r1_dev_try-1_prepare/input.json \
+  --output build/add-shared-body-characters_r1_dev_try-1_render \
+  --characters skeleton male female
+```
+
+The API equivalent is:
+
+```python
+result = render(prepared, workspace=workspace, output=render_root,
+                characters=("skeleton", "male", "female"))
+```
+
+A single-character selection uses a one-item tuple. The selection is validated before backend probing and
+normalized to registry order. Result images are joined by
+`(character_id, sample_id, view)` while pose and timeline IDs remain shared.
+Run roots are independent flat children of `build/`; prepare and render roots
+must not overlap. Canonical character YAML, versioned schemas, source guide and
+usage documentation are copied into the explicit wheel/sdist resource closure
+and verified by the runtime manifest. See [`docs/usage.md`](../docs/usage.md)
+and [`docs/character-models.md`](../docs/character-models.md) for user-facing
+examples and source/binding details.
+
+The public result adds `RenderedImage.character_id`, per-character artifact
+records, `character_provenance` and `render_identity`. Surface renders persist
+the sealed `character-render-request/v1` and ordered
+`character-render-manifest/v1`; receipts bind the union output inventory.
+Canonical resource changes require regeneration under the package identity
+rules. Character surfaces add no runtime dependency or downloaded mesh asset.
+
+## Character review pack
+
+The normal `review-pack` command accepts `--characters ID [ID ...]` and defaults
+to `skeleton`, preserving the existing skeleton-only presentation. IDs are
+validated and normalized to registry order. For the complete standalone
+character comparison pack, supply all three IDs and a primary H=1.70m
+evaluated input. Add supplementary candidate runs with repeatable
+`--stature-input H=RUN` (H=1.50 and H=1.90), and the immutable pre-change
+skeleton render with `--skeleton-baseline RUN`:
+
+```sh
+hml --workspace "$PWD" review-pack \
+  --input build/add-shared-body-characters_r1_app_try-1_candidate \
+  --characters skeleton male female \
+  --stature-input 1.50=build/add-shared-body-characters_r1_app_try-2_short \
+  --stature-input 1.90=build/add-shared-body-characters_r1_app_try-3_tall \
+  --skeleton-baseline build/add-shared-body-characters_r0_baseline_try-1_render \
+  --output build/add-shared-body-characters_r1_app_try-1_pack
+```
+
+All supplied evidence is checked before the output directory or managed render
+passes are created. Stature labels must match their persisted profile within
+1e-9m; the candidate profile, mobility and fixed scene sources must match, and
+neutral plus squat beat 2 must be present. The baseline is validated against
+its own historical seal and output receipt and stays read-only. Missing
+baseline/heights produce an explicitly incomplete report; no frame is
+rescaled, fabricated, or substituted. Review renders use the internal
+designated-owner adapter to the same sealed API preflight, supervised backend,
+and artifact validation as `api.render`. The public API still accepts only
+fresh independent flat output roots.
+
+The output owns `clean-a/`, `clean-b/`, default/explicit skeleton and singleton
+comparison passes, and optional `stature-150/` / `stature-190/` passes. The
+assembled report includes front/side sheets, GIFs, count-direction onion skins,
+neutral/rest front/side/rear silhouette rows, shared joint-center overlays,
+fixed sole/contact crops, stature strips, copied baseline frames, exact
+decoded-pixel comparisons, and JSON coverage/inventory/source reports. HTML-only
+regeneration remains presentation-only and rejects these normal-mode inputs.
+
+### Numeric-only character verification
+
+An intentional no-images character build is checked explicitly, never inferred
+from a missing manifest:
+
+```sh
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton \
+  --input build/add-shared-body-characters_r1_dev_try-1_h170-build \
+  --output build/add-shared-body-characters_r1_dev_try-1_numeric-check/report.json \
+  --character-output build/add-shared-body-characters_r1_dev_try-1_h170-build \
+  --numeric-only
+```
+
+This mode requires a successful supervised `build` receipt and exact hashes for
+the input, metadata, saved scene, character request, evaluated skeleton and
+geometry, and each selected surface reference/evaluated pair. It runs the same
+native, sealed-midpoint and dense-reference checks; it does not create a
+manifest or render images. Reports state `rendering: not-run` and
+`visual: not-assessed`. The character acceptance verdict remains incomplete.
+The default verifier continues to require the complete render manifest and
+image inventory. Add three disjoint run roots with `--stature-builds RUN RUN
+RUN` for the H=1.50/1.70/1.90 numeric matrix; each run must use the same
+candidate package, backend contract, canonical sources, diagnostics and
+sampling coverage, and all evaluated cross-stature checks must pass. A single
+stature result stays scoped and lists the other required heights as missing.
+
+```sh
+build/project-tools_r1_contributor_current_environment/environment/bin/hml validate --profile adult-reference-v1
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --output build/anatomical-human-skeleton_r1_dev_try-1_build/input.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
+HOST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
+HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_RUN" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" "$HOST_PYTHON" -m humanmotionlib.check_host --test-root "$PWD/tests"
 ```
 
 The runtime, wrapper, backend, and fault suites write all receipts and case
@@ -277,14 +489,12 @@ locks; the pinned backend contract names Darwin arm64 as its reference
 platform. The persistent lock file is `build/.backend-execution.lock`;
 ownership state is recorded in `build/.backend-execution-state.json`. A
 confirmed-dead owner can be recovered.
-On Darwin, bounded `ps` snapshots of PID, process-group ID and process state
-preserve the unreaped leader as an identity anchor where the reference Python
-does not expose `waitid`. Zombie-only groups have no live work; missing,
-malformed or unreadable observations remain ambiguous, and `EPERM` alone never
-proves that an owned group is absent.
-Unreadable or ambiguous state, or an unconfirmed cleanup, blocks later backend
-work for operator resolution rather than risking overlap. The lock file remains
-in place because unlinking an advisory lock can split ownership.
+Cancellation signals only the process group created for the current invocation
+and checks that group's state with `killpg(pgid, 0)`. It does not inspect the
+global process table. A zombie or otherwise ambiguous group remains
+`cleanup_pending`; the operation is non-success and its receipt records the
+unresolved cleanup. The backend supervisor and its dedicated tests own
+workspace lock retirement and cross-caller overlap behavior.
 
 Every supervised command that launches Blender needs a fresh, caller-owned flat
 run root under `build/`; its prepared `input.json` may be created in that same
@@ -341,32 +551,39 @@ build root. Distinct input/output roots must not coincide or contain one another
 including after symlink resolution. Existing protected historical paths may be
 read as explicitly labeled legacy inputs; do not relocate them as part of a new run.
 
-After checks finish, including failure or interruption:
+Explicit Make cleanup uses these fixed disposable areas:
 
-1. Inventory only the run roots owned by this work and identify the accepted result,
-   its linked-media/timing/provenance/numeric dependency closure, active work and
-   explicitly protected history.
-2. Check every local reference and required dependency before deletion. Remove
-   obsolete whole run roots, including logs/JSON without a concrete continuing need;
-   do not follow symlinks outside `build/`, delete active runs, or remove another
-   agent's output. Reviewers clean only their own roots and hand exact developer-owned
-   cleanup paths to the developer.
-3. Recheck retained links/dependencies and record removed paths and bytes, retained
-   paths with specific reasons, dependency-check results and pending cleanup in the
-   existing review or hand-off record. A failed or interrupted cleanup is pending;
-   do not claim completion until it is resolved. Keep JSON/log diagnostics only for
-   a named dependency, explicit history, active/resumable work, or unresolved finding,
-   and state when their retention should be reconsidered.
+| Target | Selected area |
+|---|---|
+| `make mostlyclean` | Every direct `build/*_stage` and `build/*_check` entry, with all nested/hidden contents |
+| `make clean` | Every direct child of `build/` except the configured reusable tools root |
+| `make distclean` | The entire `build/` directory, including reusable tools |
+
+Unknown files, local R6/history and matrix logs inside a selected area are
+removed with everything else there. No owner records, path inventories,
+history exceptions or legacy-reference scans are used. Canonical files and
+releases under `dist/` are outside these areas; keep durable reports/artifacts
+in the existing review/hand-off or external artifact storage. Role-scoped
+automatic cleanup remains within its assigned run area and does not silently
+become a whole-workspace Make cleanup.
+
+Before removal, cleanup verifies that selected paths remain inside the real
+workspace `build/` boundary and checks active work using process visibility and
+open/cwd path inspection. It never terminates work or traverses a selected
+symlink; it unlinks the link itself. Missing process visibility, an active
+process or an escaping boundary stops cleanup before deletion. Failures report
+completed removals and pending paths. Test broad cleanup only on disposable
+trees, never against real build history.
 
 Compact hand-off record example:
 
 ```markdown
 ### Cleanup
-- Removed: `build/anatomical-human-skeleton_r1_dev_try-0_pack/` — 1234 bytes.
-- Retained: `build/anatomical-human-skeleton_r1_dev_try-1_pack/` — accepted pack and referenced media/provenance.
-- Retained: `build/anatomical-human-skeleton_r1_dev_try-1_checks/fault.json` — unresolved finding `F-1`; reconsider after fix.
-- Dependency check: accepted links resolve; protected history and active runs unchanged.
-- Pending cleanup: none.
+- Selected: `make mostlyclean` — direct `_stage` and `_check` entries in a disposable checkout.
+- Removed: `<path>` — `<bytes>` bytes.
+- Pending: `<path>` — `<reason>`, if any.
+- Activity/path check: pass or pending with the exact failed check.
+- Pending cleanup: none, or list the remaining operation.
 ```
 
 `humanmotionlib.runtime.inspect_blender()` checks the executable version/build before
@@ -386,7 +603,7 @@ be a fresh flat run root. The example input is a protected historical R3 pack
 and is explicitly a legacy input; it is not a new-run output path:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" review-pack \
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" review-pack \
   --html-only-from build/review/anatomical-human-skeleton/squat-r3-final/independent/retention-fix \
   --output build/anatomical-human-skeleton_r1_dev_html-derivative_pack
 ```
@@ -535,10 +752,10 @@ same entry points. The verifier report and preview pack use separate sibling
 runs:
 
 ```text
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
-uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures neutral rest --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_thorax-preview_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_checks/metrics.json --thorax-preview
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_thorax-preview_build --output build/anatomical-human-skeleton_r1_dev_thorax-preview_pack
 ```
 
 The preview verifies evaluated native geometry but does not assert complete
@@ -596,7 +813,7 @@ they do not establish geometric or visual correctness.
 Before backend construction, the explicit transform-only command is useful:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_transform-check_checks/prepared-metrics.json --transforms-only --action-coverage
 ```
 
 The verifier reconstructs angles/couplings from supplied matrices and compares
@@ -777,7 +994,7 @@ the complete change-level diagnostic coverage gate.
 For the full delivered and dense geometry report use:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-dense_checks/metrics.json --action-coverage --dense-floor
 ```
 
 The native anatomical hierarchy also uses computed world-frame adapter targets
@@ -790,7 +1007,7 @@ mutate these actual scene targets and still must fail independent measurements.
 To include actual cross-stature vertex/topology and native rest-frame comparison:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1-stature_checks/metrics.json --action-coverage --dense-floor --stature-builds build/anatomical-human-skeleton_r1_dev_stature-1-5_build build/anatomical-human-skeleton_r1_dev_try-1_build build/anatomical-human-skeleton_r1_dev_stature-1-9_build
 ```
 
 Generate the additional stature builds with the same preparation/build commands,
@@ -801,12 +1018,12 @@ belongs in its own flat checks run. All delivered samples at each stature must
 also pass their own backend verifier run.
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.5 --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-5_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --stature 1.9 --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build/input.json --output build/anatomical-human-skeleton_r1_dev_stature-1-9_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-5_build --output build/anatomical-human-skeleton_r1_dev_stature-1-5_checks/metrics.json --action-coverage --dense-floor
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_stature-1-9_build --output build/anatomical-human-skeleton_r1_dev_stature-1-9_checks/metrics.json --action-coverage --dense-floor
 ```
 
 Approved action-direction refinement (2026-10-21): hip and wrist conventions are separate closed fields. Right hip is `Rx(f)*Ry(b)*Rz(-r)`; forearm rotation is positive about `normalize(proximal_radius-distal_ulna)`; knee dependent z uses distal -Z, hence `Rx(-k)*Rz(-z(k))`. Left sides use axial reflection. Rebuild all prepared inputs and outputs; old source hashes cannot establish acceptance. Absolute bilateral witness checks in the action-coverage report measure lateral toes, thumb-up midrotation with elbow 90, palm-down pronation and medial tibial turn independently of action-angle decoders.
@@ -853,10 +1070,10 @@ older change-specific instruction as authorization to start this workload.
 The original feature-specific command sequence was:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
-uv run --locked --no-sync hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton --profile adult-reference-v1 --fixtures squat --output build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_squat-preview_build/input.json --output build/anatomical-human-skeleton_r1_dev_squat-preview_build
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_checks/metrics.json --squat-preview
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_squat-preview_build --output build/anatomical-human-skeleton_r1_dev_squat-preview_pack
 ```
 
 The preview is development evidence only. It cannot satisfy full fixture/action,
@@ -899,12 +1116,12 @@ workspace. For repository work, use `"$PWD"`; for an installed caller, use its
 own absolute workspace path:
 
 ```sh
-uv run --locked --no-sync hml --workspace "$PWD" prepare-skeleton \
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" prepare-skeleton \
   --profile adult-reference-v1 --output build/portable-installed-runtime_e3dcbf_dev_try-1_fixture/input.json
-uv run --locked --no-sync hml --workspace "$PWD" run-blender \
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender \
   --input build/portable-installed-runtime_e3dcbf_dev_try-1_fixture/input.json \
   --output build/portable-installed-runtime_e3dcbf_dev_try-1_fixture
-uv run --locked --no-sync hml --workspace "$PWD" verify-skeleton \
+build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton \
   --input build/portable-installed-runtime_e3dcbf_dev_try-1_fixture \
   --output build/portable-installed-runtime_e3dcbf_dev_try-1_metrics/checks.json --transforms-only
 ```

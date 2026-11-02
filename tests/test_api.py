@@ -10,18 +10,41 @@ import sys
 import tempfile
 import unittest
 import shutil
+from types import SimpleNamespace
 from unittest.mock import patch
 from PIL import Image
 
 from humanmotionlib import api
 from humanmotionlib.package_resources import (manifest_sha256, read_bytes, read_text,
                                               verify_runtime_integrity)
+from humanmotionlib.prepared import read_prepared
 from humanmotionlib.prepare_skeleton import prepare as internal_prepare
 from humanmotionlib.render_contract import expected_views, validate_manifest
 from humanmotionlib.runtime import InvocationError, file_sha256
+from humanmotionlib.character_verification import _native_midpoint_beats
 
 
 class PublicApiTests(unittest.TestCase):
+    def test_private_owned_pass_uses_same_render_operation_without_public_escape(self):
+        sentinel = object()
+        with patch.object(api, "_render_operation", return_value=sentinel) as operation:
+            result = api._render_owned_pass(
+                "prepared.json", workspace="/tmp/workspace",
+                output="/tmp/workspace/build/pack_r1_dev_try-1_review/clean-a",
+                owner_run="/tmp/workspace/build/pack_r1_dev_try-1_review",
+                characters=("male",), render_only=True,
+            )
+        self.assertIs(result, sentinel)
+        operation.assert_called_once_with(
+            "prepared.json", workspace="/tmp/workspace",
+            output="/tmp/workspace/build/pack_r1_dev_try-1_review/clean-a",
+            images=True, characters=("male",), render_dir=None, render_only=True,
+            timeout_seconds=api.DEFAULT_BUILD_TIMEOUT,
+            slot_timeout_seconds=api.DEFAULT_SLOT_TIMEOUT,
+            _owner_run="/tmp/workspace/build/pack_r1_dev_try-1_review",
+        )
+        self.assertNotIn("owner_run", inspect.signature(api.render).parameters)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temp.name).resolve()
@@ -74,6 +97,131 @@ class PublicApiTests(unittest.TestCase):
         projection = result.to_dict()
         projection["provenance"]["sources"].clear()
         self.assertTrue(result.provenance.sources)
+
+    def test_matrix_prepare_writes_stable_declared_destination_and_repeats(self):
+        element = self.workspace / "build" / "automate-build-and-verification-matrix_r1_dev_current_preview"
+        destination = element / "prepared" / "input.json"
+        binding = {"element_root": element,
+                   "allowed_destinations": ["prepared/input.json"]}
+        element.mkdir()
+        (element / "logs").mkdir()
+        log = element / "logs" / "build.log"
+        log.write_text("preserve")
+        results = []
+        fake_prepared = {"content_sha256": "0" * 64}
+        def persist(path, value):
+            Path(path).write_text(json.dumps(value))
+        def project(_value, workspace, path):
+            return SimpleNamespace(prepared_path=path.resolve(), prepared_sha256="0" * 64)
+        with (patch.object(api.prepare_skeleton, "prepare", return_value=fake_prepared),
+              patch.object(api, "write_json", side_effect=persist),
+              patch.object(api, "read_prepared", return_value=fake_prepared),
+              patch.object(api, "_project", side_effect=project)):
+            for _ in range(2):
+                results.append(api.prepare(
+                    workspace=self.workspace, output=destination, matrix_destination=binding,
+                    fixtures=("neutral",), bpms=(120,)))
+        self.assertEqual([result.prepared_path for result in results], [destination.resolve()] * 2)
+        self.assertEqual(results[0].prepared_sha256, results[1].prepared_sha256)
+        self.assertEqual(log.read_text(), "preserve")
+        self.assertEqual(json.loads(destination.read_text())["content_sha256"], "0" * 64)
+
+    def test_matrix_prepare_rejects_bad_bindings_before_allocation(self):
+        element = self.workspace / "build" / "automate-build-and-verification-matrix_r1_dev_current_preview"
+        destination = element / "prepared" / "input.json"
+        valid = {"element_root": element,
+                 "allowed_destinations": ["prepared/input.json"]}
+        bad = (
+            {},
+            {"element_root": element, "allowed_destinations": ["elsewhere"]},
+            {"element_root": self.workspace / "build" / "foreign_r1_dev_current_preview",
+             "allowed_destinations": ["prepared/input.json"]},
+            {"element_root": element / ".." / element.name,
+             "allowed_destinations": ["prepared/input.json"]},
+        )
+        for binding in bad:
+            with self.subTest(binding=binding):
+                with self.assertRaises(api.GenerationError):
+                    api.prepare(workspace=self.workspace, output=destination,
+                                matrix_destination=binding, fixtures=("neutral",))
+                self.assertFalse(element.exists())
+        with self.assertRaises(api.GenerationError):
+            api.prepare(workspace=self.workspace, output=element / "unlisted.json",
+                        matrix_destination=valid, fixtures=("neutral",))
+        self.assertFalse(element.exists())
+        with self.assertRaises(api.GenerationError):
+            api.prepare(workspace=self.workspace, output=self.workspace / "outside.json",
+                        matrix_destination=valid, fixtures=("neutral",))
+        self.assertFalse(element.exists())
+        with self.assertRaises(api.GenerationError):
+            api.prepare(workspace=self.workspace,
+                        output=element / "prepared" / ".." / "prepared" / "input.json",
+                        matrix_destination=valid, fixtures=("neutral",))
+        self.assertFalse(element.exists())
+        element.mkdir()
+        outside = self.workspace / "outside"
+        outside.mkdir()
+        (element / "prepared").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(api.GenerationError):
+            api.prepare(workspace=self.workspace, output=destination,
+                        matrix_destination=valid, fixtures=("neutral",))
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_review_pass_path_requires_explicit_finite_matrix_allowlist(self):
+        element = self.workspace / "build" / "automate-build-and-verification-matrix_r1_dev_current_compare"
+        output = element / "presentation" / "clean-a"
+        binding = {"element_root": element,
+                   "allowed_destinations": ["presentation/clean-a"]}
+        validated = api._matrix_destination(
+            binding, operation="render", output=output, workspace=self.workspace,
+            allowed_destinations=api.MATRIX_DESTINATIONS["render"])
+        self.assertEqual(validated, (element, output))
+        with self.assertRaises(api._RequestError):
+            api._matrix_destination(
+                {"element_root": element, "allowed_destinations": ["presentation/arbitrary"]},
+                operation="render", output=element / "presentation" / "arbitrary",
+                workspace=self.workspace, allowed_destinations=api.MATRIX_DESTINATIONS["render"])
+        self.assertFalse(element.exists())
+
+    def test_matrix_render_preflight_rejects_undeclared_and_overlapping_destinations(self):
+        element = self.workspace / "build" / "automate-build-and-verification-matrix_r1_dev_current_render"
+        prepared = self.workspace / "build" / "source_r1_dev_try-1_prepared" / "input.json"
+        binding = {"element_root": element, "allowed_destinations": ["render"]}
+        fake_prepared = SimpleNamespace(prepared_path=prepared)
+        with (patch.object(api, "_load_render_prepared", return_value=({}, fake_prepared)),
+              patch.object(api, "_build_render_request", side_effect=AssertionError("late preflight")),
+              patch.object(api.run_blender, "run", side_effect=AssertionError("backend launched"))):
+            with self.assertRaises(api.GenerationError):
+                api.render(prepared, workspace=self.workspace, output=element / "other",
+                           matrix_destination=binding)
+            self.assertFalse(element.exists())
+            overlapping_input = element / "render" / "input.json"
+            with patch.object(api, "_load_render_prepared",
+                              return_value=({}, SimpleNamespace(prepared_path=overlapping_input))):
+                with self.assertRaises(api.GenerationError):
+                    api.render(overlapping_input, workspace=self.workspace,
+                               output=element / "render", matrix_destination=binding)
+            self.assertFalse(element.exists())
+
+    def test_matrix_mode_is_opt_in_and_standalone_prepare_stays_fresh_flat(self):
+        flat = self.workspace / "build" / "public-api-test_r1_test_try-1_standalone" / "input.json"
+        fake_prepared = {"content_sha256": "1" * 64}
+        def persist(path, value):
+            Path(path).write_text(json.dumps(value))
+        with (patch.object(api.prepare_skeleton, "prepare", return_value=fake_prepared),
+              patch.object(api, "write_json", side_effect=persist),
+              patch.object(api, "read_prepared", return_value=fake_prepared),
+              patch.object(api, "_project", side_effect=lambda _value, _workspace, path:
+                           SimpleNamespace(prepared_path=path.resolve(), prepared_sha256="1" * 64))):
+            result = api.prepare(workspace=self.workspace, output=flat, fixtures=("neutral",))
+            self.assertEqual(result.prepared_path, flat.resolve())
+            with self.assertRaises(api.GenerationError):
+                api.prepare(workspace=self.workspace, output=flat, fixtures=("neutral",))
+        nested = self.workspace / "build" / "automate-build-and-verification-matrix_r1_dev_current_default"
+        with self.assertRaises(api.GenerationError):
+            api.prepare(workspace=self.workspace, output=nested / "prepared" / "input.json",
+                        fixtures=("neutral",))
+        self.assertFalse(nested.exists())
 
     def test_invalid_selections_do_not_allocate_workspace_state(self):
         workspace = self.workspace / "not-created"
@@ -146,6 +294,53 @@ assert 'bpy' not in sys.modules
             self.assertEqual(public_pose.fk_deltas, sample["fk_deltas"])
             self.assertEqual(public_pose.world_root, sample["world_root"])
 
+    def test_prepare_remains_surface_template_independent(self):
+        from humanmotionlib import characters
+        with patch.object(characters, "_load_yaml", side_effect=AssertionError(
+                "prepare must not load character surface sources")) as load:
+            result = api.prepare(workspace=self.workspace, output=self.output("surface-lazy-prepare"),
+                                 fixtures=("neutral",), bpms=(60,))
+        self.assertTrue(result.prepared_path.is_file())
+        load.assert_not_called()
+
+    def test_surface_midpoints_are_host_solved_from_the_prepared_key_intervals(self):
+        from tests.test_consumer_motion import complete_source
+        prepared = api.prepare(workspace=self.workspace, output=self.output("surface-midpoints"),
+                               motion=complete_source(), bpms=(60,))
+        actual = read_prepared(prepared.prepared_path)
+        samples = api._native_surface_midpoint_samples(actual)
+        expected = _native_midpoint_beats(actual)
+        observed = {(sample["fixture"], sample["beat"]) for sample in samples}
+        required = {(fixture, beat) for fixture, beats in expected.items() for beat in beats}
+        # The authored test motion has key beats 0, 1 and 2. At 60 BPM the
+        # delivery grid advances by .2 beats, so the required .5 and 1.5
+        # key-interval midpoints are both genuinely undelivered.
+        self.assertEqual(observed, {("consumer-arm-sweep", .5), ("consumer-arm-sweep", 1.5)})
+        self.assertEqual(observed, required)
+        self.assertGreater(len(samples), 0)
+        self.assertEqual(len(samples), len(required))
+        self.assertTrue(all({"frames", "guides", "world_root", "contacts"} <= set(sample)
+                            for sample in samples))
+        self.assertTrue(all(sample["id"].startswith(sample["fixture"] + "/native-midpoint/")
+                            for sample in samples))
+        from humanmotionlib.character_midpoints import validate_native_midpoint_samples
+        validate_native_midpoint_samples(actual, samples)
+        with self.assertRaisesRegex(ValueError, "inventory count"):
+            validate_native_midpoint_samples(actual, samples[:-1])
+        duplicated = json.loads(json.dumps(samples))
+        duplicated[1] = duplicated[0]
+        with self.assertRaisesRegex(ValueError, "identity/order"):
+            validate_native_midpoint_samples(actual, duplicated)
+        bad_carrier = json.loads(json.dumps(samples))
+        bad_carrier[0]["frames"].pop(next(iter(bad_carrier[0]["frames"])))
+        with self.assertRaisesRegex(ValueError, "carrier inventory"):
+            validate_native_midpoint_samples(actual, bad_carrier)
+        nonfinite = json.loads(json.dumps(samples))
+        carrier = next(iter(nonfinite[0]["frames"]))
+        nonfinite[0]["frames"][carrier]["position_m"][0] = float("nan")
+        with self.assertRaisesRegex(ValueError, "frame shape/value"):
+            validate_native_midpoint_samples(actual, nonfinite)
+
     def test_tampered_persisted_preparation_is_catchable(self):
         prepared = api.prepare(workspace=self.workspace, output=self.output("tamper"),
                                fixtures=("neutral",), bpms=(60,))
@@ -172,6 +367,50 @@ assert 'bpy' not in sys.modules
         self.assertEqual(caught.exception.code, "invalid-request")
         self.assertFalse((self.workspace / output).exists())
 
+    def test_invalid_character_selections_do_not_allocate_output(self):
+        prepared = api.prepare(workspace=self.workspace, output=self.output("invalid-character-selection"),
+                               fixtures=("neutral",), bpms=(60,))
+        cases = ("skeleton", (), ("male", "male"), ("unknown",))
+        for index, characters in enumerate(cases):
+            output = f"build/public-api-test_r1_test_try-1_invalid-character-{index}"
+            with self.subTest(characters=characters), self.assertRaises(api.GenerationError) as caught:
+                api.render(prepared, workspace=self.workspace, output=output, characters=characters)
+            self.assertEqual(caught.exception.code, "invalid-request")
+            self.assertFalse((self.workspace / output).exists())
+
+    def test_invalid_selected_surface_sources_fail_before_output_or_backend(self):
+        from copy import deepcopy
+        from humanmotionlib import characters
+
+        prepared = api.prepare(workspace=self.workspace, output=self.output("invalid-surface-source"),
+                               fixtures=("neutral",), bpms=(60,))
+        original_loader = characters._load_yaml
+        mutations = (
+            ("characters/appearances/male-v1.yaml",
+             lambda document: document["radius_scales"].update(arm=-0.1)),
+            ("characters/appearances/male-v1.yaml",
+             lambda document: document["radius_scales"].update(arm=float("nan"))),
+            ("characters/appearances/male-v1.yaml",
+             lambda document: document.update(unexpected_source_field=True)),
+            ("characters/templates/exercise-mannequin-v1.yaml",
+             lambda document: document.update(expected_rest_contract_sha256="0" * 64)),
+        )
+        for index, (target, mutate) in enumerate(mutations):
+            output = f"build/public-api-test_r1_test_try-1_invalid-surface-source-{index}"
+            def load(logical):
+                document = deepcopy(original_loader(logical))
+                if logical == target:
+                    mutate(document)
+                return document
+            with (self.subTest(target=target, index=index),
+                  patch.object(characters, "_load_yaml", side_effect=load),
+                  patch.object(api.run_blender, "run") as backend,
+                  self.assertRaises(api.GenerationError) as caught):
+                api.render(prepared, workspace=self.workspace, output=output, characters=("male",))
+            self.assertEqual(caught.exception.code, "invalid-request")
+            self.assertFalse((self.workspace / output).exists())
+            backend.assert_not_called()
+
     def test_render_rejects_timeout_above_backend_limit_before_run_creation(self):
         prepared = api.prepare(workspace=self.workspace, output=self.output("timeout-limit"),
                                fixtures=("neutral",), bpms=(60,))
@@ -184,16 +423,20 @@ assert 'bpy' not in sys.modules
     def test_custom_render_dir_uses_shared_complete_receipt_contract(self):
         prepared = api.prepare(workspace=self.workspace, output=self.output("custom-frames"),
                                fixtures=("arm-raise",), bpms=(60,))
+        expected_request = api._expected_render_request(
+            prepared, workspace=self.workspace, characters=("skeleton",), render_only=False)
 
         def mock_render(prepared_path, output, **kwargs):
             output = Path(output)
             frames = Path(kwargs["render_dir"])
-            output.mkdir(parents=True)
+            output.mkdir(parents=True, exist_ok=True)
             frames.mkdir(parents=True)
+            request = json.loads((output / "character-render-request.json").read_text())
+            self.assertEqual(request, expected_request)
             prepared_json = json.loads(Path(prepared_path).read_text())
             (output / "input.json").write_bytes(Path(prepared_path).read_bytes())
             metadata = {"blender_version": "5.2.2 LTS", "blender_build": "d13f752e3b9c",
-                        "platform": "Darwin-arm64"}
+                        "platform": "Darwin-arm64", "render_identity": request["render_identity"]}
             (output / "build-metadata.json").write_text(json.dumps(metadata))
             (output / "skeleton.blend").write_bytes(b"scene")
             (output / "evaluated.json").write_text(json.dumps({"prepared_sha256": prepared_json["content_sha256"]}))
@@ -208,10 +451,12 @@ assert 'bpy' not in sys.modules
                     Image.new("RGBA", (2, 2), (10, 20, 30, 255)).save(path)
                     images[view] = relative.as_posix()
                 samples.append({"id": sample["id"], "images": images})
-            manifest = {"prepared_sha256": prepared_json["content_sha256"], "samples": samples}
+            manifest = {"prepared_sha256": prepared_json["content_sha256"],
+                        "render_identity": request["render_identity"], "samples": samples}
             (output / "render-manifest.json").write_text(json.dumps(manifest))
             required = validate_manifest(manifest, prepared_json, frames, output=output)
             required.extend((Path("evaluated.json"), Path("geometry-reference.json")))
+            required.append(Path("character-render-request.json"))
             evidence = output / "processes" / "mock"
             evidence.mkdir(parents=True)
             stdout = evidence / "stdout.log"
@@ -246,11 +491,12 @@ assert 'bpy' not in sys.modules
                             for image in result.images))
 
     def _mock_build(self, prepared_path, output, **kwargs):
-        output.mkdir(parents=True)
+        output.mkdir(parents=True, exist_ok=True)
+        request = json.loads((output / "character-render-request.json").read_text())
         shutil.copyfile(prepared_path, output / "input.json")
         (output / "build-metadata.json").write_text(json.dumps({
             "blender_version": "5.2.2 LTS", "blender_build": "d13f752e3b9c",
-            "platform": "Darwin-arm64",
+            "platform": "Darwin-arm64", "render_identity": request["render_identity"],
         }))
         (output / "skeleton.blend").write_bytes(b"fixture")
         if not kwargs["render_only"]:
@@ -291,7 +537,7 @@ assert 'bpy' not in sys.modules
                                        fixtures=("neutral",), bpms=(60,))
 
                 def malformed(prepared_path, output, **kwargs):
-                    output.mkdir(parents=True)
+                    output.mkdir(parents=True, exist_ok=True)
                     (output / "render-manifest.json").write_text(manifest_text)
                     process = output / "processes" / "mock"
                     process.mkdir(parents=True)

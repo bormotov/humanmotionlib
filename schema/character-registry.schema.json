@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/character-registry.schema.json",
+  "title": "HML character registry",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "character-registry"},
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "description": {"type": "string", "minLength": 1},
+    "license": {"const": "CC-BY-4.0"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "characters": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "required": ["schema_version", "kind", "id", "description", "license", "provenance", "characters"],
+  "additionalProperties": false,
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["authored", "adapted"]},
+        "license": {"const": "CC-BY-4.0"},
+        "sources": {"type": "array", "items": {"type": "object", "properties": {"material": {"type": "string"}, "locator": {"type": "string"}}, "required": ["material", "locator"], "additionalProperties": false}},
+        "rationale": {"type": "string", "minLength": 1},
+        "changes": {"type": "string", "minLength": 1}
+      },
+      "required": ["kind", "license", "sources", "rationale", "changes"],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "definition": {"type": "string", "pattern": "^definitions/[a-z0-9]+(?:-[a-z0-9]+)*\\.yaml$"}
+      },
+      "required": ["id", "definition"],
+      "additionalProperties": false
+    }
+  }
+}

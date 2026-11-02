@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-definition
+id: female
+description: Authored stylized female exercise mannequin sharing the canonical adult reference skeleton.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Original stylized surface preset for the shared exercise mannequin template.
+  changes: Uses the shared adult-reference-v1 rig and movement sources; silhouette values are authored and are not measured anatomy.
+renderer_kind: skinned-surface
+profile_id: adult-reference-v1
+template_id: exercise-mannequin-v1
+template_revision: 4
+binding_revision: 4
+appearance_id: female-v1

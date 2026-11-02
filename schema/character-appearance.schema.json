@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/character-appearance.schema.json",
+  "title": "HML authored appearance preset",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "character-appearance"},
+    "id": {"enum": ["male-v1", "female-v1"]},
+    "description": {"type": "string", "minLength": 1},
+    "license": {"const": "CC-BY-4.0"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "radius_scales": {
+      "type": "object",
+      "properties": {
+        "arm": {"$ref": "#/$defs/positive"},
+        "leg_thigh": {"$ref": "#/$defs/positive"},
+        "leg_knee": {"$ref": "#/$defs/positive"},
+        "leg_shank": {"$ref": "#/$defs/positive"}
+      },
+      "required": ["arm", "leg_thigh", "leg_knee", "leg_shank"],
+      "additionalProperties": false
+    },
+    "torso_radii_delta_h": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/signedPair"}},
+    "head_radii_h": {"$ref": "#/$defs/vector3"},
+    "materials_rgb": {
+      "type": "object",
+      "properties": {
+        "suit": {"$ref": "#/$defs/rgb"},
+        "head_mitten": {"$ref": "#/$defs/rgb"},
+        "foot": {"$ref": "#/$defs/rgb"}
+      },
+      "required": ["suit", "head_mitten", "foot"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["schema_version", "kind", "id", "description", "license", "provenance", "radius_scales", "torso_radii_delta_h", "head_radii_h", "materials_rgb"],
+  "additionalProperties": false,
+  "allOf": [{"if": {"properties": {"id": {"const": "male-v1"}}, "required": ["id"]}, "then": {"properties": {"torso_radii_delta_h": {"items": {"const": [0.0, 0.0]}}}}}],
+  "$defs": {
+    "positive": {"type": "number", "exclusiveMinimum": 0, "maximum": 10},
+    "pair": {"type": "array", "prefixItems": [{"$ref": "#/$defs/positive"}, {"$ref": "#/$defs/positive"}], "minItems": 2, "maxItems": 2},
+    "signedPair": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "minItems": 2, "maxItems": 2},
+    "vector3": {"type": "array", "prefixItems": [{"$ref": "#/$defs/positive"}, {"$ref": "#/$defs/positive"}, {"$ref": "#/$defs/positive"}], "minItems": 3, "maxItems": 3},
+    "rgb": {"type": "array", "prefixItems": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "number", "minimum": 0, "maximum": 1}, {"type": "number", "minimum": 0, "maximum": 1}], "minItems": 3, "maxItems": 3},
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["authored", "adapted"]},
+        "license": {"const": "CC-BY-4.0"},
+        "sources": {"type": "array", "items": {"type": "object", "properties": {"material": {"type": "string"}, "locator": {"type": "string"}}, "required": ["material", "locator"], "additionalProperties": false}},
+        "rationale": {"type": "string", "minLength": 1},
+        "changes": {"type": "string", "minLength": 1}
+      },
+      "required": ["kind", "license", "sources", "rationale", "changes"],
+      "additionalProperties": false
+    }
+  }
+}

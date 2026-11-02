@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-appearance
+id: male-v1
+description: Base authored silhouette and material palette for the stylized exercise mannequin.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Original numeric silhouette and color choices for readable exercise poses.
+  changes: Values are an authored rendering approximation, not measured male anatomy.
+radius_scales:
+  arm: 1.0
+  leg_thigh: 1.0
+  leg_knee: 1.0
+  leg_shank: 1.0
+torso_radii_delta_h:
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+  - [0.0, 0.0]
+head_radii_h: [0.045, 0.052, 0.0625]
+materials_rgb:
+  suit: [0.18, 0.32, 0.48]
+  head_mitten: [0.72, 0.68, 0.62]
+  foot: [0.12, 0.16, 0.22]

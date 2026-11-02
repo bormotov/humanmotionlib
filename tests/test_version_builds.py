@@ -29,7 +29,7 @@ class DeclaredVersionBuildTests(unittest.TestCase):
             "pyproject.toml", ".python-version", "uv.lock", "hml_build_backend.py",
             "MANIFEST.in", "LICENSE-CODE", "LICENSE-DATA", "THIRD-PARTY-NOTICES.md",
         )
-        project_directories = ("src/humanmotionlib", "rig", "scenes", "schema", "docs")
+        project_directories = ("src/humanmotionlib", "rig", "scenes", "schema", "docs", "characters")
         resource_inventory = None
 
         try:

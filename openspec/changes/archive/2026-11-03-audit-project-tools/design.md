@@ -1,0 +1,184 @@
+# Design
+
+## Context
+
+See proposal.md for the user problem. Current Make help assumes a Python command, and the contributor instructions require several manual setup and path choices. The package builder already assembles library code, canonical data, version information and records used to check that results match their sources. The new commands should coordinate that existing work.
+
+The matrix currently produces a small selected preview: one character and height, neutral/rest/arm-raise, BPM120. General movement development also uses validation, preparation, rendering, numeric checks and presentation. These operations must be covered by the audit rather than hidden behind a claim that matrix is the complete development process.
+
+## Goals / Non-Goals
+
+**Goals:** clear routes after cloning, automatic preparation, reliable use of current sources, understandable checks and consistent project instructions.
+
+**Non-Goals:** new movement content, changed images or numerical bounds, publishing, process-safety fixes or resuming character acceptance. Commands must not guess movement inputs or launch a full visual acceptance workload as part of ordinary preparation.
+
+## Decisions
+
+### 1. Start with the goal
+
+The documented beginning is:
+
+```sh
+git clone <repository>
+cd humanmotionlib
+make
+```
+
+Git, Make and a POSIX shell are needed to clone and read help. uv is additionally required to prepare tools and run the workflows; it obtains the supported Python 3.14 and Python dependencies. Help states supported uv/platform versions and first-run download/cache needs. The existing local uv 0.11.21 and CI uv 0.13.5 requirements must be reconciled and checked.
+
+Blender 5.2.2 LTS build d13f752e3b9c is required for rendering. It is not required for package building or development preparation, and HML does not install or silently replace it.
+
+| Goal | Command | Result |
+|---|---|---|
+| Understand requirements and available operations | `make` or `make help` | Readable help without preparing tools or writing files |
+| Build a library package | `make package` | Wheel and source archives, package checks and their report |
+| Prepare for development | `make dev` | Current built library, source/readiness checks and next actions |
+| See the supported preview choices | `make matrix-list` | Nine pairs and their result locations |
+| Build a selected development preview | `make matrix-build CHARACTER=male HEIGHT=1.70` | That pair's frames and presentation |
+| Check the selected existing preview | `make matrix-check CHARACTER=male HEIGHT=1.70` | A new check report for an existing result; a read-only rebuild remedy if the result is absent |
+| Remove intermediate work | `make mostlyclean` | Temporary/intermediate work removed; completed results and development tools retained |
+| Remove ordinary build results | `make clean` | Intermediate work and ordinary generated results removed; prepared tools/cache retained |
+| Remove prepared project tools too | `make distclean` | Ordinary generated results and known project tools/cache removed; sources and external artifact storage unchanged |
+
+The package and development-preparation goals need no arguments. Matrix retains its required character/height choice. If a choice is absent, show guidance and do nothing; invalid values fail before work. Plain Make always means help.
+
+`make dev` checks that the current library is ready for development. It does not build every possible rendered result or run expensive acceptance checks. Its summary points to actual supported result-building/checking operations and states what they require. Custom movement content and acceptance decisions stay explicit.
+
+The existing direct HML commands remain available for advanced use. Their required work/input/output values are supplied automatically by the ordinary Make routes. A documented direct matrix route can still use tools already prepared for offline use.
+
+### 2. Keep ordinary settings in the project
+
+Makefile holds the small settings needed before Python is available and passes their resolved values to the workflow tools. Remaining defaults belong in existing project configuration. Python, dependencies and Blender versions continue to come from their current project declarations rather than new duplicate settings.
+
+Project settings supply:
+
+- the place for reusable development tools, project cache and any uv-managed Python download;
+- work and output locations, with new package/check runs named automatically;
+- the existing matrix recipe and stable selected-result locations;
+- supported optional overrides for deliberate deviations.
+
+Use `build/project-tools_r1_contributor_current_environment/` for reusable tools and their logs/cache. Automatically allocated package/check/review runs follow the existing five-component direct-child build naming rule; for example `build/package-humanmotionlib_r1_contributor_run-<token>_package/`. These names are generated by the tools, never mandatory caller arguments.
+
+Make applies these settings to every command it starts. Logs show the effective settings. Help/list must work without Python or uv and remain read-only; check their table/default agreement with the working tools. Do not make obtaining Python depend on already having Python to read a configuration file.
+
+Check paths with spaces, optional overrides and invalid destinations. Required project-generated state stays in its owned build locations, without writes into authoring directories or personal global caches.
+
+### 3. Prepare and build in one sequence
+
+For `make dev` and a valid selected preview build:
+
+1. Check required utilities and configured paths.
+2. Create development tools with uv when absent, or reuse a suitable existing setup.
+3. Bring Python dependencies to the committed lock without rewriting it.
+4. Rebuild the library package from current code/data on every invocation and install that exact package.
+5. Write the standard tool/package/cache diagnostic record required by project instructions, then perform readiness checks.
+6. Continue with only the requested goal's remaining operations.
+
+A missing or incompatible setup gives a concrete remedy. Do not copy another setup's installed files or require manual path changes. First-run downloads must be visible and obey the execution environment's network rules. Failure stops the sequence and reports its stage/log; it cannot produce an overall success.
+
+Always rebuilding the library is the agreed simple rule. Reusing dependencies and their cache still saves preparation time. A project version or file timestamp alone must never cause changed character YAML or Python code to be missed. Tests must change each kind of file and prove that the next operation uses it.
+
+Use the existing package builder's complete file selection. Compare source and built-file records; reject edits made during the package-building step instead of reporting a result assembled from conflicting source versions. After package preparation, a running operation uses those recorded built files even if the checkout is edited later.
+
+The user does not run a separate refresh command. Existing prepared inputs and old results keep their original recorded sources; normal mismatch checks reject reuse with an incompatible rebuilt library.
+
+### 4. Build and check a distributable package
+
+`make package` prepares build tools, builds wheel/source archives, builds again from the source archive and compares the runtime files and bytes. It then creates a clean independent installation of the exact built package and checks version/help, tool readiness, source validation and bounded neutral-input preparation outside checkout imports.
+
+This proves that the delivered package contains what it needs. The check uses fresh tools because an older development setup could conceal a missing package dependency or file. Normal development reuses its prepared tools because that independence proof is not required on every local edit.
+
+Both routes use their own installed package/dependencies and the standard automatic diagnostic records. Neither borrows another setup's files. Independent review prepares its own clean checks for the final candidate.
+
+Package results show artifact paths, completed checks and limits. They do not claim Blender or visual acceptance. Publishing remains the existing checked release process after change acceptance, archive and main; this command does not publish or weaken release CI.
+
+### 5. Check existing results without changing how they were built
+
+`matrix-check` prepares or installs nothing. It finds existing tools and performs read-only path and result-presence checks before starting a check attempt. Both the Make route and the direct advanced command reject an absent selected result root or `build.json` with the exact `make matrix-build CHARACTER=... HEIGHT=...` command and nonzero exit status. They create or modify no directories, logs or reports on this refusal, including after clean or distclean. An unavailable tool environment is also refused before starting a check; it is not prepared automatically.
+
+Once the result root and build record exist at safe paths, the check attempt starts and creates its distinct log. It confirms that the installed library matches the recorded package and reruns the applicable validators. Every started attempt keeps a log and replaces the current check report, including a malformed/incompatible build record or damaged files. These validation failures must not be converted into silent preflight refusals merely to avoid writing diagnostics. Report the exact selected build command for an incompatible package. Do not rebuild automatically, change the old source/package record or turn old images into results of a new build; prepared input, generation records and images stay unchanged.
+
+This distinction resolves the cleanup/logging ambiguity: an invocation rejected because no result exists has not started a check attempt; validation of an existing result has. No cleanup marker or historical-reference scan is needed. Earlier evidence showing log creation for an absent result remains historical; task 4.4 verifies the clarified behavior in both routes.
+
+Preview setup failures happen before replacing selected results. Once preparation succeeds, existing selected-result cleanup rules apply. Calls sharing development tools are sequential; concurrent use, automatic retries and partial continuation are not supported.
+
+### 6. Audit every supported development operation
+
+The audit records each operation's goal, requirements, defaults, writes, actual bounded checks and remaining action. It must compare tools, guides, CI and project/role instructions together.
+
+| Operation | Required audit work |
+|---|---|
+| Starting from a clone | Run help, package and development-preparation paths literally; test missing utilities, spaces and invalid settings |
+| Validating and preparing library sources | Check existing console/module/API routes, registered source coverage, neutral preparation and changed-source handling |
+| Selected previews | Check automatic preparation order, exact one-pair recipe, missing choices, actual result checks and incompatible-package failures |
+| General rendering and custom movements | Trace available commands, required authored inputs and Blender needs; improve reasonable coordination/docs and identify remaining concrete input/recipe gaps |
+| Numeric checks and presentations | Trace normal, detailed, reuse and HTML-only operations; check their required results/records with controlled examples |
+| Host tests | Reconcile test/source locations, process-inspection access and cost; execute safe selected checks and document the separate full-test route |
+| Packages and publishing | Run package checks; check release help/read-only planning on disposable Git examples and preserve existing publication gates |
+| Instructions and cleanup | Remove contradictory manual default setup; check fixed cleanup areas, unknown-file removal, activity, containment, errors and rebuilding afterwards |
+
+Known problems to resolve include system-Python assumptions, help requiring a prepared library, manual preview setup, conflicting contributor setup instructions, source edits missing from installed files, confusion between development and independent checks, checks using a library different from the one that produced results, and repeatedly supplied ordinary work/output paths.
+
+For every additional gap, record the goal, affected command, observed problem, why it can or cannot be resolved within scope and the next action. Do not automatically dismiss non-matrix development. New movement content, numerical rules or image changes return for their own approved scope rather than being guessed.
+
+### 7. Clean fixed generated areas
+
+The user has replaced the earlier local-retention model. The cleanup rule names a generated area; every object inside that area is removable, including unknown files, old logs and historical evidence. No producer marker, ownership inventory, file manifest or legacy dependency scan is used for cleanup. Sources are kept in version control and durable results belong in external artifact storage. This change does not build or transfer an artifact-storage service.
+
+The three commands take no mandatory arguments, use only Make, the POSIX shell and documented filesystem/process utilities, and work when Python/uv/project tools are absent or damaged. They do not prepare tools, download files or ask an interactive question. The fixed scopes are:
+
+| Target | Selected area | Surviving local generated state |
+|---|---|---|
+| make mostlyclean | Every direct child of build/ whose basename matches *_stage or *_check, except the configured reusable tools root, including its entire contents | Completed package/preview results and reusable tools |
+| make clean | Every direct child of build/, including hidden entries, except the one reusable tools directory declared by project configuration | Only that reusable tools/cache/Python directory |
+| make distclean | The entire build/ directory | None |
+
+The tools directory comes from the existing committed tools-root setting; its default is build/project-tools_r1_contributor_current_environment/. It must remain one real direct child of build, so the mostlyclean and clean exception is derived without a second competing path setting or Python startup. The tools root remains exempt from mostlyclean even if an optional configured basename ends in _stage or _check. An invalid/escaping tools-root fails before deletion.
+
+The mostlyclean patterns match actual producer output: the package adapter creates package-humanmotionlib_r1_dev_try-N_stage roots, and the repository package checker allocates package-humanmotionlib roots with kind check for its one-use installation. Completed package archives use kind package. The rules therefore remove real intermediate/check work while leaving completed result roots at mostlyclean. They do not infer whether a selected file is valuable, generated, unknown or historical. A matching entry is removed completely. Local R6 and other accepted/rejected/review results, matrix logs and any links from surviving local files confer no exemption. mostlyclean may leave unmatched failed results for clean to remove; it must not guess success by reading producer records.
+
+Sources, project configuration, the dependency lock, Git state, dist/ releases, global tools/caches and artifact storage outside build are outside every removal area. A user placing a file inside a selected build area makes it part of that cleanup. The process does not inspect version-control tracking to create a hidden exception there.
+
+Validate the effective workspace and real build boundary before deletion. Reject an escaping removal area or a workspace/build boundary that resolves through a symbolic link. Enumerate entries without following links, including hidden entries. Remove a symbolic link entry selected by the rule without traversing its target; do not touch the target even if it points outside build or into another result. This is containment checking, not a dependency scan.
+
+Cleanup and build operations remain sequential. Inspect activity for all selected areas before the first removal and recheck as necessary immediately before removal. Active work or unavailable/ambiguous process/path inspection blocks the action with nonzero status and a concrete retry/remedy. Cleanup must not terminate processes. Local ownership records are not needed to establish the deletion area or exempt an inactive producer's files. No concurrency guarantee or lock system is introduced.
+
+Print the level, selected areas, removed paths/bytes and pending failures. Missing areas are already clean. If permissions, interruption or another filesystem error prevent removal, report completed removals and the unresolved path, return nonzero and permit a safe repeat. Use stdout or an existing durable report; do not create an environment, cache, new run/history tree or separate cleanup inventory to report cleaning. No dependency/reference preservation report is required.
+
+Normal package/dev/selected-build commands restore required removed tools and outputs. If the selected result root or build record is gone, both Make and direct existing-result checks request the exact selected build before starting an attempt and leave the filesystem unchanged, including matrix logs. Started checks against existing results retain their normal failure/success diagnostics. No rule grants a new technical or visual acceptance.
+
+Verify on disposable trees only: complete unknown/hidden/nested-file removal inside each scope; unchanged nonmatching/outside entries; R6-like history and matrix logs removed at clean/distclean; absent/damaged tools; spaces; repeats; process visibility and active work blocking all removal; no-follow links; permission/interruption failure; ordinary restoration afterwards. Do not execute the broad rules against real build data merely to test them.
+
+### 8. Preserve decisions and report verification
+
+This change coordinates existing behavior. Visual gates are not applicable only after checking that rendering behavior is unaffected. Verification uses real tool/package preparation and controlled examples for generation coordination. It does not run real character previews, full movement/tempo/height sets, dense audits or final visual packs while the character change is paused.
+
+Before independent review, the four roles jointly check the agreed requirements, runnable guides, success/failure controls, required access, package completeness and remaining gaps, then record the exact sources/package to review. Reviewer rebuilds and checks those same sources independently.
+
+The three reviewer roots in task 6.1 separate the pristine source snapshot, the independent review environment/cache and the review evidence. To exercise ordinary commands without modifying real build data, task 6.2 uses one disposable selected workspace at `build/audit-project-tools_r1_reviewer_try-1_review/checkout/`, copied from the identified source snapshot without environments or previous build state. Its Make-created tools, package/check/stage roots and fixed matrix destinations are subordinate workflow-fixture content under that selected workspace's `build/`; each producer still follows the normal direct-child naming and input/output separation rules there. They are not additional independently managed reviewer attempts. No reviewer environment or installed files are copied into this fixture. Each environment is created and checked through the applicable uv route. Explicit cleanup is confined to this fixture workspace. Additional independent review attempts or workspace locations still require fresh authorized sibling roots; this fixture plan grants no access to developer runs, other reviewer runs, accepted history or the real checkout's generated state.
+
+Fresh independent runs retain naming and input/output separation rules. Role-scoped automatic cleanup remains inside the assigned area; explicit Make cleanup follows the fixed wider scopes above. Keep durable reports outside selected cleanup areas and record removed paths/bytes and pending failures. Do not add local-history exemptions or dependency scans; active work still blocks unsafe cleanup. The R6 decision remains historical; do not relabel it as evidence for a new package. Its local files have no special exemption from explicit cleanup.
+
+## Risks / Trade-offs
+
+- [Rebuilding the package on every source-consuming operation takes time] -> keep the simple reliable rule and reuse unchanged dependencies/cache.
+- [Preparing another operation changes the library available to checks] -> compare it with the existing build record and ask for a deliberate rebuild when needed.
+- [Short commands hide work] -> help and summaries explain preparation, preview, package and full-acceptance scopes before expensive work.
+- [Current previews do not cover all development goals] -> inspect existing operations and deliver justified gap actions rather than inventing a universal recipe.
+- [Tools change while character work is paused] -> preserve the recorded decision and source identity, and renew affected checks only when that work resumes; local files remain subject to explicit cleanup.
+- [Cleanup removes every file in its declared area] -> state the exact three-level table in help and test boundaries, activity and removal using disposable trees; keep durable results outside that area.
+
+## Migration Plan
+
+1. Record approval of the revised goal-based workflow and the later fixed-area cleanup policy; keep character verification paused.
+2. Implement Make defaults, automatic package/development preparation and the three cleanup levels with focused tests and matching guides.
+3. Reconcile supported tools/instructions and verify clean-checkout, changed-source and failure paths.
+4. Complete joint review planning, independently check the agreed sources/package and clean owned work.
+
+Rollback restores the previous manual package preparation and Make/tool configuration. Remove generated tools/results by the declared fixed-area rules after activity/containment checks. Reconcile AGENTS, role instructions and guides with this policy during apply; do not introduce cleanup inventories or history protection. No authoring data needs migration, and no real cleanup is performed by editing this plan.
+
+## Planning source clearance
+
+Repository code/specs/guides supplied the observations. Official uv project-configuration documentation informed earlier setup analysis without copied upstream code/text: https://github.com/astral-sh/uv/blob/0.11.21/docs/concepts/projects/config.md and https://github.com/astral-sh/uv/blob/0.11.21/LICENSE-MIT. The MIT license permits commercial and derivative use with conditions on distributed copies; checked 2026-10-31. Previously consulted reference pages were https://docs.astral.sh/uv/reference/settings/ and https://docs.astral.sh/uv/concepts/projects/config/. Implementation must rely on tested supported versions.
+
+Before implementation uses external references, complete their exact used-materials entries with source/license, permission basis, conditions, date and related outputs. Clear/register any additional material before use. No new anatomical, visual or movement reference is used.

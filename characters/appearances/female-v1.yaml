@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-appearance
+id: female-v1
+description: Female silhouette deltas and material palette for the shared stylized exercise mannequin.
+license: CC-BY-4.0
+provenance:
+  kind: authored
+  license: CC-BY-4.0
+  sources: []
+  rationale: Original numeric silhouette and color choices for readable exercise poses.
+  changes: Values are an authored rendering approximation, not measured female anatomy or a different skeletal profile.
+radius_scales:
+  arm: 0.90
+  leg_thigh: 1.06
+  leg_knee: 1.0
+  leg_shank: 0.97
+torso_radii_delta_h:
+  - [0.005, 0.002]
+  - [0.008, 0.005]
+  - [0.008, 0.005]
+  - [-0.012, 0.0]
+  - [-0.014, 0.005]
+  - [-0.015, 0.007]
+  - [-0.010, 0.003]
+  - [-0.005, 0.0]
+  - [-0.001, -0.001]
+  - [-0.001, -0.001]
+head_radii_h: [0.043, 0.050, 0.0625]
+materials_rgb:
+  suit: [0.18, 0.32, 0.48]
+  head_mitten: [0.72, 0.68, 0.62]
+  foot: [0.12, 0.16, 0.22]

@@ -46,29 +46,29 @@ jobs:
           set -euo pipefail
           source_sha=$(git rev-parse HEAD)
           run_root="build/upgrade-host-python-314_commit-${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}_checks"
+          tools_root=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["humanmotionlib"]["workflow"]["tools-root"])')
           mkdir -p build
           test ! -e "$run_root"
           mkdir "$run_root"
           {
             echo "HUMANMOTIONLIB_TEST_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
-            echo "UV_PROJECT_ENVIRONMENT=$GITHUB_WORKSPACE/$run_root/environment"
-            echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$run_root/cache"
             echo "HML_CI_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
             echo "HUMANMOTIONLIB_SOURCE_ROOT=$GITHUB_WORKSPACE"
             echo "HML_SOURCE_SHA=$source_sha"
+            echo "HML_TOOLS_ROOT=$tools_root"
+            echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$tools_root/cache"
           } >> "$GITHUB_ENV"
           echo "Candidate commit: $source_sha" | tee "$run_root/summary.txt"
 
-      - name: Verify lock and install locked dependencies
-        id: lock-and-sync
+      - name: Prepare current package and locked development tools through Make
+        id: dev-preparation
         shell: bash
         run: |
           set -euo pipefail
           {
             uv --version
             python --version
-            uv lock --check
-            uv sync --locked --no-editable
+            make dev
           } 2>&1 | tee "$HML_CI_RUN_ROOT/setup.log"
 
       - name: Check host interpreter and dependency metadata
@@ -76,34 +76,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked --no-sync hml check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
+          "$HML_TOOLS_ROOT/environment/bin/hml" check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
 
       - name: Check installed dependency consistency
         id: dependency-consistency
         shell: bash
         run: |
           set -euo pipefail
-          uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python" 2>&1 | tee "$HML_CI_RUN_ROOT/dependency-check.log"
+          uv pip check --python "$HML_TOOLS_ROOT/environment/bin/python3.14" 2>&1 | tee "$HML_CI_RUN_ROOT/dependency-check.log"
 
       - name: Validate canonical sources
         id: source-validation
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked --no-sync hml validate --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
+          "$HML_TOOLS_ROOT/environment/bin/hml" validate --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
 
       - name: Run host-only test suite
         id: host-tests
         shell: bash
         run: |
           set -euo pipefail
-          uv run --locked --no-sync python -m humanmotionlib.check_host --test-root "$GITHUB_WORKSPACE/tests" 2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
+          env -u PYTHONPATH \
+            HUMANMOTIONLIB_TEST_RUN_ROOT="$HML_CI_RUN_ROOT" \
+            HUMANMOTIONLIB_SOURCE_ROOT="$GITHUB_WORKSPACE" \
+            "$HML_TOOLS_ROOT/environment/bin/python3.14" \
+            -m humanmotionlib.check_host --test-root "$GITHUB_WORKSPACE/tests" \
+            2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
 
       - name: Record CI outcome
         if: always()
         shell: bash
         env:
-          LOCK_SYNC_OUTCOME: ${{ steps.lock-and-sync.outcome }}
+          DEV_PREPARATION_OUTCOME: ${{ steps.dev-preparation.outcome }}
           HOST_ENVIRONMENT_OUTCOME: ${{ steps.host-environment.outcome }}
           DEPENDENCY_CHECK_OUTCOME: ${{ steps.dependency-consistency.outcome }}
           SOURCE_VALIDATION_OUTCOME: ${{ steps.source-validation.outcome }}
@@ -115,7 +120,7 @@ jobs:
             echo "Commit: $HML_SOURCE_SHA"
             echo "Python: $(python --version 2>&1 || true)"
             echo "uv: $(uv --version 2>&1 || true)"
-            echo "Lock check and locked sync: $LOCK_SYNC_OUTCOME"
+            echo "Make dev current-source preparation: $DEV_PREPARATION_OUTCOME"
             echo "Host interpreter/metadata check: $HOST_ENVIRONMENT_OUTCOME"
             echo "Dependency consistency check: $DEPENDENCY_CHECK_OUTCOME"
             echo "Source validation: $SOURCE_VALIDATION_OUTCOME"

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: CC-BY-4.0
+schema_version: 1
+kind: character-definition
+id: skeleton
+description: Standalone anatomical skeleton character using the canonical adult reference profile.
+license: CC-BY-4.0
+provenance:
+  kind: adapted
+  license: CC-BY-4.0
+  sources:
+    - material: hands-on-anatomy-2024
+      locator: Inherited canonical skeleton source; no new text or illustration content copied.
+    - material: wang-2024-segment-lengths
+      locator: Inherited canonical skeleton segment-ratio source; no new measurements introduced.
+  rationale: Existing canonical skeleton representation exposed as a first-class character output.
+  changes: Reuses adult-reference-v1 skeletal geometry, rig, motion and contact sources without a body surface.
+renderer_kind: skeletal
+profile_id: adult-reference-v1

@@ -15,6 +15,16 @@ from humanmotionlib import cli
 
 
 class CliDispatchTests(unittest.TestCase):
+    def test_numeric_only_verification_requires_explicit_character_output(self):
+        from humanmotionlib import verify_skeleton
+        errors=StringIO()
+        with patch.object(sys,"argv",["hml verify-skeleton","--input","build/input",
+                                      "--output","build/metrics/report.json","--numeric-only"]), \
+             redirect_stderr(errors):
+            status=verify_skeleton.main(workspace="/tmp/numeric-only-workspace")
+        self.assertEqual(status,1)
+        self.assertIn("--numeric-only requires --character-output",errors.getvalue())
+
     def test_check_environment_help_is_forwarded_to_operation_parser(self):
         output = StringIO()
         with redirect_stdout(output), self.assertRaises(SystemExit) as raised:
@@ -57,13 +67,15 @@ class CliDispatchTests(unittest.TestCase):
                 output = StringIO()
                 with redirect_stdout(output):
                     status = cli.main(["--workspace", "/tmp/workspace", "run-blender", "--input", "build/input.json",
-                                       "--output", "build/test", "--render-only"])
+                                       "--output", "build/test", "--render-only",
+                                       "--characters", "male", "female"])
             self.assertEqual(status, 0)
             self.assertEqual(sys.argv, before)
             render.assert_called_once_with(Path("build/input.json"), workspace="/tmp/workspace",
                                            output=Path("build/test"), images=False, render_dir=None,
                                            render_only=True, timeout_seconds=1800.0,
-                                           slot_timeout_seconds=30.0)
+                                           slot_timeout_seconds=30.0,
+                                           characters=("male", "female"))
             self.assertIn('"state": "succeeded"', output.getvalue())
 
 

@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from humanmotionlib import __version__
 from humanmotionlib.api import GenerationError, prepare
 import humanmotionlib.api as api
 from humanmotionlib.consumer_motion import (load_consumer_document,
@@ -712,7 +713,7 @@ print(json.dumps({'path': str(result.prepared_path), 'sha256': result.prepared_s
                 source_path.unlink()
                 sealed = read_prepared(evidence["path"])
                 self.assertEqual(sealed["consumer_motion"]["source_sha256"], evidence["snapshot"])
-                self.assertEqual(sealed["package_identity"]["version"], "0.2.0")
+                self.assertEqual(sealed["package_identity"]["version"], __version__)
             verify_runtime_integrity()
         finally:
             import shutil

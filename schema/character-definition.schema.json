@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanmotionlib.example/schema/character-definition.schema.json",
+  "title": "HML character definition",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "character-definition"},
+    "id": {"enum": ["skeleton", "male", "female"]},
+    "description": {"type": "string", "minLength": 1},
+    "license": {"const": "CC-BY-4.0"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "renderer_kind": {"enum": ["skeletal", "skinned-surface"]},
+    "profile_id": {"const": "adult-reference-v1"},
+    "template_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "template_revision": {"type": "integer", "minimum": 1},
+    "binding_revision": {"type": "integer", "minimum": 1},
+    "appearance_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}
+  },
+  "required": ["schema_version", "kind", "id", "description", "license", "provenance", "renderer_kind", "profile_id"],
+  "allOf": [
+    {"if": {"properties": {"renderer_kind": {"const": "skeletal"}}}, "then": {"properties": {"id": {"const": "skeleton"}}, "not": {"anyOf": [{"required": ["template_id"]}, {"required": ["template_revision"]}, {"required": ["binding_revision"]}, {"required": ["appearance_id"]}]}}},
+    {"if": {"properties": {"renderer_kind": {"const": "skinned-surface"}}}, "then": {"properties": {"id": {"enum": ["male", "female"]}}, "required": ["template_id", "template_revision", "binding_revision", "appearance_id"]}}
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["authored", "adapted"]},
+        "license": {"const": "CC-BY-4.0"},
+        "sources": {"type": "array", "items": {"type": "object", "properties": {"material": {"type": "string"}, "locator": {"type": "string"}}, "required": ["material", "locator"], "additionalProperties": false}},
+        "rationale": {"type": "string", "minLength": 1},
+        "changes": {"type": "string", "minLength": 1}
+      },
+      "required": ["kind", "license", "sources", "rationale", "changes"],
+      "additionalProperties": false
+    }
+  }
+}
