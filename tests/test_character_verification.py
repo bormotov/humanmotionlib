@@ -7,6 +7,7 @@ import math
 from copy import deepcopy
 from pathlib import Path
 import tempfile
+from fractions import Fraction
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -19,13 +20,69 @@ from humanmotionlib.character_verification import (
     _expected_anchor_positions, _load_generation_anchor, _minimum_vertex_z, _native_midpoint_beats,
     _prepared_sample_context, _reference_residual_summary_matches, _run_dense_surface_audit,
     _surface_poses, _verify_native_midpoints,
-    _required_dense_grid, _validate_request_closure, verify_character_output,
+    _required_dense_grid, _focused_visual_sample_coverage, _FOCUSED_VISUAL_FIXTURES,
+    _validate_request_closure, verify_character_output,
 )
+from humanmotionlib.sampling import delivered_beats, rational, sampling
 from humanmotionlib.render_contract import read_supervised_receipt
 from humanmotionlib.character_surface import _rest_frames
 
 
 class CharacterVerificationTests(unittest.TestCase):
+    def _focused_sample_plan(self):
+        diagnostics = [{"id": fixture, "duration_beats": 4}
+                       for fixture in _FOCUSED_VISUAL_FIXTURES]
+        samples, plans = [], {}
+        for fixture in sorted(diagnostics, key=lambda row: row["id"]):
+            fixture_id = fixture["id"]
+            beats = delivered_beats(fixture["duration_beats"], (90,))
+            ids = {beat: fixture_id + f"/{index:05d}" for index, beat in enumerate(beats)}
+            for index, beat in enumerate(beats):
+                samples.append({"id": ids[beat], "fixture": fixture_id, "beat": rational(beat)})
+            plan = sampling(fixture["duration_beats"], 90)
+            for mode in ("static", "animation"):
+                for record in plan[mode]:
+                    beat = Fraction(record["beat"]["numerator"], record["beat"]["denominator"])
+                    record["sample_id"] = ids[beat]
+            plans[fixture_id] = [plan]
+        return {"sources": {"diagnostics": diagnostics}, "samples": samples, "sampling": plans}
+
+    def test_focused_visual_coverage_accepts_exact_canonical_bpm90_plan(self):
+        prepared = self._focused_sample_plan()
+        report = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["scope"], "focused-visual")
+        self.assertEqual(report["expected"], sorted(_FOCUSED_VISUAL_FIXTURES))
+
+    def test_focused_visual_coverage_rejects_missing_extra_and_wrong_sample_membership(self):
+        prepared = self._focused_sample_plan()
+        prepared["samples"] = [row for row in prepared["samples"]
+                               if row["fixture"] != "neutral"]
+        missing = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(missing["status"], "fail")
+
+        prepared = self._focused_sample_plan()
+        prepared["sources"]["diagnostics"].append({"id": "extra-fixture", "duration_beats": 4})
+        prepared["samples"].append({"id": "extra-fixture/00000", "fixture": "extra-fixture",
+                                    "beat": {"numerator": 0, "denominator": 1}})
+        extra = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(extra["status"], "fail")
+
+        prepared = self._focused_sample_plan()
+        prepared["samples"][0]["beat"] = {"numerator": 1, "denominator": 7}
+        wrong_sample = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(wrong_sample["status"], "fail")
+
+        prepared = self._focused_sample_plan()
+        prepared["sampling"]["neutral"].append({"bpm": 120})
+        wrong_bpm = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(wrong_bpm["status"], "fail")
+
+        prepared = self._focused_sample_plan()
+        prepared["sampling"]["extra-fixture"] = [{"bpm": 120}]
+        extra_sampling = _focused_visual_sample_coverage(prepared)
+        self.assertEqual(extra_sampling["status"], "fail")
+
     def _write_generation_fixture(self,root):
         package=root/"installed"; files={
             "humanmotionlib/__init__.py":b"# frozen package\n",

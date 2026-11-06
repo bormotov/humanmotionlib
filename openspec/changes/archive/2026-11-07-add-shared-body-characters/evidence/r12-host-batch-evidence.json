@@ -1,0 +1,46 @@
+{
+  "all_six_affected_modules_pass": true,
+  "frozen_input_identity_sha256": "fef117007c91577780da9e0984ed6e47d247b44ffc89021d45793ff4ee8e1e90",
+  "prior_exact_candidate_group": {
+    "command": "python -m unittest tests.test_character_surface",
+    "duration_seconds": 18.127,
+    "errors": 0,
+    "failures": 0,
+    "identity": "r11_dev_try-5_package-check/focused-test-run.json",
+    "result": "pass",
+    "tests_run": 23
+  },
+  "remaining_modules": [
+    "tests.test_api",
+    "tests.test_matrix_test_outcomes",
+    "tests.test_review_pack_supervision"
+  ],
+  "run_groups": [
+    {
+      "command": "python -m unittest tests.test_character_propagation tests.test_characters",
+      "duration_seconds": 33.303,
+      "errors": 0,
+      "failures": 0,
+      "process_supervision": "not applicable for these modules",
+      "result": "pass",
+      "tests_run": 18
+    },
+    {
+      "command": "python -m unittest tests.test_api tests.test_matrix_test_outcomes tests.test_review_pack_supervision",
+      "duration_seconds": 146.002,
+      "errors": 0,
+      "failures": 0,
+      "output_observed_by": "orchestrator session 43071",
+      "process_visibility": "elevated child PID visible; verified by orchestrator",
+      "result": "pass",
+      "tests_run": 55
+    }
+  ],
+  "runtime_manifest_sha256": "efe64b58bcb7c4e52a1e3d5684978584c281d4a6d73d00e63f75e2907d420e80",
+  "schema": "r12-host-batch-evidence/v1",
+  "source_snapshot_unchanged": true,
+  "source_snapshot_unchanged_after_batch": true,
+  "status": "partial-pass",
+  "total_affected_test_cases": 96,
+  "wheel_sha256": "2c027eae3c897be17a21dbe30e861f9dfdc7064795f72e1903a1ebf58b4ca04e"
+}

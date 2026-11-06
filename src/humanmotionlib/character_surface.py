@@ -213,6 +213,22 @@ def _validate_welded_shoulder_component(component, allowed_carriers=None,
     return True
 
 
+def _validate_closed_oriented_component(component):
+    """Reject open, non-manifold or inconsistently directed component edges."""
+    incidence = {}
+    for face in component["faces"]:
+        if len(face) != 3 or len(set(face)) != 3:
+            raise ValueError(f"{component['id']} contains an invalid triangle")
+        for start,end in zip(face,face[1:]+face[:1]):
+            key=(min(start,end),max(start,end))
+            incidence.setdefault(key,[]).append(1 if start<end else -1)
+    bad=[(edge,uses) for edge,uses in incidence.items() if len(uses)!=2 or sum(uses)!=0]
+    if bad:
+        edge,uses=bad[0]
+        raise ValueError(f"{component['id']} is not a closed oriented manifold at edge {edge}: {uses}")
+    return True
+
+
 def _loft_component(component_id, expanded_rings, ring_n=32, radii_scale=1.0,
                     weight_function=None, material_function=None, mirror=False,
                     unit_scale=1.0, coordinate_scale=1.0, base_material="suit"):
@@ -285,6 +301,14 @@ def _loft_component(component_id, expanded_rings, ring_n=32, radii_scale=1.0,
         faces[face_index] = tuple(end_cap if index == -1 else index for index in face)
     if mirror:
         faces = [tuple(reversed(face)) for face in faces]
+    if component_id in ("leg.R", "leg.L"):
+        # Leg loft cap fans have the opposite directed-edge orientation from
+        # their side strips. Repair only these 64 cap triangles; the shared
+        # loft constructor also serves arms, whose output must stay unchanged.
+        side_face_count = (len(expanded_rings) - 1) * ring_n * 2
+        for first in (side_face_count, side_face_count + ring_n):
+            for face_index in range(first, first + ring_n):
+                faces[face_index] = tuple(reversed(faces[face_index]))
     face_materials.extend((base_material,) * (2 * ring_n))
     return {"id": component_id, "material": base_material, "material_ids": material_ids,
             "face_materials": face_materials, "vertices_m": vertices,
@@ -377,6 +401,8 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
         face_materials.append(torso["face_materials"][i])
 
     bridge_ranges = {}
+    canonical_bridge = None
+    shoulder_mirror_pairs = []
     for side, a_indices, b_indices, loop in expected_torso_boundary:
         arm_component = arm_r if side == "R" else arm_l
         arm_id_index = {name: i for i,name in enumerate(arm_component["vertex_ids"])}
@@ -398,26 +424,58 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
         a_new = [index_map[i] for i in a_indices]
         b_new = [arm_map[i] for i in b_indices]
         intermediate = []
-        for loop_number, u in enumerate((0.25,0.5,0.75), start=1):
-            row=[]
-            blend=3*u*u-2*u*u*u
-            for j,(ai,bi) in enumerate(zip(a_new,b_new)):
-                av,bv=vertices[ai],vertices[bi]
-                row.append(len(vertices)); vertices.append(tuple((1-u)*av[k]+u*bv[k] for k in range(3)))
-                ids.append(f"shoulder.{side}/loop.{loop_number}/sector.{j:02d}")
-                wa,wb=weights[ai],weights[bi]
-                merged={key:value*(1-blend) for key,value in wa.items()}
-                for key,value in wb.items(): merged[key]=merged.get(key,0.0)+value*blend
-                weights.append({key:value for key,value in merged.items() if value>0.0})
-            intermediate.append(row)
+        if side == "R":
+            for loop_number, u in enumerate((0.25,0.5,0.75), start=1):
+                row=[]
+                blend=3*u*u-2*u*u*u
+                for j,(ai,bi) in enumerate(zip(a_new,b_new)):
+                    av,bv=vertices[ai],vertices[bi]
+                    row.append(len(vertices)); vertices.append(tuple((1-u)*av[k]+u*bv[k] for k in range(3)))
+                    ids.append(f"shoulder.R/loop.{loop_number}/sector.{j:02d}")
+                    wa,wb=weights[ai],weights[bi]
+                    merged={key:value*(1-blend) for key,value in wa.items()}
+                    for key,value in wb.items(): merged[key]=merged.get(key,0.0)+value*blend
+                    weights.append({key:value for key,value in merged.items() if value>0.0})
+                intermediate.append(row)
+        else:
+            if canonical_bridge is None:
+                raise AssertionError("canonical right shoulder must be constructed first")
+            right_a, right_intermediate, right_b, right_faces = canonical_bridge
+            for right_row, left_endpoints, loop_number in zip(
+                    right_intermediate, (a_new, a_new, a_new), (1, 2, 3)):
+                row=[]
+                for j in range(ring_n):
+                    right_index=right_row[ring_n-1-j]
+                    point=vertices[right_index]
+                    row.append(len(vertices)); vertices.append((-point[0],point[1],point[2]))
+                    ids.append(f"shoulder.L/loop.{loop_number}/sector.{j:02d}")
+                    weights.append({carrier.replace(".R", ".L"): value
+                                    for carrier,value in weights[right_index].items()})
+                    shoulder_mirror_pairs.append((right_index,row[-1]))
+                intermediate.append(row)
         loops=[a_new,*intermediate,b_new]
         bridge_face_indices=[]
-        for lower,upper in zip(loops,loops[1:]):
-            for j in range(ring_n):
-                nxt=(j+1)%ring_n
-                a,b,c,d=lower[j],lower[nxt],upper[nxt],upper[j]
-                bridge_face_indices.extend((len(faces),len(faces)+1))
-                faces.extend(([a,b,c],[a,c,d])); face_materials.extend(("suit","suit"))
+        if side == "R":
+            for lower,upper in zip(loops,loops[1:]):
+                for j in range(ring_n):
+                    nxt=(j+1)%ring_n
+                    a,b,c,d=lower[j],lower[nxt],upper[nxt],upper[j]
+                    bridge_face_indices.extend((len(faces),len(faces)+1))
+                    faces.extend(([a,b,c],[a,c,d])); face_materials.extend(("suit","suit"))
+            canonical_bridge=(a_new,intermediate,b_new,bridge_face_indices)
+        else:
+            right_to_left={right_index:left_index for right_index,left_index in shoulder_mirror_pairs}
+            # Seam endpoints participate in the same reversed loop pairing.
+            for right_row,left_row in ((right_a,a_new),(right_b,b_new)):
+                for j in range(ring_n):
+                    right_index=right_row[ring_n-1-j]
+                    left_index=left_row[j]
+                    right_to_left[right_index]=left_index
+                    shoulder_mirror_pairs.append((right_index,left_index))
+            for face_index in right_faces:
+                faces.append([right_to_left[index] for index in reversed(faces[face_index])])
+                face_materials.append(face_materials[face_index])
+                bridge_face_indices.append(len(faces)-1)
         bridge_ranges[side]=(a_new,b_new,bridge_face_indices)
 
     # Resolve bridge winding from the actual retained boundary faces and verify the join is oriented.
@@ -435,6 +493,27 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
         if bridge_edge != -a_source_edge:
             for i in bridge_indices: faces[i].reverse()
         # One connected closed oriented manifold is mandatory.
+    assembled_id_to_index={name:i for i,name in enumerate(ids)}
+    for vertex_id,index in assembled_id_to_index.items():
+        counterpart=None
+        match=re.fullmatch(r"torso/ring\.(\d+)/sector\.(\d+)",vertex_id)
+        if match:
+            counterpart=f"torso/ring.{int(match.group(1)):03d}/sector.{(16-int(match.group(2)))%ring_n:02d}"
+        else:
+            match=re.fullmatch(r"arm\.R/ring\.(\d+)/sector\.(\d+)",vertex_id)
+            if match:
+                counterpart=f"arm.L/ring.{int(match.group(1)):03d}/sector.{int(match.group(2)):02d}"
+        if counterpart in assembled_id_to_index:
+            shoulder_mirror_pairs.append((index,assembled_id_to_index[counterpart]))
+    pairs_by_right={}
+    for right_index,left_index in shoulder_mirror_pairs:
+        previous=pairs_by_right.get(right_index)
+        if previous is not None and previous!=left_index:
+            raise ValueError("shoulder mirror ancestry maps one right vertex more than once")
+        pairs_by_right[right_index]=left_index
+    if len(set(pairs_by_right.values()))!=len(pairs_by_right):
+        raise ValueError("shoulder mirror ancestry is not bijective")
+    shoulder_mirror_pairs=list(pairs_by_right.items())
     component={"id":"torso","material":"suit","material_ids":["suit","head_mitten","foot"],
             "face_materials":face_materials,"vertices_m":vertices,"vertex_ids":ids,
             "faces":faces,"weights":weights,"shoulder_bridge_vertex_ids":[v for v in ids if v.startswith("shoulder.")],
@@ -442,7 +521,6 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
     construction=[None]*len(ids); side_map=[None]*len(ids)
     seam_side={}
     bridge_z={}
-    assembled_id_to_index={name:i for i,name in enumerate(ids)}
     for side,a_loop,b_loop,_ in expected_torso_boundary:
         arm_component=arm_r if side=="R" else arm_l
         for j,(ai,bi) in enumerate(zip(a_loop,b_loop)):
@@ -461,6 +539,7 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
             construction[index]=(loop_number/4.0,bridge_z[(side,sector)]); side_map[index]=side
     component["shoulder_construction_coordinates"]=construction
     component["shoulder_side_by_vertex"]=side_map
+    component["shoulder_mirror_vertex_pairs"]=shoulder_mirror_pairs
     # Paired anatomical-neutral seam references are retained privately for the
     # one-time R6 rest-shape operation. Refinement propagates these by midpoint.
     if profile is not None:
@@ -513,6 +592,7 @@ def _weld_shoulder(torso, arm_r, arm_l, join, stature, torso_weight_function=Non
     component.pop("shoulder_side_by_vertex",None)
     component.pop("shoulder_endpoint_references",None)
     component.pop("shoulder_shape_measurements",None)
+    component.pop("shoulder_mirror_vertex_pairs",None)
     return component
 
 
@@ -538,6 +618,9 @@ def _refine_shoulder_component(component, join, stature, torso_weight_function):
     if endpoint_refs is None or len(endpoint_refs)!=len(vertices):
         raise ValueError("shoulder endpoint reference records are incomplete")
     relaxation = float(join["interior_relaxation"])
+    mirror_vertex={right:left for right,left in component.get("shoulder_mirror_vertex_pairs",())}
+    if not mirror_vertex or len(set(mirror_vertex.values()))!=len(mirror_vertex):
+        raise ValueError("shoulder mirror ancestry is incomplete or ambiguous")
 
     selected = [any(ids[v].startswith(("shoulder.R/loop.", "shoulder.L/loop.")) for v in face)
                 for face in faces]
@@ -572,6 +655,27 @@ def _refine_shoulder_component(component, join, stature, torso_weight_function):
             row[carrier]=row.get(carrier,0.0)+blend
             weights.append({key:value for key,value in row.items() if value>0.0})
 
+        # Edge numbers remain stable per side, while ancestry (the paired
+        # endpoints) determines which left midpoint mirrors each right one.
+        by_pair={edge:index for edge,index in midpoint.items()}
+        for right_edge,right_mid in tuple(midpoint.items()):
+            a,b=right_edge
+            if side_for_vertex[a]!="R" or side_for_vertex[b]!="R":
+                continue
+            left_edge=tuple(sorted((mirror_vertex[a],mirror_vertex[b])))
+            left_mid=by_pair.get(left_edge)
+            if left_mid is None:
+                raise ValueError("left shoulder is missing the mirrored refinement edge")
+            point=vertices[right_mid]
+            vertices[left_mid]=(-point[0],point[1],point[2])
+            coords[left_mid]=coords[right_mid]
+            side_for_vertex[left_mid]="L"
+            right_refs=endpoint_refs[right_mid]
+            endpoint_refs[left_mid]=tuple((-ref[0],ref[1],ref[2]) for ref in right_refs)
+            weights[left_mid]={carrier.replace(".R", ".L"):value
+                               for carrier,value in weights[right_mid].items()}
+            mirror_vertex[right_mid]=left_mid
+
         def split_face(face):
             v0,v1,v2=face
             m01=midpoint.get((min(v0,v1),max(v0,v1)))
@@ -596,9 +700,26 @@ def _refine_shoulder_component(component, join, stature, torso_weight_function):
                 return [corner,(quad[0],quad[1],quad[3]),(quad[1],quad[2],quad[3])]
             return [(v0,m01,m20),(m01,v1,m12),(m20,m12,v2),(m01,m12,m20)]
 
+        right_children={}
+        for active,face in zip(selected,faces):
+            if active and any(ids[v].startswith("shoulder.R/") for v in face):
+                right_children[frozenset(face)]=split_face(face)
+        left_to_right={left:right for right,left in mirror_vertex.items()}
         next_faces=[]; next_materials=[]; next_selected=[]
         for face,material,active in zip(faces,materials,selected):
-            children=split_face(face)
+            if active and any(ids[v].startswith("shoulder.L/") for v in face):
+                try:
+                    right_key=frozenset(left_to_right[v] for v in face)
+                    source_children=right_children[right_key]
+                except (KeyError, TypeError) as error:
+                    missing=next((ids[v] for v in face if v not in mirror_vertex),None)
+                    raise ValueError(f"left shoulder face lacks mirrored parent ancestry at {missing}") from error
+                children=[tuple(mirror_vertex[v] for v in reversed(child))
+                          for child in source_children]
+            elif active and any(ids[v].startswith("shoulder.R/") for v in face):
+                children=right_children[frozenset(face)]
+            else:
+                children=split_face(face)
             next_faces.extend(children); next_materials.extend([material]*len(children))
             next_selected.extend([active]*len(children))
         faces[:]=next_faces; materials[:]=next_materials
@@ -623,10 +744,15 @@ def _refine_shoulder_component(component, join, stature, torso_weight_function):
             if not neighbors:continue
             mean=tuple(math.fsum(old_positions[n][k] for n in sorted(neighbors))/len(neighbors) for k in range(3))
             vertices[v]=tuple((1.0-relaxation)*old_positions[v][k]+relaxation*mean[k] for k in range(3))
+        for right,left in mirror_vertex.items():
+            if ids[left].startswith(("shoulder.L/loop.","shoulder.L/refine.")):
+                point=vertices[right]
+                vertices[left]=(-point[0],point[1],point[2])
 
     component["shoulder_construction_coordinates"]=coords
     component["shoulder_side_by_vertex"]=side_for_vertex
     component["shoulder_endpoint_references"]=endpoint_refs
+    component["shoulder_mirror_vertex_pairs"]=[(right,left) for right,left in mirror_vertex.items()]
     component["shoulder_bridge_vertex_ids"]=[name for name in ids if name.startswith(("shoulder.R/","shoulder.L/"))]
 
 
@@ -962,8 +1088,10 @@ def expand_surface(profile: Mapping[str, Any], template_doc: Mapping[str, Any],
                 _add(current[1],_mul(_sub(following[1],current[1]),a)),current,following,a))
     scaled_leg_rings.append((*leg_controls[-1][:2],leg_controls[-1],leg_controls[-1],0.0))
     leg_r=_loft_component("leg.R",scaled_leg_rings,ring_n=loft_n,weight_function=leg_weights,unit_scale=stature,coordinate_scale=1.0)
+    _validate_closed_oriented_component(leg_r)
     components.append(leg_r)
     leg_l=_loft_component("leg.L",scaled_leg_rings,ring_n=loft_n,weight_function=leg_weights,mirror=True,unit_scale=stature,coordinate_scale=1.0)
+    _validate_closed_oriented_component(leg_l)
     components.append(leg_l)
 
     # Feet follow their declared neutral hindfoot/MTP frames into rest through

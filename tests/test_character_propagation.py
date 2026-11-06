@@ -81,26 +81,50 @@ class CharacterPropagationTests(unittest.TestCase):
         male_before = expand_surface(profile, template, male, 1.70)
         female_before = expand_surface(profile, template, female, 1.70)
         changed_template = deepcopy(template)
-        # The third authored arm ring is in the shoulder-to-elbow span; change
-        # its anterior radius by the specified 0.001H in the disposable copy.
-        changed_template["components"][2]["control_rings"][2]["radius_h"][0] += 0.001
+        arm_source = next(component for component in changed_template["components"]
+                          if component["id"] == "arm.R")
+        target_ring = next(ring for ring in arm_source["control_rings"]
+                           if ring["span"] == "shoulder_to_elbow" and ring["t"] == 0.25)
+        # Change the authored upper-arm anterior radius in the disposable copy.
+        target_ring["radius_h"][0] += 0.001
         with tempfile.TemporaryDirectory(prefix="hml-character-radius-copy-") as temp:
             copy_path = Path(temp) / "exercise-mannequin-v1.yaml"
             copy_path.write_text(yaml.safe_dump(changed_template, sort_keys=False), encoding="utf-8")
             isolated_template = yaml.safe_load(copy_path.read_text(encoding="utf-8"))
             male_after = expand_surface(profile, isolated_template, male, 1.70)
             female_after = expand_surface(profile, isolated_template, female, 1.70)
+        def by_id(surface):
+            return {component["id"]: component for component in surface["components"]}
+
         for before, after, scale in ((male_before, male_after, 1.0),
                                      (female_before, female_after, female["radius_scales"]["arm"])):
-            old = before["components"][2]["vertices_m"][8*32]
-            new = after["components"][2]["vertices_m"][8*32]
-            self.assertAlmostEqual(sum((new[i]-old[i])**2 for i in range(3))**0.5,
-                                   0.001*1.70*scale, delta=1e-10)
+            before_components, after_components = by_id(before), by_id(after)
+            old_torso, new_torso = before_components["torso"], after_components["torso"]
+            old_indices = {identifier: index for index, identifier in enumerate(old_torso["vertex_ids"])}
+            new_indices = {identifier: index for index, identifier in enumerate(new_torso["vertex_ids"])}
+            self.assertEqual(old_torso["vertex_ids"], new_torso["vertex_ids"])
+            self.assertEqual(old_torso["faces"], new_torso["faces"])
+            self.assertEqual(old_torso["weights"], new_torso["weights"])
+            self.assertEqual(old_torso["face_materials"], new_torso["face_materials"])
+            for side in ("R", "L"):
+                identifier = f"arm.{side}/ring.008/sector.00"
+                old = old_torso["vertices_m"][old_indices[identifier]]
+                new = new_torso["vertices_m"][new_indices[identifier]]
+                self.assertAlmostEqual(sum((new[i]-old[i])**2 for i in range(3))**0.5,
+                                       0.001*1.70*scale, delta=1e-10)
+            for identifier, index in old_indices.items():
+                if identifier.startswith("torso/ring."):
+                    self.assertEqual(old_torso["vertices_m"][index],
+                                     new_torso["vertices_m"][new_indices[identifier]], identifier)
+                if identifier.startswith(("arm.R/ring.", "arm.L/ring.")):
+                    ring_number = int(identifier.split("/ring.", 1)[1].split("/", 1)[0])
+                    if ring_number >= 12:
+                        self.assertEqual(old_torso["vertices_m"][index],
+                                         new_torso["vertices_m"][new_indices[identifier]], identifier)
+            for unaffected in ("head", "leg.R", "leg.L", "foot.R", "foot.L"):
+                self.assertEqual(before_components[unaffected], after_components[unaffected])
+            self.assertNotEqual(before["surface_sha256"], after["surface_sha256"])
         self.assertEqual(profile, profile_before)
-        self.assertEqual(male_before["components"][0], male_after["components"][0])
-        self.assertEqual(female_before["components"][0], female_after["components"][0])
-        self.assertNotEqual(male_before["surface_sha256"], male_after["surface_sha256"])
-        self.assertNotEqual(female_before["surface_sha256"], female_after["surface_sha256"])
 
     def test_female_waist_edit_isolated_to_female_surface(self):
         profile, template, male, female = self._surface_inputs()

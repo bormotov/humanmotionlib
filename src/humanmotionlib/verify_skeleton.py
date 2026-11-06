@@ -3,6 +3,7 @@
 
 import argparse
 import json
+from fractions import Fraction
 from pathlib import Path
 import sys
 
@@ -11,6 +12,144 @@ from humanmotionlib.measurements import Measurements, measure_pose
 from humanmotionlib.prepared import read_prepared, write_json
 from humanmotionlib.runtime import resolve_workspace_path, validate_run_content_path, workspace_root
 from humanmotionlib.poses import neutral_pose, rest_pose
+
+
+_DIAGONAL_PAIRS = {"skeleton": 1.50, "male": 1.70, "female": 1.90}
+
+
+def _parse_diagonal_builds(values):
+    """Parse CHARACTER=RUN operands without normalizing away duplicate IDs."""
+    parsed = []
+    for value in values or ():
+        if not isinstance(value, str) or "=" not in value:
+            raise ValueError("--diagonal-build must use CHARACTER=RUN form")
+        identifier, run = value.split("=", 1)
+        if not identifier or not run:
+            raise ValueError("--diagonal-build must use nonempty CHARACTER=RUN values")
+        parsed.append((identifier, Path(run)))
+    identifiers = [identifier for identifier, _ in parsed]
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError("--diagonal-build contains a duplicate character")
+    if len(parsed) != len(_DIAGONAL_PAIRS) or set(identifiers) != set(_DIAGONAL_PAIRS):
+        raise ValueError("--diagonal-build requires exactly skeleton, male and female")
+    return parsed
+
+
+def _diagonal_numeric_coverage_failures(prepared):
+    """Require the complete packaged diagnostic set and default BPM plans."""
+    from humanmotionlib.sampling import delivered_beats, sampling
+    from humanmotionlib.validate import load_sources, validate_sources
+
+    failures = []
+    try:
+        profile_id = prepared["sources"]["profile"]["id"]
+        validate_sources(profile_id)
+        canonical, _ = load_sources(profile_id)
+        failures.extend(_matrix_definition_failures([prepared], canonical))
+        diagnostics = canonical["diagnostics"]
+        if len(diagnostics) != 32:
+            failures.append(f"canonical diagnostic set has {len(diagnostics)} fixtures; expected 32")
+        fixture_ids = [row["id"] for row in diagnostics]
+        if len(set(fixture_ids)) != 32:
+            failures.append("canonical diagnostic fixture IDs are not 32 unique entries")
+
+        expected_sampling = {}
+        expected_samples = {}
+        stature = prepared["sources"]["profile"]["stature_m"]
+        scaled_diagnostics = _scale_diagonal_diagnostics(diagnostics, stature,
+                                                         canonical["profile"]["stature_m"])
+        for fixture in sorted(scaled_diagnostics, key=lambda row: row["id"]):
+            fixture_id = fixture["id"]
+            beats = delivered_beats(fixture["duration_beats"], (60, 120, 180))
+            ids = {beat: fixture_id + f"/{index:05d}" for index, beat in enumerate(beats)}
+            expected_sampling[fixture_id] = []
+            for bpm in (60, 120, 180):
+                plan = sampling(fixture["duration_beats"], bpm)
+                for mode in ("static", "animation"):
+                    for record in plan[mode]:
+                        beat = Fraction(record["beat"]["numerator"], record["beat"]["denominator"])
+                        record["sample_id"] = ids[beat]
+                expected_sampling[fixture_id].append(plan)
+                for beat, sample_id in ids.items():
+                    expected_samples[sample_id] = (fixture_id, beat.numerator, beat.denominator)
+        if prepared.get("sampling") != expected_sampling:
+            failures.append("prepared sampling does not cover all 32 canonical diagnostics at BPM 60, 120 and 180")
+        observed_samples = {}
+        for row in prepared.get("samples", []):
+            try:
+                beat = row["beat"]
+                observed_samples[row["id"]] = (row["fixture"], beat["numerator"], beat["denominator"])
+            except (KeyError, TypeError):
+                failures.append("prepared sample inventory contains a malformed fixture/beat row")
+        if observed_samples != expected_samples:
+            failures.append("prepared sample inventory does not cover the complete canonical diagnostic/BPM plan")
+    except (KeyError, TypeError, ValueError, OSError) as error:
+        failures.append(f"canonical diagonal numeric coverage could not be verified: {error}")
+    return failures
+
+
+def _scale_diagonal_diagnostics(diagnostics, stature, reference_height):
+    from humanmotionlib.poses import scale_meter_fields
+    return scale_meter_fields(diagnostics, stature / reference_height)
+
+
+def _diagonal_numeric_aggregate(rows, prepared_rows):
+    """Aggregate the three approved leaves without claiming a full matrix."""
+    required_pairs = [{"character_id": identifier, "stature_m": height}
+                      for identifier, height in _DIAGONAL_PAIRS.items()]
+    failures = []
+    observed_pairs = []
+    for (identifier, expected_height), prepared, leaf in zip(_DIAGONAL_PAIRS.items(), prepared_rows, rows):
+        observed_height = float(prepared["sources"]["profile"]["stature_m"])
+        pair = {"character_id": identifier, "stature_m": observed_height}
+        observed_pairs.append(pair)
+        if abs(observed_height - expected_height) > 1e-9:
+            failures.append(f"{identifier} has H={observed_height:.9g}; expected H={expected_height:.2f}")
+        failures.extend(_diagonal_numeric_coverage_failures(prepared))
+        if leaf.get("numeric_status") != "pass":
+            failures.append(f"{identifier} H={expected_height:.2f} numeric leaf did not pass")
+        if (leaf.get("verification_scope") != "selected-character-numeric-leaf"
+                or leaf.get("checked_character_ids") != [identifier]
+                or not isinstance(leaf.get("render_identity"), str)):
+            failures.append(f"{identifier} leaf is missing its selected-character/render identity")
+        if identifier == "skeleton":
+            if (leaf.get("native_midpoints", {}).get("status") != "not-applicable-skeleton"
+                    or leaf.get("dense", {}).get("status") != "not-applicable-skeleton"):
+                failures.append("skeleton leaf does not explicitly scope surface midpoint/dense checks as not applicable")
+        elif any(leaf.get(key, {}).get("status") != "pass"
+                 for key in ("native_midpoints", "dense")):
+            failures.append(f"{identifier} leaf native midpoint/dense checks did not pass")
+    failures.extend(_matrix_shared_identity_failures(prepared_rows))
+    try:
+        from humanmotionlib.validate import load_sources, validate_sources
+        profile_id = prepared_rows[0]["sources"]["profile"]["id"]
+        validate_sources(profile_id)
+        canonical, _ = load_sources(profile_id)
+        failures.extend(_matrix_definition_failures(prepared_rows, canonical))
+    except (KeyError, TypeError, ValueError, OSError) as error:
+        failures.append(f"canonical diagonal source validation failed: {error}")
+    unassessed = [{"character_id": identifier, "stature_m": height}
+                  for identifier, height in (("skeleton", 1.70), ("skeleton", 1.90),
+                                             ("male", 1.50), ("male", 1.90),
+                                             ("female", 1.50), ("female", 1.70))]
+    status = "pass" if not failures and len(rows) == 3 else "fail"
+    return {
+        "format": "hml-character-diagonal-numeric/v1",
+        "verification_scope": "diagonal-v1",
+        "scope": "exactly skeleton H=1.50, male H=1.70, female H=1.90",
+        "status": status,
+        "numeric_status": status,
+        "matrix_complete": False,
+        "required_pairs": required_pairs,
+        "observed_pairs": observed_pairs,
+        "unassessed_pairs": unassessed,
+        "failures": failures,
+        "rendering": "not-run",
+        "repeatability": "not-assessed",
+        "visual": "not-assessed",
+        "full_change_acceptance": "not-assessed",
+        "leaves": rows,
+    }
 
 
 def _matrix_definition_failures(matrix_inputs, canonical_sources,
@@ -123,11 +262,34 @@ def main(workspace=None):
     parser.add_argument("--numeric-only",action="store_true",
                         help="Verify complete no-images character construction evidence; requires --character-output")
     parser.add_argument("--selected-character", help="Opt into a scoped numeric comparison for one registered character")
+    parser.add_argument("--acceptance-scope", choices=("diagonal-v1",),
+                        help="Use the approved three-pair diagonal numeric acceptance scope")
+    parser.add_argument("--diagonal-build", action="append", default=[], metavar="CHARACTER=RUN",
+                        help="One diagonal numeric build; repeat for skeleton, male and female")
     args = parser.parse_args()
     try:
+        if args.acceptance_scope == "diagonal-v1":
+            if (not args.numeric_only or args.character_output is None or args.transforms_only
+                    or args.thorax_preview or args.squat_preview or args.dense or args.dense_floor
+                    or args.action_coverage or args.stature_builds):
+                raise ValueError("diagonal-v1 cannot mix numeric, preview, transform, action-coverage or stature modes")
+            if args.selected_character:
+                if args.diagonal_build:
+                    raise ValueError("diagonal leaf mode cannot include --diagonal-build operands")
+                from humanmotionlib.characters import validate_character_sources
+                known_ids = {row["id"] for row in validate_character_sources()}
+                if args.selected_character not in _DIAGONAL_PAIRS or args.selected_character not in known_ids:
+                    raise ValueError("diagonal leaf requires one approved character ID")
+                diagonal_specs = None
+            else:
+                diagonal_specs = _parse_diagonal_builds(args.diagonal_build)
+        elif args.diagonal_build:
+            raise ValueError("--diagonal-build requires --acceptance-scope diagonal-v1")
+        else:
+            diagonal_specs = None
         if args.numeric_only and args.character_output is None:
             raise ValueError("--numeric-only requires --character-output")
-        if args.selected_character is not None:
+        if args.selected_character is not None and args.acceptance_scope != "diagonal-v1":
             if (not args.numeric_only or args.character_output is None or not args.stature_builds
                     or args.transforms_only or args.thorax_preview or args.squat_preview
                     or args.dense or args.dense_floor):
@@ -136,6 +298,8 @@ def main(workspace=None):
             registered_character_ids = [row["id"] for row in validate_character_sources()]
             if args.selected_character not in registered_character_ids:
                 raise ValueError(f"unknown selected character {args.selected_character!r}")
+        elif args.selected_character is None:
+            registered_character_ids = None
         else:
             registered_character_ids = None
         workspace = workspace_root(workspace)
@@ -148,7 +312,7 @@ def main(workspace=None):
             raise ValueError("verification input and report output runs must be disjoint")
         stature_builds = ([resolve_workspace_path(item, workspace) for item in args.stature_builds]
                           if args.stature_builds else None)
-        if args.selected_character is not None:
+        if args.selected_character is not None and args.acceptance_scope != "diagonal-v1":
             if len({path.resolve(strict=False) for path in stature_builds}) != 3:
                 raise ValueError("--selected-character requires three distinct stature builds")
             if input_root.resolve(strict=False) != stature_builds[0].resolve(strict=False):
@@ -164,6 +328,114 @@ def main(workspace=None):
                 if build == output_run or build.is_relative_to(output_run) or output_run.is_relative_to(build):
                     raise ValueError("stature comparison inputs must be disjoint from report output run")
         prepared = read_prepared(path)
+        if diagonal_specs is not None:
+            from humanmotionlib.characters import validate_character_sources
+            from humanmotionlib.character_verification import verify_character_output
+            from humanmotionlib.runtime import validate_existing_run_root
+            registry_ids = [row["id"] for row in validate_character_sources()]
+            diagonal_runs = {identifier: resolve_workspace_path(run, workspace)
+                             for identifier, run in diagonal_specs}
+            if set(diagonal_runs) != set(_DIAGONAL_PAIRS):
+                raise ValueError("diagonal-v1 requires exactly skeleton, male and female")
+            diagonal_paths = [path.resolve(strict=False) for path in diagonal_runs.values()]
+            for index, left in enumerate(diagonal_paths):
+                for right in diagonal_paths[index + 1:]:
+                    if left == right or left.is_relative_to(right) or right.is_relative_to(left):
+                        raise ValueError("diagonal input runs must be distinct and disjoint")
+            skeleton_run = validate_existing_run_root(diagonal_runs["skeleton"], workspace)
+            if (input_root.resolve(strict=False) != skeleton_run.resolve(strict=False)
+                    or resolve_workspace_path(args.character_output, workspace).resolve(strict=False)
+                    != skeleton_run.resolve(strict=False)):
+                raise ValueError("diagonal-v1 --input and --character-output must name the skeleton H1.50 run")
+            resolved_runs = {}
+            diagonal_prepared = {}
+            diagonal_backend = {}
+            for identifier, height in _DIAGONAL_PAIRS.items():
+                run = validate_existing_run_root(diagonal_runs[identifier], workspace)
+                if run == output_run or run.is_relative_to(output_run) or output_run.is_relative_to(run):
+                    raise ValueError(f"diagonal-v1 {identifier} input and output must be disjoint")
+                if run / "input.json" != (input_operand / "input.json" if input_operand.is_dir() else input_operand) and identifier == "skeleton":
+                    raise ValueError("diagonal-v1 skeleton input must be the --input run")
+                run_prepared = read_prepared(run / "input.json")
+                observed_height = float(run_prepared["sources"]["profile"]["stature_m"])
+                if abs(observed_height - height) > 1e-9:
+                    raise ValueError(f"diagonal-v1 {identifier} input must be H={height:.2f} m")
+                if run_prepared.get("consumer_motion") is not None:
+                    raise ValueError("diagonal-v1 numeric leaf must use canonical packaged diagnostics, not consumer input")
+                metadata_path = run / "build-metadata.json"
+                if metadata_path.is_symlink() or not metadata_path.is_file():
+                    raise ValueError(f"diagonal {identifier} build metadata is missing or unsafe")
+                metadata = json.loads(metadata_path.read_text())
+                from humanmotionlib.runtime import check_blender_version
+                backend = check_blender_version(metadata.get("blender_version"),
+                                                 metadata.get("blender_build"))
+                diagonal_backend[identifier] = {"version": metadata["blender_version"],
+                                                "build_hash": metadata["blender_build"]}
+                resolved_runs[identifier] = run
+                diagonal_prepared[identifier] = run_prepared
+            if len({(row["version"], row["build_hash"]) for row in diagonal_backend.values()}) != 1:
+                raise ValueError("diagonal candidate backend identities differ")
+            if output.exists():
+                raise ValueError(f"verification report already exists: {output}")
+            rows = []
+            for identifier, _height in _DIAGONAL_PAIRS.items():
+                leaf = verify_character_output(diagonal_prepared[identifier], resolved_runs[identifier],
+                    registry_ids, numeric_only=True, selected_character_id=identifier,
+                    require_complete_diagnostic_coverage=True)
+                rows.append({"character_id": identifier, "stature_m": _DIAGONAL_PAIRS[identifier],
+                             "prepared_sha256": diagonal_prepared[identifier].get("content_sha256"),
+                             "run": str(resolved_runs[identifier]), "report": leaf})
+            aggregate = _diagonal_numeric_aggregate(
+                [row["report"] for row in rows],
+                [diagonal_prepared[identifier] for identifier in _DIAGONAL_PAIRS])
+            aggregate["leaves"] = rows
+            aggregate["backend_identity"] = diagonal_backend
+            result = {"status": aggregate["status"], "numeric_status": aggregate["numeric_status"],
+                      "verification_scope": "diagonal-v1", "scope": aggregate["scope"],
+                      "acceptance": ("diagonal numeric acceptance only; excluded pairs and visual evidence remain unassessed"
+                                     if aggregate["status"] == "pass" else "diagonal numeric acceptance failed or incomplete"),
+                      "character_verification": aggregate}
+            output.parent.mkdir(parents=True, exist_ok=True)
+            write_json(output, result)
+            print(f"{result['status']}: {result['scope']} (3 diagonal leaves)")
+            return 0 if result["status"] == "pass" else 1
+        if args.acceptance_scope == "diagonal-v1":
+            from humanmotionlib.characters import validate_character_sources
+            from humanmotionlib.character_verification import verify_character_output
+            from humanmotionlib.runtime import validate_existing_run_root
+            identifier = args.selected_character
+            required_height = _DIAGONAL_PAIRS[identifier]
+            run = validate_existing_run_root(resolve_workspace_path(args.character_output, workspace), workspace)
+            if input_root.resolve(strict=False) != run.resolve(strict=False):
+                raise ValueError("diagonal leaf --input and --character-output must name the same run")
+            if run == output_run or run.is_relative_to(output_run) or output_run.is_relative_to(run):
+                raise ValueError("diagonal leaf input and report output runs must be disjoint")
+            actual_height = float(prepared["sources"]["profile"]["stature_m"])
+            if abs(actual_height-required_height) > 1e-9:
+                raise ValueError(f"diagonal leaf {identifier} requires H={required_height:.2f} m")
+            if prepared.get("consumer_motion") is not None:
+                raise ValueError("diagonal numeric leaf requires canonical packaged diagnostics")
+            ids = [row["id"] for row in validate_character_sources()]
+            leaf = verify_character_output(prepared, run, ids, numeric_only=True,
+                                           selected_character_id=identifier,
+                                           require_complete_diagnostic_coverage=True)
+            status = "pass" if leaf.get("numeric_status") == "pass" else "fail"
+            report = {"status": status, "numeric_status": status,
+                      "verification_scope": "diagonal-v1",
+                      "scope": f"{identifier} H={required_height:.2f} numeric leaf",
+                      "matrix_complete": False,
+                      "required_pairs": [{"character_id": key, "stature_m": height}
+                                         for key, height in _DIAGONAL_PAIRS.items()],
+                      "observed_pairs": [{"character_id": identifier, "stature_m": actual_height}],
+                      "unassessed_pairs": [{"character_id": key, "stature_m": height}
+                                            for key, height in _DIAGONAL_PAIRS.items() if key != identifier],
+                      "rendering": "not-run", "repeatability": "not-assessed",
+                      "visual": "not-assessed", "full_change_acceptance": "not-assessed",
+                      "leaf": leaf}
+            output.parent.mkdir(parents=True, exist_ok=True)
+            write_json(output, report)
+            print(f"{status}: {report['scope']}")
+            return 0 if status == "pass" else 1
         if args.selected_character is not None:
             observed_heights = [float(read_prepared(directory / "input.json")["sources"]["profile"]["stature_m"])
                                 for directory in stature_builds]

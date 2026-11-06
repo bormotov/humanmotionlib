@@ -548,6 +548,15 @@ def _read_evaluated_candidate(run_root, *, matrix_mode=False):
     return prepared
 
 
+def _preflight_current_candidate(run_root, primary, *, matrix_mode=False):
+    """Require evaluated evidence to match the current prepared candidate."""
+    evaluated = _read_evaluated_candidate(run_root, matrix_mode=matrix_mode)
+    for field in ("content_sha256", "package_identity", "source_hashes"):
+        if evaluated.get(field) != primary.get(field):
+            raise ValueError(f"Primary candidate evaluated evidence has stale {field}")
+    return evaluated
+
+
 def _stature_comparison_inputs(specifications, primary, output, workspace, *, matrix_mode=False):
     """Preflight caller-supplied H=1.50/1.90 candidate runs before any output write."""
     primary_height = float(primary["sources"]["profile"]["stature_m"])
@@ -599,7 +608,7 @@ def _stature_comparison_inputs(specifications, primary, output, workspace, *, ma
 def _preflight_skeleton_baseline(run_value, primary, candidate_run, output, workspace, *, matrix_mode=False):
     """Validate historical baseline content/output against its own sealed identity."""
     if run_value is None:
-        return {"status": "incomplete", "missing": "--skeleton-baseline"}
+        return None
     baseline_root = validate_existing_run_root(Path(run_value), workspace)
     if baseline_root == output or baseline_root.is_relative_to(output) or output.is_relative_to(baseline_root):
         raise ValueError("Skeleton baseline and review-pack output must be disjoint")
@@ -609,15 +618,11 @@ def _preflight_skeleton_baseline(run_value, primary, candidate_run, output, work
     # The prepared content seal is checked, but the historical package identity
     # is intentionally not compared to the active candidate installation.
     baseline = read_prepared(input_path, check_sources=False)
-    if baseline["sources"]["profile"]["id"] != primary["sources"]["profile"]["id"]:
-        raise ValueError("Skeleton baseline profile does not match the candidate")
-    if baseline["sources"]["review-scene"] != primary["sources"]["review-scene"]:
-        raise ValueError("Skeleton baseline fixed scene differs from the candidate")
     # Forefoot-rocker and the surface-focused sweeps are additions of this
     # change. Historical skeleton comparison is limited to the shared core
     # samples; those new samples remain covered by current clean-pass checks.
     relevant = ("neutral", "rest", "arm-raise", "squat", "walking-in-place")
-    comparisons = _baseline_sample_matches(primary, baseline, relevant)
+    comparisons, comparison = _optional_baseline_sample_matches(primary, baseline, relevant)
     manifest_path = baseline_root / "render-manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text())
@@ -629,11 +634,12 @@ def _preflight_skeleton_baseline(run_value, primary, candidate_run, output, work
     manifest_rows = {row["id"]: row for row in manifest["samples"]}
     for match in comparisons:
         record = manifest_rows.get(match["baseline_sample_id"])
-        if record is None or set(record.get("images", {})) != set(match["required_views"]):
-            raise ValueError(
-                "Skeleton baseline is missing a required view at "
-                f"{match['fixture']} beat {match['beat']['numerator']}/{match['beat']['denominator']}"
-            )
+        available = set(record.get("images", {})) if record else set()
+        match["available_views"] = sorted(available & set(match["required_views"]))
+        missing_views = sorted(set(match["required_views"]) - available)
+        if missing_views:
+            comparison["missing_views"].append({"sample_id": match["baseline_sample_id"],
+                                                "views": missing_views})
     candidate_run = validate_existing_run_root(Path(candidate_run), workspace)
     candidate_content = candidate_run / "render" if matrix_mode else candidate_run
     if (candidate_content == output or candidate_content.is_relative_to(output)
@@ -646,10 +652,21 @@ def _preflight_skeleton_baseline(run_value, primary, candidate_run, output, work
     for match in comparisons:
         old = baseline_evaluated[match["baseline_sample_id"]]
         new = candidate_evaluated[match["candidate_sample_id"]]
-        baseline_geometry_checks.append(_compare_baseline_evaluated_geometry(
-            old, new, float(primary["sources"]["profile"]["stature_m"]),
-            f"{match['fixture']}/{match['beat']['numerator']}/{match['beat']['denominator']}"
-        ))
+        try:
+            baseline_geometry_checks.append(_compare_baseline_evaluated_geometry(
+                old, new, float(primary["sources"]["profile"]["stature_m"]),
+                f"{match['fixture']}/{match['beat']['numerator']}/{match['beat']['denominator']}"
+            ))
+        except ValueError as error:
+            baseline_geometry_checks.append({"fixture_beat":
+                f"{match['fixture']}/{match['beat']['numerator']}/{match['beat']['denominator']}",
+                "status": "fail", "reason": str(error)})
+    if any(row["status"] == "fail" for row in baseline_geometry_checks):
+        comparison["status"] = "fail"
+        comparison["geometry"] = {"status": "fail", "samples": baseline_geometry_checks}
+    else:
+        comparison["geometry"] = {"status": "pass" if comparisons else "incomplete",
+                                   "samples": baseline_geometry_checks}
     receipt_candidates = []
     for path in (baseline_root / "processes").glob("*/outcome.json"):
         try:
@@ -678,13 +695,79 @@ def _preflight_skeleton_baseline(run_value, primary, candidate_run, output, work
     if not required_names <= {path.as_posix() for path in paths}:
         raise ValueError("Skeleton baseline receipt does not hash every required render artifact")
     _receipt_files_unchanged(receipt, baseline_root, paths)
-    return {"status": "pass", "run_root": baseline_root, "prepared": baseline,
+    if comparison["status"] == "pass" and (comparison["missing_candidate_samples"]
+                                             or comparison["missing_views"]):
+        comparison["status"] = "incomplete"
+    source_differences = []
+    if baseline["sources"]["profile"]["id"] != primary["sources"]["profile"]["id"]:
+        source_differences.append("profile identity differs")
+    if baseline["sources"]["review-scene"] != primary["sources"]["review-scene"]:
+        source_differences.append("fixed scene differs")
+    if source_differences:
+        comparison["source_differences"] = source_differences
+        comparison["status"] = "fail"
+    return {"status": "pass", "comparison_status": comparison["status"],
+            "comparison": comparison, "run_root": baseline_root, "prepared": baseline,
             "manifest": manifest, "required_paths": required,
             "receipt_path": str(receipt_path), "common_sample_ids": [row["candidate_sample_id"] for row in comparisons],
             "common_sample_matches": comparisons,
-            "evaluated_geometry": {"status": "pass", "samples": baseline_geometry_checks},
+            "evaluated_geometry": comparison.get("geometry", {"status": "incomplete", "samples": []}),
             "render_identity": manifest.get("render_identity"),
             "prepared_sha256": baseline["content_sha256"]}
+
+
+def _optional_baseline_sample_matches(candidate, baseline, relevant_fixtures):
+    """Join historical samples without making missing or changed history fatal."""
+    relevant = set(relevant_fixtures)
+
+    def indexed(prepared, label):
+        rows = {}
+        for sample in prepared.get("samples", []):
+            fixture = sample.get("fixture")
+            if fixture not in relevant:
+                continue
+            try:
+                beat_record = sample["beat"]
+                beat = Fraction(beat_record["numerator"], beat_record["denominator"])
+            except (KeyError, TypeError, ValueError, ZeroDivisionError) as error:
+                raise ValueError(f"{label} has an invalid beat for {sample.get('id')}") from error
+            key = (fixture, beat)
+            if key in rows:
+                raise ValueError(f"{label} has duplicate logical sample key {fixture}@{beat}")
+            rows[key] = sample
+        return rows
+
+    candidate_rows = indexed(candidate, "Candidate")
+    baseline_rows = indexed(baseline, "Skeleton baseline")
+    common = candidate_rows.keys() & baseline_rows.keys()
+    matches = []
+    movement_differences = []
+    for fixture, beat in sorted(common):
+        current, historical = candidate_rows[(fixture, beat)], baseline_rows[(fixture, beat)]
+        differing_fields = [field for field in ("frames", "actions", "contacts", "world_root")
+                            if current.get(field) != historical.get(field)]
+        if differing_fields:
+            movement_differences.append({"fixture": fixture,
+                "beat": {"numerator": beat.numerator, "denominator": beat.denominator},
+                "fields": differing_fields})
+        matches.append({"fixture": fixture,
+            "beat": {"numerator": beat.numerator, "denominator": beat.denominator},
+            "baseline_sample_id": historical["id"], "candidate_sample_id": current["id"],
+            "required_views": sorted(_expected_views(candidate, current))})
+    missing = [{"fixture": fixture, "beat": {"numerator": beat.numerator,
+                "denominator": beat.denominator}, "sample_id": sample["id"]}
+               for (fixture, beat), sample in sorted(candidate_rows.items())
+               if (fixture, beat) not in baseline_rows]
+    comparison = {"status": "pass", "common_samples": len(matches),
+                  "missing_candidate_samples": missing, "extra_historical_samples": [
+                      {"fixture": fixture, "beat": {"numerator": beat.numerator,
+                       "denominator": beat.denominator}, "sample_id": sample["id"]}
+                      for (fixture, beat), sample in sorted(baseline_rows.items())
+                      if (fixture, beat) not in candidate_rows],
+                  "missing_views": [], "movement_differences": movement_differences}
+    if not matches or missing or movement_differences:
+        comparison["status"] = "incomplete" if not matches or missing else "fail"
+    return matches, comparison
 
 
 def _baseline_sample_matches(candidate, baseline, relevant_fixtures):
@@ -848,7 +931,8 @@ def _compare_baseline_evaluated_geometry(old, new, height, sample_label):
 
 
 def _managed_render(input_path, root, workspace, name, characters, *,
-                    timeout_seconds, slot_timeout_seconds, matrix_element_root=None):
+                    timeout_seconds, slot_timeout_seconds, matrix_element_root=None,
+                    owner_run=None):
     """Run one finite designated pass using the same sealed API as public render."""
     from humanmotionlib import api
     directory = root / name
@@ -863,7 +947,8 @@ def _managed_render(input_path, root, workspace, name, characters, *,
             **kwargs)
     else:
         result = api._render_owned_pass(
-            input_path, workspace=workspace, output=directory, owner_run=root,
+            input_path, workspace=workspace, output=directory,
+            owner_run=root if owner_run is None else owner_run,
             images=True, render_dir=directory / "frames", render_only=True,
             timeout_seconds=timeout_seconds, slot_timeout_seconds=slot_timeout_seconds,
             **kwargs)
@@ -890,6 +975,65 @@ def _pixel_comparison(name, a, b, root, *, character_id, sample_id, view,
     if beat is not None:
         result["beat"] = beat
     return result
+
+
+_CURRENT_MODE_COMPARISONS = {
+    "skeleton-default": "skeleton",
+    "skeleton-explicit": "skeleton",
+    "male-singleton": "male",
+    "female-singleton": "female",
+}
+
+
+def _current_mode_comparison_status(rows, prepared, batch_images, character_ids):
+    """Require complete, passing current-candidate mode comparisons."""
+    if tuple(character_ids) != ("skeleton", "male", "female"):
+        return {"status": "incomplete", "missing": ["complete character selection"]}
+    expected = {
+        (name, identifier, sample["id"], view)
+        for name, identifier in _CURRENT_MODE_COMPARISONS.items()
+        for sample in prepared["samples"]
+        for view in batch_images[identifier][sample["id"]]
+    }
+    if not expected:
+        return {"status": "incomplete", "missing": ["current-mode sample/view evidence"]}
+    observed = {}
+    duplicates = []
+    for row in rows:
+        name = row.get("comparison")
+        if name not in _CURRENT_MODE_COMPARISONS:
+            continue
+        key = (name, row.get("character_id"), row.get("sample_id"), row.get("view"))
+        observed[key] = observed.get(key, 0) + 1
+        if observed[key] > 1:
+            duplicates.append(key)
+    actual = set(observed)
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    failed = sorted(key for key in expected & actual
+                    if any(row.get("status") != "pass" and
+                           (row.get("comparison"), row.get("character_id"),
+                            row.get("sample_id"), row.get("view")) == key for row in rows))
+    status = ("fail" if failed else "incomplete" if missing or unexpected or duplicates
+              else "pass")
+    return {"status": status, "missing": [list(key) for key in missing],
+            "unexpected": [list(key) for key in unexpected],
+            "duplicates": [list(key) for key in duplicates],
+            "failed": [list(key) for key in failed],
+            "comparison_count": len(actual)}
+
+
+def _complete_character_pack_status(*, coverage_status, character_ids,
+                                    current_mode_status, stature_status,
+                                    repeatability_status, gif_status):
+    """Determine current acceptance completeness; historical baseline is optional."""
+    required = (coverage_status == "pass"
+                and tuple(character_ids) == ("skeleton", "male", "female")
+                and current_mode_status == "pass"
+                and stature_status == "pass"
+                and repeatability_status == "pass"
+                and gif_status == "pass")
+    return "pass" if required else "incomplete"
 
 
 def _stature_strip(stature_inputs, character_ids, root):
@@ -988,8 +1132,8 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
                 repeat.append({"character_id": identifier, "sample_id": sample["id"],
                                "view": view, "status": "pass" if same else "fail",
                                "image": str(path.relative_to(root))})
-    repeat_report = {"status": "pass" if repeat and all(row["status"] == "pass" for row in repeat)
-                     else "fail", "comparisons": repeat,
+    repeat_report = {"status": ("pass" if repeat and all(row["status"] == "pass" for row in repeat)
+                                else "fail" if repeat else "incomplete"), "comparisons": repeat,
                      "criterion": "Exact decoded RGBA equality for each character/sample/view across clean passes."}
     comparison_rows = []
     comparison_passes = comparison_passes or {}
@@ -1017,7 +1161,7 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
             baseline_dir = root / "reference" / "baseline"
             for match in baseline["common_sample_matches"]:
                 old_id, candidate_id = match["baseline_sample_id"], match["candidate_sample_id"]
-                for view in match["required_views"]:
+                for view in match.get("available_views", match["required_views"]):
                     old_path = baseline_images["skeleton"][old_id].get(view)
                     candidate_path = batch_images["skeleton"][candidate_id].get(view)
                     if old_path is None or candidate_path is None:
@@ -1037,8 +1181,19 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
                                             "image": str(target.relative_to(root)),
                                             "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
             baseline["copied_images"] = baseline_copied
-        else:
-            baseline = baseline or {"status": "incomplete", "missing": "--skeleton-baseline"}
+            pixel_rows = [row for row in comparison_rows if row.get("comparison") == "skeleton-baseline"]
+            baseline["comparison"]["pixel"] = {
+                "status": ("fail" if any(row["status"] == "fail" for row in pixel_rows)
+                           else "pass" if pixel_rows else "incomplete"),
+                "comparison_count": len(pixel_rows)}
+            if baseline["comparison"]["pixel"]["status"] == "fail":
+                baseline["comparison_status"] = baseline["comparison"]["status"] = "fail"
+            elif (baseline["comparison_status"] == "pass"
+                  and baseline["comparison"]["pixel"]["status"] != "pass"):
+                baseline["comparison_status"] = baseline["comparison"]["status"] = "incomplete"
+        # Historical comparison is optional. Its presence never changes whether
+        # the current-candidate acceptance pack is complete.
+    current_mode_report = _current_mode_comparison_status(comparison_rows, prepared, images, ids)
     stature_report = {"status": "incomplete", "missing_heights": [1.50, 1.90], "images": []}
     if ids == ("skeleton", "male", "female") and stature_inputs:
         stature_report = _stature_strip(stature_inputs, ids, root)
@@ -1193,16 +1348,25 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
                "character_ids": list(ids), "characters": request.get("character_descriptors", [])}
     write_json(root / "character-sources.json", sources)
     write_json(root / "render-repeatability.json", repeat_report)
-    complete_pack_status = ("pass" if coverage["status"] == "pass"
-                             and ids == ("skeleton", "male", "female")
-                             and (baseline or {}).get("status") == "pass"
-                             and stature_report["status"] == "pass"
-                             and comparison_rows
-                             and all(row["status"] == "pass" for row in comparison_rows)
-                             and repeat_report["status"] == "pass" else "incomplete")
+    gif_status = ("pass" if gif_metrics and all(item["status"] == "pass" for item in gif_metrics)
+                  else "fail" if gif_metrics else "incomplete")
+    complete_pack_status = _complete_character_pack_status(
+        coverage_status=coverage["status"], character_ids=ids,
+        current_mode_status=current_mode_report["status"],
+        stature_status=stature_report["status"],
+        repeatability_status=repeat_report["status"], gif_status=gif_status)
     write_json(root / "character-pack-coverage.json", coverage | {"selected_characters": list(ids),
+               "scope": "visual-comparison-pack",
+               "full_change_acceptance": "not-assessed",
+               "external_verification_required": [
+                   "source/package parity", "API/CLI parity",
+                   "full native/dense numeric and contact checks",
+                   "independent review", "human Gate 2"],
                "character_set_status": "pass" if ids == ("skeleton", "male", "female") else "incomplete",
-               "baseline_status": (baseline or {}).get("status", "incomplete"),
+               "baseline_evidence_status": (baseline or {}).get("status", "not-required"),
+               "baseline_status": (baseline or {}).get("comparison_status", "not-required"),
+               "current_mode_status": current_mode_report["status"],
+               "current_mode_comparisons": current_mode_report,
                "stature_status": stature_report["status"] if stature_inputs else "incomplete",
                "complete_pack_status": complete_pack_status})
     write_json(root / "character-pack-inventory.json", {
@@ -1220,16 +1384,19 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
         metric["status"] == "pass" for metric in gif_metrics) else "fail", "previews": gif_metrics})
     write_json(root / "build-metadata.json", first["metadata"])
     write_json(root / "sample-timing.json", prepared["sampling"])
-    baseline_status = baseline.get("status", "incomplete") if baseline else "incomplete"
-    regression_status = "pass" if comparison_rows and all(row["status"] == "pass" for row in comparison_rows) else "fail"
+    baseline_status = baseline.get("comparison_status", "not-required") if baseline else "not-required"
+    regression_status = current_mode_report["status"]
     write_json(root / "character-regression.json", {
-        "status": "incomplete" if ids != ("skeleton", "male", "female") or baseline_status != "pass"
-                 else regression_status,
+        "status": regression_status,
         "comparisons": comparison_rows,
+        "current_mode_comparisons": current_mode_report,
         "baseline": _baseline_report_record(baseline),
-        "criterion": "Decoded pixel equality for default/explicit/batch and singleton/batch; historical baseline identity remains separate."})
+        "criterion": "Complete decoded-pixel equality for current-candidate default/explicit/batch skeleton and male/female singleton/batch modes; optional historical baseline comparison is reported separately."})
     write_json(root / "stature-comparison.json", stature_report)
-    incomplete = complete_pack_status != "pass" or regression_status != "pass"
+    incomplete = complete_pack_status != "pass"
+    failed_current_comparisons = any(
+        row.get("status") == "fail" and row.get("comparison") in _CURRENT_MODE_COMPARISONS
+        for row in comparison_rows)
     links = "".join(f'<li><a href="{page}">{html.escape(page[:-5])}</a></li>' for page in pages)
     artifact_links = "".join(f'<li><a href="{name}">{html.escape(name)}</a></li>'
                               for name in sorted(set(composite_files + joint_files + sole_files)))
@@ -1237,15 +1404,22 @@ def assemble_character_pack(prepared, first, second, root, character_ids, *,
 <p>Reference stature {stature:.2f} m. Same prepared movement and fixed scene; appearance changes only the authored surface.</p>
 <p><strong>{'Character or fixture coverage is incomplete.' if incomplete else 'Numerical acceptance and human visual acceptance remain separate.'}</strong></p>
 <p>Prepared SHA-256: {html.escape(first['prepared_sha256'])}<br>Render identity: {html.escape(first_identity)}</p>
-<p><a href="character-sources.json">Selected source closure and provenance</a> · <a href="character-pack-coverage.json">Coverage</a> · <a href="character-pack-inventory.json">Pack inventory</a> · <a href="character-regression.json">Default, singleton, and baseline regression</a> · <a href="stature-comparison.json">Stature comparison</a> · <a href="render-repeatability.json">Repeatability</a> · <a href="gif-timing.json">GIF timing</a> · <a href="sample-timing.json">Exact timing</a></p>
+<p><a href="character-sources.json">Selected source closure and provenance</a> · <a href="character-pack-coverage.json">Coverage</a> · <a href="character-pack-inventory.json">Pack inventory</a> · <a href="character-regression.json">Current mode regression</a> · <a href="stature-comparison.json">Stature comparison</a> · <a href="render-repeatability.json">Repeatability</a> · <a href="gif-timing.json">GIF timing</a> · <a href="sample-timing.json">Exact timing</a></p>
 <h2>Diagnostics</h2><ul>{links}</ul><h2>Unannotated silhouettes, joint centers, and sole/contact crops</h2><ul>{artifact_links}</ul>'''
     write_html(root / "index.html", "Character comparison", body)
-    gif_status = "pass" if gif_metrics and all(item["status"] == "pass" for item in gif_metrics) else "fail"
-    return {"status": "incomplete" if incomplete or repeat_report["status"] != "pass"
-            or gif_status != "pass" else "pass",
+    result_status = ("fail" if failed_current_comparisons or repeat_report["status"] == "fail"
+                     or gif_status == "fail" else "incomplete" if incomplete else "pass")
+    return {"status": result_status,
+            "scope": "visual-comparison-pack",
+            "full_change_acceptance": "not-assessed",
+            "external_verification_required": [
+                "source/package parity", "API/CLI parity",
+                "full native/dense numeric and contact checks",
+                "independent review", "human Gate 2"],
             "render_identity": first_identity, "selected_characters": list(ids),
             "coverage": coverage, "repeatability": repeat_report["status"],
             "regression": regression_status, "baseline": baseline_status,
+            "current_mode_comparisons": current_mode_report["status"],
             "stature": stature_report["status"],
             "complete_pack_status": complete_pack_status, "gif_status": gif_status,
             "composite_count": len(set(composite_files + joint_files + sole_files)),
@@ -1373,10 +1547,160 @@ def write_html(path,title,body):
     path.write_text(f'<!doctype html><html lang="en"><meta charset="utf-8"><title>{html.escape(title)}</title><style>{style}</style><body>{body}</body></html>')
 
 
+_DIAGONAL_HEIGHTS = {"skeleton": 1.50, "male": 1.70, "female": 1.90}
+
+
+def _parse_diagonal_inputs(values):
+    parsed = []
+    for value in values or ():
+        if not isinstance(value, str) or "=" not in value:
+            raise ValueError("--diagonal-input must use CHARACTER=RUN form")
+        identifier, run = value.split("=", 1)
+        if not identifier or not run:
+            raise ValueError("--diagonal-input requires nonempty CHARACTER=RUN values")
+        parsed.append((identifier, Path(run)))
+    identifiers = [identifier for identifier, _ in parsed]
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError("--diagonal-input contains a duplicate character")
+    if len(parsed) != len(_DIAGONAL_HEIGHTS) or set(identifiers) != set(_DIAGONAL_HEIGHTS):
+        raise ValueError("--diagonal-input requires exactly skeleton, male and female")
+    return parsed
+
+
+def _diagonal_pack_status(pair_reports, mode_status):
+    if set(pair_reports) != set(_DIAGONAL_HEIGHTS):
+        return 'incomplete'
+    if mode_status == 'fail' or any(
+            row.get('repeatability') == 'fail' or row.get('gif_status') == 'fail'
+            for row in pair_reports.values()):
+        return 'fail'
+    complete = all(row.get('coverage', {}).get('status') == 'pass'
+                   and row.get('repeatability') == 'pass'
+                   and row.get('gif_status') == 'pass'
+                   for row in pair_reports.values())
+    return 'pass' if complete and mode_status == 'pass' else 'incomplete'
+
+
+def _preflight_diagonal_inputs(input_root, primary, specifications, output, workspace):
+    """Validate all diagonal source runs before allocating output or rendering."""
+    from humanmotionlib.verify_skeleton import _matrix_definition_failures, _matrix_shared_identity_failures
+    from humanmotionlib.validate import load_sources, validate_sources
+    from humanmotionlib.characters import validate_character_sources
+    from humanmotionlib.character_verification import verify_character_output
+
+    records = {}
+    resolved = {}
+    evaluated_records = {}
+    backend_records = {}
+    render_records = {}
+    numeric_records = {}
+    primary_root = validate_existing_run_root(input_root, workspace)
+    resolved["skeleton"] = primary_root
+    records["skeleton"] = primary
+    supplied_skeleton = dict(specifications)["skeleton"]
+    if resolve_workspace_path(supplied_skeleton, workspace).resolve(strict=False) != primary_root.resolve(strict=False):
+        raise ValueError("diagonal skeleton operand must be the same H=1.50m run as --input")
+    for identifier, operand in specifications:
+        if identifier == "skeleton":
+            continue
+        run = validate_existing_run_root(resolve_workspace_path(operand, workspace), workspace)
+        if run == output or run.is_relative_to(output) or output.is_relative_to(run):
+            raise ValueError(f"diagonal {identifier} input and output runs must be disjoint")
+        prepared = read_prepared(run / "input.json")
+        records[identifier] = prepared
+        resolved[identifier] = run
+    if set(records) != set(_DIAGONAL_HEIGHTS):
+        raise ValueError("diagonal-v1 requires exactly the three approved character inputs")
+    run_paths = [resolved[key].resolve(strict=False) for key in _DIAGONAL_HEIGHTS]
+    for index, left in enumerate(run_paths):
+        for right in run_paths[index + 1:]:
+            if left == right or left.is_relative_to(right) or right.is_relative_to(left):
+                raise ValueError("diagonal input runs must be distinct and disjoint")
+    ordered_records = [records[key] for key in _DIAGONAL_HEIGHTS]
+    ordered_runs = [resolved[key] for key in _DIAGONAL_HEIGHTS]
+    for identifier, height in _DIAGONAL_HEIGHTS.items():
+        actual = float(records[identifier]["sources"]["profile"]["stature_m"])
+        if abs(actual - height) > 1e-9:
+            raise ValueError(f"diagonal {identifier} input must be H={height:.2f} m")
+        if records[identifier].get("consumer_motion") is not None:
+            raise ValueError("diagonal visual acceptance requires canonical packaged diagnostic input")
+        evaluated_records[identifier] = _preflight_current_candidate(resolved[identifier], records[identifier])
+        numeric_leaf = verify_character_output(
+            records[identifier], resolved[identifier],
+            [row['id'] for row in validate_character_sources()],
+            numeric_only=True, selected_character_id=identifier,
+            _focused_visual=True)
+        if numeric_leaf.get('numeric_status') != 'pass':
+            raise ValueError(f"diagonal {identifier} source run has no passing selected numeric evidence")
+        midpoint_status = numeric_leaf.get('native_midpoints', {}).get('status')
+        dense_status = numeric_leaf.get('dense', {}).get('status')
+        expected_surface_status = 'not-applicable-skeleton' if identifier == 'skeleton' else 'pass'
+        if midpoint_status != expected_surface_status or dense_status != expected_surface_status:
+            raise ValueError(f"diagonal {identifier} native midpoint/dense surface scope is not valid")
+        numeric_records[identifier] = {
+            'numeric_status': numeric_leaf.get('numeric_status'),
+            'verification_scope': numeric_leaf.get('verification_scope'),
+            'checked_character_ids': numeric_leaf.get('checked_character_ids'),
+            'render_identity': numeric_leaf.get('render_identity'),
+            'native_midpoints': midpoint_status,
+            'dense': dense_status,
+        }
+        metadata_path = resolved[identifier] / 'build-metadata.json'
+        request_path = resolved[identifier] / 'character-render-request.json'
+        if (metadata_path.is_symlink() or not metadata_path.is_file()
+                or request_path.is_symlink() or not request_path.is_file()):
+            raise ValueError(f"diagonal {identifier} is missing safe build or render identity metadata")
+        try:
+            metadata = json.loads(metadata_path.read_text())
+            request = json.loads(request_path.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError(f"diagonal {identifier} identity metadata is unreadable") from error
+        from humanmotionlib.runtime import check_blender_version
+        check_blender_version(metadata.get('blender_version'), metadata.get('blender_build'))
+        backend_records[identifier] = {'version': metadata.get('blender_version'),
+                                       'build_hash': metadata.get('blender_build')}
+        render_records[identifier] = {'prepared_sha256': records[identifier].get('content_sha256'),
+                                      'render_identity': request.get('render_identity')}
+        if numeric_leaf.get('render_identity') != request.get('render_identity'):
+            raise ValueError(f"diagonal {identifier} render identity differs from its selected numeric evidence")
+        if records[identifier].get("package_identity") != primary.get("package_identity"):
+            raise ValueError(f"diagonal {identifier} package identity differs")
+        coverage = _character_plan_coverage(records[identifier])
+        if coverage["status"] != "pass":
+            raise ValueError(f"diagonal {identifier} lacks focused render coverage: {coverage['missing']}")
+    identity_failures = _matrix_shared_identity_failures(ordered_records)
+    if identity_failures:
+        raise ValueError("diagonal source/sampling identity mismatch: " + "; ".join(identity_failures))
+    baseline_eval = evaluated_records['skeleton']
+    for identifier in ('male', 'female'):
+        for field in ('backend_identity', 'sampling'):
+            if evaluated_records[identifier].get(field) != baseline_eval.get(field):
+                raise ValueError(f"diagonal {identifier} evaluated {field} identity differs")
+    if len({(row['version'], row['build_hash']) for row in backend_records.values()}) != 1:
+        raise ValueError('diagonal backend identities differ')
+    profile_id = primary["sources"]["profile"]["id"]
+    validate_sources(profile_id)
+    canonical, _ = load_sources(profile_id)
+    definition_failures = _matrix_definition_failures(ordered_records, canonical)
+    if definition_failures:
+        raise ValueError("diagonal canonical definition mismatch: " + "; ".join(definition_failures))
+    return records, resolved, {
+        'backend_identity': backend_records,
+        'render_identities': render_records,
+        'numeric_verification': numeric_records,
+        'package_identity': {key: records[key].get('package_identity') for key in _DIAGONAL_HEIGHTS},
+        'source_hashes': {key: records[key].get('source_hashes') for key in _DIAGONAL_HEIGHTS},
+    }
+
+
 def main(workspace=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input',type=Path,help='Evaluated skeleton build (normal render-pack mode)')
-    parser.add_argument('--characters', nargs='+', default=('skeleton',), metavar='ID',
+    parser.add_argument('--acceptance-scope', choices=('diagonal-v1',),
+                        help='Build the approved three-pair diagonal visual pack')
+    parser.add_argument('--diagonal-input', action='append', default=[], metavar='CHARACTER=RUN',
+                        help='One source-bound diagonal run; repeat for skeleton, male and female')
+    parser.add_argument('--characters', nargs='+', default=None, metavar='ID',
                         help='Character IDs to compare, normalized to registry order; default: skeleton')
     parser.add_argument('--stature-input', action='append', default=[], metavar='H=RUN',
                         help='Supplementary evaluated candidate run for H=1.50 or H=1.90; repeatable')
@@ -1405,7 +1729,8 @@ def main(workspace=None):
     if bool(args.input)==bool(args.html_only_from):
         parser.error('choose exactly one of --input or --html-only-from')
     if args.html_only_from:
-        if args.reuse_renders or args.stature_input or args.skeleton_baseline or tuple(args.characters) != ('skeleton',):
+        if (args.reuse_renders or args.stature_input or args.skeleton_baseline
+                or tuple(args.characters or ('skeleton',)) != ('skeleton',)):
             parser.error('character, baseline, stature, and reuse options apply only to normal render-pack mode')
         predecessor = resolve_workspace_path(args.html_only_from, workspace)
         if output.exists() and any(output.iterdir()):
@@ -1416,6 +1741,160 @@ def main(workspace=None):
         return 0 if result['status']=='pass' else 1
     if not args.input:
         parser.error('--input is required for normal render-pack mode')
+    if args.acceptance_scope == 'diagonal-v1':
+        if (args.html_only_from or args.reuse_renders or args.stature_input or args.skeleton_baseline
+                or args.characters is not None or matrix_element_root is not None):
+            parser.error('diagonal-v1 cannot be combined with full-character, stature, baseline, reuse, HTML or matrix options')
+        specifications = _parse_diagonal_inputs(args.diagonal_input)
+        input_root = validate_existing_run_root(args.input, workspace)
+        input_path = input_root / 'input.json'
+        if input_root == output or input_root.is_relative_to(output) or output.is_relative_to(input_root):
+            raise ValueError('diagonal review-pack input and output roots must be disjoint')
+        if output.exists() and any(output.iterdir()):
+            raise ValueError(f'review-pack output run root is occupied: {output}')
+        validate_timeout(args.timeout_seconds)
+        validate_timeout(args.slot_timeout_seconds, 'slot_timeout_seconds')
+        prepared = read_prepared(input_path)
+        if abs(float(prepared['sources']['profile']['stature_m']) - 1.50) > 1e-9:
+            raise ValueError('diagonal --input must name the skeleton H=1.50 run')
+        records, runs, input_identities = _preflight_diagonal_inputs(
+            input_root, prepared, specifications, output, workspace)
+        output.mkdir(parents=True, exist_ok=True)
+        pair_reports = {}
+        for identifier, height in _DIAGONAL_HEIGHTS.items():
+            pair_root = output / f'pair-{identifier}'
+            pair_root.mkdir()
+            pair_prepared = records[identifier]
+            pair_input = runs[identifier] / 'input.json'
+            first = _managed_render(pair_input, pair_root, workspace, 'clean-a', (identifier,),
+                                    timeout_seconds=args.timeout_seconds,
+                                    slot_timeout_seconds=args.slot_timeout_seconds,
+                                    owner_run=output)
+            second = _managed_render(pair_input, pair_root, workspace, 'clean-b', (identifier,),
+                                     timeout_seconds=args.timeout_seconds,
+                                     slot_timeout_seconds=args.slot_timeout_seconds,
+                                     owner_run=output)
+            pair_reports[identifier] = assemble_character_pack(
+                pair_prepared, first, second, pair_root, (identifier,))
+            pair_reports[identifier]['character_id'] = identifier
+            pair_reports[identifier]['stature_m'] = height
+        # The overview deliberately preserves each source image's pixel scale
+        # and fixed framing; it is a presentation join, not a height match.
+        overview_rows = []
+        for fixture_id, target_beat, views in (
+                ('neutral', Fraction(0), ('front', 'side', 'rear')),
+                ('squat', Fraction(2), ('front',))):
+            row_images = []
+            for identifier in _DIAGONAL_HEIGHTS:
+                pair_prepared = records[identifier]
+                selected_sample = next((sample for sample in pair_prepared['samples']
+                                        if sample.get('fixture') == fixture_id
+                                        and Fraction(sample['beat']['numerator'],
+                                                     sample['beat']['denominator']) == target_beat), None)
+                if selected_sample is None:
+                    raise ValueError(f"diagonal overview lacks {fixture_id} beat {target_beat} for {identifier}")
+                image_map = _manifest_character_images(
+                    json.loads((output / f'pair-{identifier}' / 'clean-a' / 'render-manifest.json').read_text()),
+                    output / f'pair-{identifier}' / 'clean-a', pair_prepared, (identifier,))
+                for view in views:
+                    path = image_map[identifier][selected_sample['id']].get(view)
+                    if path is None:
+                        raise ValueError(f"diagonal overview lacks {identifier}/{fixture_id}/{view}")
+                    row_images.append((identifier, view, path))
+            overview_rows.append((fixture_id, row_images))
+        overview_path = output / 'diagonal-overview.png'
+        with Image.open(overview_rows[0][1][0][2]) as reference_image:
+            tile_w, tile_h = reference_image.size
+        label_h = 42
+        height_pixels = sum((3 * (tile_h + label_h)) if fixture == 'neutral'
+                            else tile_h + label_h for fixture, _ in overview_rows)
+        canvas = Image.new('RGB', (tile_w * 3, height_pixels), (245, 247, 248))
+        draw = ImageDraw.Draw(canvas)
+        labels_by_id = {'skeleton': 'Skeleton H1.50', 'male': 'Male H1.70', 'female': 'Female H1.90'}
+        y = 0
+        for fixture_id, row_images in overview_rows:
+            for identifier, view, path in row_images:
+                column = list(_DIAGONAL_HEIGHTS).index(identifier)
+                row_y = y + (('front', 'side', 'rear').index(view) * (tile_h + label_h)
+                             if fixture_id == 'neutral' else 0)
+                with Image.open(path) as source:
+                    image = source.convert('RGB')
+                if image.size != (tile_w, tile_h):
+                    raise ValueError('diagonal overview render resolution is inconsistent')
+                draw.text((column * tile_w + 8, row_y + 4),
+                          f"{labels_by_id[identifier]} / {fixture_id} / {view}", fill=(20, 30, 40))
+                canvas.paste(image, (column * tile_w, row_y + label_h))
+            y += (3 * (tile_h + label_h)) if fixture_id == 'neutral' else tile_h + label_h
+        canvas.save(overview_path)
+        skeleton_root = output / 'skeleton-mode-check'
+        skeleton_root.mkdir()
+        default_manifest = _managed_render(input_path, skeleton_root, workspace,
+                                           'skeleton-default', None,
+                                           timeout_seconds=args.timeout_seconds,
+                                           slot_timeout_seconds=args.slot_timeout_seconds,
+                                           owner_run=output)
+        explicit_manifest = _managed_render(input_path, skeleton_root, workspace,
+                                            'skeleton-explicit', ('skeleton',),
+                                            timeout_seconds=args.timeout_seconds,
+                                            slot_timeout_seconds=args.slot_timeout_seconds,
+                                            owner_run=output)
+        default_images = _manifest_character_images(
+            default_manifest, skeleton_root / 'skeleton-default', prepared, ('skeleton',))
+        explicit_images = _manifest_character_images(
+            explicit_manifest, skeleton_root / 'skeleton-explicit', prepared, ('skeleton',))
+        mode_rows = []
+        for sample in prepared['samples']:
+            for view, default_path in default_images['skeleton'][sample['id']].items():
+                explicit_path = explicit_images['skeleton'][sample['id']].get(view)
+                if explicit_path is None:
+                    raise ValueError(f"Skeleton default/explicit view inventory differs at {sample['id']}/{view}")
+                mode_rows.append({'sample_id': sample['id'], 'fixture': sample['fixture'],
+                                  'view': view,
+                                  'status': 'pass' if decoded_digest(default_path) == decoded_digest(explicit_path) else 'fail'})
+        mode_status = ('pass' if mode_rows and all(row['status'] == 'pass' for row in mode_rows)
+                       else 'fail' if mode_rows else 'incomplete')
+        pack_status = _diagonal_pack_status(pair_reports, mode_status)
+        report = {
+            'format': 'hml-character-diagonal-review/v1',
+            'verification_scope': 'diagonal-v1', 'status': pack_status,
+            'required_pairs': [{'character_id': key, 'stature_m': height}
+                               for key, height in _DIAGONAL_HEIGHTS.items()],
+            'observed_pairs': [{**pair_reports[key], 'character_id': key, 'stature_m': height,
+                                'scope': 'one selected character at its approved height',
+                                'pair_pack': f'pair-{key}/index.html'}
+                               for key, height in _DIAGONAL_HEIGHTS.items()],
+            'unassessed_pairs': [{'character_id': key, 'stature_m': height}
+                                 for key, height in (('skeleton', 1.70), ('skeleton', 1.90),
+                                                     ('male', 1.50), ('male', 1.90),
+                                                     ('female', 1.50), ('female', 1.70))],
+            'mixed_height_overview': 'not a controlled same-height appearance or cross-stature comparison',
+            'overview_image': 'diagonal-overview.png',
+            'per_pair_two_clean_passes': pair_reports,
+            'input_identities': input_identities,
+            'skeleton_h150_default_explicit': {'status': mode_status,
+                                                'comparisons': mode_rows,
+                                                'scope': 'decoded pixels; numeric transforms/geometry remain externally linked'},
+            'native_numeric': 'selected numeric leaves were preflighted; scope summaries are in input_identities',
+            'skeleton_h150_numeric_default_explicit': 'external requirement; not assessed by render-only pixel comparisons',
+            'source_package_api_cli': 'separate same-pair comparisons required',
+            'independent_review': 'required', 'human_gate_2': 'required',
+            'full_change_acceptance': 'not-assessed',
+        }
+        write_json(output / 'diagonal-review.json', report)
+        body = ['<h1>Diagonal character review</h1>',
+                '<p>Mixed character and height overview; not a controlled silhouette or scaling comparison.</p>',
+                '<p><img src="diagonal-overview.png" alt="Skeleton H1.50, male H1.70, female H1.90 fixed-scene overview"></p>',
+                f'<p>Status: <strong>{pack_status}</strong>. Full change acceptance and human visual approval are not assessed.</p>',
+                '<table><tr><th>Pair</th><th>Height</th><th>Pack</th><th>Repeatability</th></tr>']
+        for row in report['observed_pairs']:
+            body.append(f"<tr><td>{html.escape(row['character_id'])}</td><td>{row['stature_m']:.2f} m</td>"
+                        f"<td><a href=\"{row['pair_pack']}\">focused pack</a></td>"
+                        f"<td>{row['repeatability']}</td></tr>")
+        body.append('</table><p>Excluded pairs and remaining external requirements: '
+                    '<a href="diagonal-review.json">diagonal-review.json</a></p>')
+        write_html(output / 'index.html', 'Diagonal character review', ''.join(body))
+        print(json.dumps(report, sort_keys=True), flush=True)
+        return 0 if pack_status == 'pass' else 1
     if matrix_element_root is None:
         input_root = validate_existing_run_root(args.input, workspace)
         input_path = input_root / 'input.json'
@@ -1427,7 +1906,7 @@ def main(workspace=None):
             input_root = validate_existing_run_root(input_operand, workspace)
         input_path = input_root / 'prepared' / 'input.json'
     if args.reuse_renders:
-        if tuple(args.characters) != ('skeleton',) or args.stature_input or args.skeleton_baseline:
+        if args.characters not in (None, ('skeleton',)) or args.stature_input or args.skeleton_baseline:
             parser.error('--reuse-renders currently applies only to the existing skeleton-only pack')
         if input_root == output or input_root.is_relative_to(output) or output.is_relative_to(input_root):
             raise ValueError('review-pack input and output run roots must be distinct and disjoint')
@@ -1452,10 +1931,13 @@ def main(workspace=None):
     validate_timeout(args.slot_timeout_seconds, 'slot_timeout_seconds')
     prepared=read_prepared(input_path)
     from humanmotionlib.characters import resolve_character_selection
-    selected = resolve_character_selection(tuple(args.characters),
+    selected = resolve_character_selection(tuple(args.characters or ('skeleton',)),
                                            profile_id=prepared['sources']['profile']['id'])
     character_ids = tuple(item['id'] for item in selected)
     character_mode = character_ids != ('skeleton',)
+    if character_mode:
+        _preflight_current_candidate(input_root, prepared,
+                                     matrix_mode=matrix_element_root is not None)
     if not character_mode and (args.stature_input or args.skeleton_baseline):
         parser.error('--stature-input and --skeleton-baseline require a character selection including a surface')
     stature_inputs = None

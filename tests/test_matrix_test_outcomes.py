@@ -286,21 +286,41 @@ class InstalledRunOwnershipTests(unittest.TestCase):
             self.assertNotEqual(before, after)
 
     def test_candidate_manifest_binds_wheel_and_installed_role_environment(self):
-        candidate_path = Path(__file__).resolve().parents[1] / (
-            "build/automate-build-and-verification-matrix_r1_dev_try-23_candidate/matrix-candidate.json")
-        python = candidate_path.parent / "runtime-dev-env/bin/python"
-        run_root = Path(__file__).resolve().parents[1] / (
-            "build/automate-build-and-verification-matrix_r1_dev_try-25_installed")
-        candidate = installed_acceptance.candidate_reference(candidate_path, python, run_root)
-        self.assertEqual(candidate["candidate_identity"],
-                         "421940e7e65a18678a5b5683f7e2a307df1fd96158007df209f9d1c3ddc174f1")
-        self.assertEqual(candidate["runtime_origin"], str(
-            python.parent.parent / "lib/python3.14/site-packages/humanmotionlib/__init__.py"))
-        self.assertEqual(candidate["wheel_sha256"],
-                         "813d409212d5e095de5425845db6b3d4b9e328d1e72a4f3da4fa83738fbfe34b")
-        with self.assertRaises(ValueError):
-            installed_acceptance.candidate_reference(candidate_path,
-                candidate_path.parent / "build-env/bin/python", run_root)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            candidate_root = root / "candidate"
+            artifacts = candidate_root / "artifacts" / "direct"
+            artifacts.mkdir(parents=True)
+            wheel = artifacts / "humanmotionlib-test.whl"
+            wheel.write_bytes(b"synthetic candidate wheel")
+            role_root = candidate_root / "runtime-dev-env"
+            python = role_root / "bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text("synthetic interpreter identity")
+            manifest_path = candidate_root / "matrix-candidate.json"
+            manifest_path.write_text(json.dumps({
+                "schema": "matrix-candidate/v1",
+                "status": "succeeded",
+                "candidate_identity": "candidate-fixture-identity",
+                "source_snapshot_sha256": "a" * 64,
+                "runtime_environments": {"dev": {"python": str(python)}},
+                "artifacts": [{"path": str(wheel), "sha256": hashlib.sha256(
+                    wheel.read_bytes()).hexdigest(), "bytes": wheel.stat().st_size}],
+            }))
+            run_root = root / "add-shared-body-characters_r10_dev_try-1_installed"
+            candidate = installed_acceptance.candidate_reference(manifest_path, python, run_root)
+            self.assertEqual(candidate["candidate_identity"], "candidate-fixture-identity")
+            self.assertEqual(candidate["runtime_python"], str(python))
+            self.assertEqual(candidate["wheel_path"], str(wheel))
+            self.assertEqual(candidate["wheel_sha256"], hashlib.sha256(
+                wheel.read_bytes()).hexdigest())
+
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                installed_acceptance.candidate_reference(
+                    manifest_path, candidate_root / "runtime-reviewer-env/bin/python", run_root)
+            with self.assertRaisesRegex(ValueError, "hash differs"):
+                wheel.write_bytes(b"tampered wheel")
+                installed_acceptance.candidate_reference(manifest_path, python, run_root)
 
 
 if __name__ == "__main__":

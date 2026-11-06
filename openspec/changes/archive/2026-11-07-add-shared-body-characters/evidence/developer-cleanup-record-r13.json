@@ -1,0 +1,73 @@
+{
+  "schema": "developer-role-cleanup/v1",
+  "date": "2026-11-07",
+  "status": "R13 developer cleanup complete except candidate root intentionally retained as evidence dependency",
+  "scope": "Only direct R13 developer run roots for add-shared-body-characters; reviewer roots and all non-R13 work areas excluded.",
+  "preflight": {
+    "workspace_build_realpath": "/Users/bormotov/work/humanmotionlib/build",
+    "roots_were_direct_children": true,
+    "root_symlinks": 0,
+    "containment_checked_before_removal": true,
+    "process_check": "Orchestrator elevated ps and lsof checks exited 0; no add-shared-body-characters, R13 dev/reviewer, Blender background, unittest, review-pack or verify-skeleton processes/open files found.",
+    "durable_reports_copied_before_cleanup": [
+      "openspec/changes/add-shared-body-characters/evidence/host-coverage-ledger.json",
+      "openspec/changes/add-shared-body-characters/evidence/host-dependency-inventory.json"
+    ]
+  },
+  "removed_root_count": 39,
+  "removed_logical_bytes_including_symlink_entry_lengths": 21294355401,
+  "removed_roots": [
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-build-female-h190","bytes":76723140},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-build-male-h170","bytes":76747412},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-build-skeleton-h150","bytes":30943104},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-check","bytes":135524685},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-input-female-h190","bytes":4090940},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-input-male-h170","bytes":4075659},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_consumer-input-skeleton-h150","bytes":4101824},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_focus-check","bytes":3720679},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_host-check","bytes":1054756},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_input-female-h190","bytes":137897953},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_input-male-h170","bytes":136914179},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_input-skeleton-h150","bytes":138034906},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_numeric-diagonal","bytes":7445280375},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_numeric-female-h190","bytes":3113623937},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_numeric-male-h170","bytes":3112145038},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_numeric-skeleton-h150","bytes":928058868},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_numeric-skeleton-h150-default","bytes":928059191},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-api-female-h190","bytes":115619331},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-api-male-h170","bytes":115415522},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-api-skeleton-h150","bytes":75653323},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-cli-female-h190","bytes":115619375},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-cli-male-h170","bytes":115415495},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-installed-cli-skeleton-h150","bytes":75653085},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-prepare-female-h190","bytes":4156781},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-prepare-male-h170","bytes":4138952},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-prepare-skeleton-h150","bytes":4171922},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-source-api-female-h190","bytes":115619141},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-source-api-male-h170","bytes":115415232},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_parity-source-api-skeleton-h150","bytes":75652789},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_sdist-source","bytes":2366888},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_source","bytes":3175678},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-a","bytes":2649582243},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-input-female-h190","bytes":580850225},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-input-male-h170","bytes":580828766},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-input-skeleton-h150","bytes":186393713},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-prepare-female-h190","bytes":27215332},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-prepare-male-h170","bytes":27071130},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_visual-prepare-skeleton-h150","bytes":27263552},
+    {"path":"build/add-shared-body-characters_r13_dev_try-1_workflow-parity","bytes":80280}
+  ],
+  "retained": [
+    {
+      "path": "build/add-shared-body-characters_r13_dev_try-1_candidate",
+      "disposition": "retained-evidence-dependency",
+      "reason": "Reviewer-owned candidate and focused-check environments have direct_url.json provenance URLs pointing to its wheelhouse/humanmotionlib-0.3.0-py3-none-any.whl. Architect directed recording this as retained evidence, not unresolved cleanup; reviewer metadata was not edited."
+    }
+  ],
+  "failures": {
+    "initial_attempt": "First deletion batch removed 12 roots, then shutil.rmtree raised NotADirectoryError on the empty flat-file run root numeric-diagonal.",
+    "recovery": "Fresh containment check passed; the remaining 27 roots were removed, using unlink for the flat-file root. No pending deletion failure remains.",
+    "reviewer_roots_removed": 0
+  },
+  "pending": []
+}

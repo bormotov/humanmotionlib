@@ -218,11 +218,21 @@ def _closest_mesh_distance(point, vertices, faces):
     return best
 
 
-def _required_dense_grid(prepared):
+_FOCUSED_VISUAL_FIXTURES = (
+    "neutral", "rest", "arm-raise", "squat", "walking-in-place", "forefoot-rocker",
+    "sweep-shoulder-bilateral-elevation", "sweep-shoulder-bilateral-plane",
+    "sweep-shoulder-bilateral-external_twist", "sweep-forearm-bilateral-pronation",
+    "sweep-knee-bilateral-flexion",
+)
+
+
+def _required_dense_grid(prepared, fixture_ids=None):
     """List each fixture's <=.01 beat grid plus all explicit events."""
     fixtures = {row["id"]: row for row in prepared.get("sources", {}).get("diagnostics", [])}
     result = {}
     for fixture_id, fixture in sorted(fixtures.items()):
+        if fixture_ids is not None and fixture_id not in fixture_ids:
+            continue
         duration = float(fixture["duration_beats"])
         count = max(1, math.ceil(duration / 0.01))
         beats = {round(duration * index / count, 10) for index in range(count+1)}
@@ -245,6 +255,58 @@ def _fixture_coverage(prepared):
     return {"status":"pass" if expected and expected==observed else "incomplete",
             "expected":sorted(expected),"observed":sorted(observed),
             "missing":sorted(expected-observed),"extra":sorted(observed-expected)}
+
+
+def _focused_visual_sample_coverage(prepared):
+    """Validate the exact canonical BPM90 input used by the diagonal visual pack."""
+    from fractions import Fraction
+    from humanmotionlib.sampling import delivered_beats, sampling
+
+    diagnostics = {row.get("id"): row for row in prepared.get("sources", {}).get("diagnostics", [])
+                   if isinstance(row, Mapping)}
+    observed = {row.get("fixture") for row in prepared.get("samples", []) if isinstance(row, Mapping)}
+    expected = set(_FOCUSED_VISUAL_FIXTURES)
+    failures = []
+    sampling_table = prepared.get("sampling")
+    if not isinstance(sampling_table, Mapping) or set(sampling_table) != expected:
+        failures.append({"expected_sampling_fixtures": sorted(expected),
+                         "observed_sampling_fixtures": sorted(sampling_table)
+                         if isinstance(sampling_table, Mapping) else None,
+                         "code": "sampling-fixture-membership"})
+    if observed != expected or not expected.issubset(diagnostics):
+        failures.append({"expected": sorted(expected), "observed": sorted(observed),
+                         "available": sorted(expected.intersection(diagnostics))})
+    else:
+        for fixture_id in sorted(expected):
+            fixture = diagnostics[fixture_id]
+            beats = delivered_beats(fixture["duration_beats"], (90,))
+            expected_rows = [(fixture_id + f"/{index:05d}", beat)
+                             for index, beat in enumerate(beats)]
+            rows = [row for row in prepared["samples"] if row.get("fixture") == fixture_id]
+            try:
+                observed_rows = [(row.get("id"), Fraction(row["beat"]["numerator"],
+                                                            row["beat"]["denominator"]))
+                                 for row in rows]
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                observed_rows = []
+            if observed_rows != expected_rows:
+                failures.append({"fixture": fixture_id, "expected_count": len(expected_rows),
+                                 "observed_count": len(observed_rows), "code": "sample-membership"})
+            plan = sampling(fixture["duration_beats"], 90)
+            sample_ids = {beat: fixture_id + f"/{index:05d}"
+                          for index, beat in enumerate(beats)}
+            for mode in ("static", "animation"):
+                for record in plan[mode]:
+                    beat = Fraction(record["beat"]["numerator"], record["beat"]["denominator"])
+                    record["sample_id"] = sample_ids[beat]
+            actual_plans = prepared.get("sampling", {}).get(fixture_id)
+            if actual_plans != [plan]:
+                failures.append({"fixture": fixture_id, "expected_bpm": [90],
+                                 "observed_bpm": ([row.get("bpm") for row in actual_plans]
+                                                   if isinstance(actual_plans, list) else None),
+                                 "code": "sampling-plan"})
+    return {"status": "fail" if failures else "pass", "scope": "focused-visual",
+            "expected": sorted(expected), "observed": sorted(observed), "failures": failures}
 
 
 def _reference_residual_summary_matches(component, measured_world_max, measured_world_vertex_id,
@@ -813,6 +875,8 @@ def verify_character_output(prepared: Mapping[str, Any], render_run: str | Path,
                             stature_values: Sequence[float] = (1.5, 1.7, 1.9),
                             *, numeric_only: bool = False,
                             selected_character_id: str | None = None,
+                            require_complete_diagnostic_coverage: bool = False,
+                            _focused_visual: bool = False,
                             _generation_anchor: _GenerationAnchor | None = None) -> dict[str, Any]:
     """Verify one stature's complete character render and report missing scopes.
 
@@ -855,8 +919,26 @@ def verify_character_output(prepared: Mapping[str, Any], render_run: str | Path,
     if _generation_anchor is not None and (not numeric_only or not isinstance(_generation_anchor,_GenerationAnchor)):
         fail("invalid-generation-anchor","a trusted generation anchor is private to numeric-only verification")
         return report
-    report["dense"]["required_beats_by_fixture"] = _required_dense_grid(prepared)
+    if require_complete_diagnostic_coverage and not (
+            numeric_only and selected_character_id is not None):
+        fail("invalid-scope", "complete diagonal diagnostic coverage applies only to selected-character numeric verification")
+        return report
+    if _focused_visual and not numeric_only:
+        fail("invalid-scope", "focused visual verification is internal numeric preflight only")
+        return report
+    if _focused_visual and (selected_character_id not in {"skeleton", "male", "female"}
+                            or require_complete_diagnostic_coverage):
+        fail("invalid-scope", "focused visual verification requires one approved diagonal member")
+        return report
+    report["dense"]["required_beats_by_fixture"] = _required_dense_grid(
+        prepared, _FOCUSED_VISUAL_FIXTURES if _focused_visual else None)
     report["fixture_coverage"] = _fixture_coverage(prepared)
+    if _focused_visual:
+        coverage = _focused_visual_sample_coverage(prepared)
+        report["fixture_coverage"] = coverage
+        for item in coverage["failures"]:
+            fail("focused-visual-coverage", item)
+        report["verification_scope"] = "focused-visual"
     samples = prepared.get("samples")
     if not isinstance(samples, list) or not samples:
         fail("invalid-prepared", "prepared samples are missing")
@@ -895,12 +977,17 @@ def verify_character_output(prepared: Mapping[str, Any], render_run: str | Path,
     report["registry"]["checked_ids"] = list(checked_ids)
     report["registry"]["omitted_ids"] = [identifier for identifier in registry_ids
                                             if identifier not in checked_ids]
-    report.update({"verification_scope": ("selected-character-numeric-leaf" if selected_character_id
+    report.update({"verification_scope": ("focused-visual" if _focused_visual else
+                                          "selected-character-numeric-leaf" if selected_character_id
                                           else "complete-registry"),
                    "all_registry_ids": list(registry_ids),
                    "checked_character_ids": list(checked_ids),
                    "unassessed_character_ids": list(report["registry"]["omitted_ids"])})
     expected_ids = checked_ids
+    if require_complete_diagnostic_coverage:
+        from humanmotionlib.verify_skeleton import _diagonal_numeric_coverage_failures
+        for detail in _diagonal_numeric_coverage_failures(prepared):
+            fail("diagnostic-coverage", detail)
     try:
         request_path = run / "character-render-request.json"
         manifest_path = run / "render-manifest.json"

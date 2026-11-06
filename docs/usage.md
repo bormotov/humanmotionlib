@@ -216,10 +216,11 @@ pixel parity, and the human visual gate remain separate.
 `skeleton`, `male`, and `female`. The complete acceptance presentation uses all
 three. It creates its clean repeatability pair and the required default,
 explicit-skeleton, and single-character regression passes through the same
-supervised render API. The complete pack also compares an immutable historical
-skeleton baseline and actual renders at H=1.50m and H=1.90m against the H=1.70m
-primary input. Supply the additional evidence with repeatable
-`--stature-input H=RUN` and `--skeleton-baseline RUN` options:
+supervised render API. The complete current-candidate pack also includes actual
+renders at H=1.50m and H=1.90m against the H=1.70m primary input. Historical
+skeleton comparison is optional and does not affect current pack completeness.
+Supply additional evidence with repeatable `--stature-input H=RUN` and, only
+when a historical comparison is desired, `--skeleton-baseline RUN`:
 
 ```sh
 hml --workspace /path/to/workspace review-pack \
@@ -235,15 +236,47 @@ The supplementary inputs must be evaluated candidate runs with matching
 profile, mobility and scene identities, and with neutral and squat beat 2
 available. The primary input must be H=1.70m. Labels are checked against the
 prepared stature; inputs and outputs must be disjoint. No image is resized to
-fill a missing stature. A preview may omit the baseline or supplementary
-heights, but its report names each missing item and returns `incomplete`; it
-does not claim the complete acceptance pack. Omit these options for an ordinary
-skeleton-only pack, which retains its existing behavior.
+fill a missing stature. A preview missing required heights or current-mode
+comparisons reports those gaps and returns `incomplete`; the historical
+baseline is optional. If supplied, malformed, stale or incompatible historical
+evidence fails preflight. Omit these options for an ordinary skeleton-only
+pack, which retains its existing behavior.
+
+The pack reports `scope=visual-comparison-pack` and
+`full_change_acceptance=not-assessed`. Source/package and API/CLI parity, full
+native/dense numeric and contact checks, independent review, and Human Gate 2
+remain separate required evidence for the change.
+
+The reduced acceptance scope is explicit `diagonal-v1`: skeleton H=1.50m,
+male H=1.70m and female H=1.90m. The input is the skeleton H=1.50m run and
+each pair is supplied by one `--diagonal-input CHARACTER=RUN`; all inputs are
+preflighted before output creation or rendering:
+
+```sh
+hml --workspace /path/to/workspace review-pack \
+  --acceptance-scope diagonal-v1 \
+  --input build/add-shared-body-characters_r9_dev_try-1_skeleton-150 \
+  --diagonal-input skeleton=build/add-shared-body-characters_r9_dev_try-1_skeleton-150 \
+  --diagonal-input male=build/add-shared-body-characters_r9_dev_try-1_male-170 \
+  --diagonal-input female=build/add-shared-body-characters_r9_dev_try-1_female-190 \
+  --output build/add-shared-body-characters_r9_reviewer_try-1_diagonal-pack
+```
+
+For a numeric leaf, use `--acceptance-scope diagonal-v1 --numeric-only
+--selected-character ID --input RUN --character-output RUN`. For an aggregate,
+use the same `--input` and `--character-output` skeleton H=1.50m run plus three
+`--diagonal-build CHARACTER=RUN` operands. A successful leaf or aggregate is
+limited to numeric evidence and never claims full matrix or visual acceptance.
+The review pack creates two clean focused passes per pair and skeleton default/
+explicit pixel comparisons at H=1.50m. Its mixed-height overview is not a
+controlled same-height appearance comparison. The six excluded pairs, native
+numeric evidence, source/package/API/CLI parity, independent review and Human
+Gate 2 remain separately reported requirements.
 
 The character pack links front/side motion sheets, neutral/rest front/side/rear
 silhouettes, shared-joint overlays, sole/contact crops, GIFs and onion skins.
-It copies the required historical baseline images into `reference/baseline/`
-for a standalone report and records source hashes. Managed render passes live
+When supplied, historical baseline images are copied into `reference/baseline/`
+for a standalone report and their source hashes are recorded. Managed render passes live
 under the fresh output root in `clean-a/`, `clean-b/`, regression pass
 directories and any supplied stature pass directories. JSON reports record
 exact sample keys, pixel comparisons, source identities, missing evidence and

@@ -35,7 +35,7 @@ Rendering SHALL accept a prior preparation result or explicit prepared-file path
 - **AND** selected character identities remain available in both modes without inventing surface numeric evidence.
 
 #### Scenario: Render a complete character batch
-- **Verification:** installed API/CLI matrix, image decoding and character/sample/view inventory faults.
+- **Verification:** installed API/CLI host-contract tests, controlled image/result decoding and character/sample/view inventory faults. The product contract is retained; native complete-character batch pixel parity is outside the approved remaining diagonal acceptance.
 - **WHEN** rendering selects skeleton, male and female from one prepared input
 - **THEN** every selected character uses the existing shared poses/timelines, and every image explicitly identifies character, sample and view
 - **AND** skeleton retains existing paths/views, while each surface has the design's front/side and neutral/rest rear inventory in its own collision-free paths
@@ -125,21 +125,21 @@ Results SHALL provide a documented JSON-compatible projection matching their typ
 
 ### Requirement: API integration preserves generation output and visual review
 
-The API integration SHALL preserve existing poses, controls, rest policies, contacts, units, mirroring, beat timing and fixed camera/floor/light. Independent review SHALL separate host-contract, real-backend/numeric and human evidence. Skeleton defaults SHALL retain their baseline; new characters SHALL receive the design's independent comparison pack and explicit human visual approval before archive.
+The API integration SHALL preserve existing poses, controls, rest policies, contacts, units, mirroring, beat timing and fixed camera/floor/light. Independent review SHALL separate host-contract, real-backend/numeric and human evidence. Skeleton default, explicit and batch modes retain their agreement contract, with batch selection/semantics/integrity verified through host/source tests and live default/explicit pixel equivalence checked at H=1.50 m. New characters SHALL receive the design's independently generated diagonal comparison pack and explicit human visual approval before archive. The remaining live acceptance SHALL use skeleton H=1.50 m, male H=1.70 m and female H=1.90 m; API/CLI comparisons SHALL keep character and stature identical within each comparison. Historical pre-change Blender construction and rendered output SHALL NOT be required as a comparison oracle for this change. Native same-height all-character/batch pixel parity and same-character cross-stature comparisons SHALL be disclosed as unassessed in this reduced acceptance.
 
 #### Scenario: Compare API generation with the existing workflow
 - **Verification:** independent clean builds, existing numeric verifier, exact decoded-pixel comparison and explicit human visual review.
-- **WHEN** the reviewer generates neutral/rest and the four-beat arm raise at reference stature using the pre-change CLI baseline and candidate API/CLI
+- **WHEN** the reviewer generates neutral/rest and the four-beat arm raise for each approved diagonal pair using current-candidate API and CLI workflows
 - **THEN** pose/timing content and evaluated geometry meet unchanged applicable limits and corresponding decoded image pixels agree exactly on the pinned reference backend
 - **AND** all-fixture host preparation coverage is reported separately from focused visual coverage
-- **AND** the human receives labeled count/in-between sheets, timed GIFs, onion-skin overlays and baseline/API/CLI comparisons
+- **AND** the human receives labeled count/in-between sheets, timed GIFs, onion-skin overlays and current-candidate API/CLI comparisons
 - **AND** numerical or process success never implies human visual acceptance.
 
 #### Scenario: Preserve default behavior while reviewing the added characters
-- **Verification:** full character-models acceptance matrix and explicit human visual review.
-- **WHEN** candidate default, explicit skeleton and complete-character API/CLI results are independently reviewed
-- **THEN** skeleton baseline pixels/geometry, consumer semantics and existing API failure/workspace contracts remain satisfied
-- **AND** the new character evidence has separate surface, floor/contact, deterministic batch, source-clearance and visual verdicts
+- **Verification:** approved diagonal real-backend acceptance, full host selection/batch contracts and explicit human visual review.
+- **WHEN** candidate skeleton default/explicit H=1.50 m, male H=1.70 m and female H=1.90 m API/CLI results are independently reviewed
+- **THEN** current-candidate skeleton default/explicit equivalence, consumer semantics and existing API failure/workspace contracts remain satisfied
+- **AND** the new character evidence has separate surface, floor/contact, per-pair repeatability, source-clearance and visual verdicts, with native batch parity explicitly unassessed
 - **AND** returning a render result still reports numeric acceptance as not-run and visual acceptance as pending until their separate verification gates.
 
 ## ADDED Requirements

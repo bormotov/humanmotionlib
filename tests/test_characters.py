@@ -37,11 +37,11 @@ class CharacterRegistryTests(unittest.TestCase):
         for required in (
             "registry.yaml", "definitions/", "template_revision", "binding_revision",
             "expected_rest_contract_sha256", "rest_contract_structures", "torso_radii_delta_h", "radius_h",
-            "stature_m", "not a welded watertight body or a simulation mesh",
+            "stature_m", "The surface does not claim collision-free anatomy or muscle/skin simulation",
             "binding identity", "no runtime body-type selector",
             "Future alternate skeletal proportions and body-type presets are unsupported",
             "CharacterSurface.<id>", "CharacterSurface.male", "CharacterSurface.female",
-            "Overlapping caps at mannequin junctions are intentional",
+            "other mannequin junctions remain intentional overlaps",
             "images=False, render_only=False", "render_only=True` build skips evaluated geometry",
             "It produces images only when `images=True`; `images=False` produces no images",
         ):

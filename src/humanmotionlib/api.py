@@ -738,7 +738,7 @@ def _render_operation(prepared: PreparedResult | str | Path, *, workspace: str |
                 raise _RequestError(f"render output run root is occupied: {output_root}")
         else:
             owner = validate_run_root(resolve_workspace_path(_owner_run, root), root)
-            output_root = validate_managed_pass_root(output_root, owner, root)
+            output_root = validate_managed_pass_root(output, _owner_run, root)
             if output_root.exists():
                 raise _RequestError(f"managed render pass must be fresh: {output_root}")
             owner_root = owner
@@ -916,9 +916,9 @@ def _render_owned_pass(prepared: PreparedResult | str | Path, *, workspace: str 
                        slot_timeout_seconds: float = DEFAULT_SLOT_TIMEOUT) -> GenerationResult:
     """Internal review-pack pass using the normal sealed, supervised render path.
 
-    The owner is an existing flat run and ``output`` must be a fresh direct
-    child with one of the finite managed pass names. This is intentionally
-    private; public callers can only create independent flat run roots.
+    The owner is an existing flat run and ``output`` must be one of the finite
+    managed destinations. This is intentionally private; public callers can
+    only create independent flat run roots.
     """
     return _render_operation(prepared, workspace=workspace, output=output, images=images,
                              characters=characters, render_dir=render_dir,

@@ -1,0 +1,16 @@
+{
+  "checkout_and_source_snapshot_unchanged": true,
+  "command": "/Users/bormotov/work/humanmotionlib/build/add-shared-body-characters_r11_dev_try-4_candidate/environment/bin/python -m unittest tests.test_character_surface",
+  "duration_seconds": 18.127,
+  "errors": 0,
+  "failures": 0,
+  "runtime_manifest_sha256": "efe64b58bcb7c4e52a1e3d5684978584c281d4a6d73d00e63f75e2907d420e80",
+  "schema": "r11-focused-test-run/v1",
+  "source_aggregate_sha256": "528b20dfe68fefe2886e6309ead36294ebb9f1856ab48bd9e8c4a072e5902182",
+  "source_inputs_rechecked": 118,
+  "status": "pass",
+  "test_module_sha256": "9f9eddb3634962624f810aab7f43f9c5182e6b703110063456b148dffb6c79c8",
+  "test_source_identity_sha256": "797f46ea294f905fef0e773cbb572f3851fa86bd5dab3b76ddfd7d2cee7d53ba",
+  "tests_run": 23,
+  "wheel_sha256": "2c027eae3c897be17a21dbe30e861f9dfdc7064795f72e1903a1ebf58b4ca04e"
+}

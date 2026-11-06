@@ -74,9 +74,10 @@ class RunBlenderContractTests(unittest.TestCase):
                                      timeout_seconds=17.5, slot_timeout_seconds=4.25)
         return result
 
-    def _managed_output_claim(self):
+    def _managed_output_claim(self, relative_pass="clean-a"):
         owner = fresh_test_run_root("managed-owner", module="run_blender")
-        output = owner / "clean-a"
+        output = owner / relative_pass
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.mkdir()
         payload = {"format": "character-render-request/v1",
                    "prepared_sha256": self.prepared["content_sha256"],
@@ -154,6 +155,16 @@ class RunBlenderContractTests(unittest.TestCase):
         result, probe, _calls = self._run_managed(owner, output, request_path, claim, identity)
         self.assertEqual(result["state"], "succeeded")
         self.assertEqual(probe.call_count, 1)
+
+    def test_private_managed_claim_accepts_nested_diagonal_pass_and_keeps_flat_owner(self):
+        owner, output, request_path, claim, identity = self._managed_output_claim(
+            "pair-skeleton/clean-a")
+        result, probe, calls = self._run_managed(owner, output, request_path, claim, identity)
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(probe.call_count, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(probe.call_args.args[0], output)
+        self.assertEqual(probe.call_args.kwargs["owner_run"], owner)
 
     def test_managed_claim_rejects_foreign_top_level_entry_before_probe(self):
         owner, output, request_path, claim, identity = self._managed_output_claim()

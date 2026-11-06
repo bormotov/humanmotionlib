@@ -161,8 +161,11 @@ def run(input_path, output, *, render_dir=None, render_only=False,
         input_root = input_path.parent
     output_operand = Path(os.fspath(output))
     if matrix_element_root is None:
-        output = validate_operation_root(resolve_workspace_path(output_operand, workspace),
-                                         workspace, owner_run)
+        if owner_run is None:
+            output = validate_operation_root(resolve_workspace_path(output_operand, workspace),
+                                             workspace)
+        else:
+            output = validate_managed_pass_root(output_operand, owner_run, workspace)
     else:
         if owner_run is not None:
             raise ValueError("matrix content mode cannot be combined with a managed owner run")
@@ -170,7 +173,7 @@ def run(input_path, output, *, render_dir=None, render_only=False,
             output_operand, matrix_element_root, workspace, operation="render")
     owner_root = validate_run_root(owner_run, workspace) if owner_run is not None else output
     if owner_run is not None:
-        validate_managed_pass_root(output, owner_root, workspace)
+        validate_managed_pass_root(output_operand, owner_run, workspace)
     render_dir = resolve_workspace_path(render_dir, workspace) if render_dir else None
     if render_dir is not None:
         try:

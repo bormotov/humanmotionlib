@@ -19,12 +19,24 @@ from humanmotionlib.package_resources import (manifest_sha256, read_bytes, read_
                                               verify_runtime_integrity)
 from humanmotionlib.prepared import read_prepared
 from humanmotionlib.prepare_skeleton import prepare as internal_prepare
-from humanmotionlib.render_contract import expected_views, validate_manifest
+from humanmotionlib.render_contract import (_receipt_files_unchanged, expected_views,
+                                            validate_manifest)
 from humanmotionlib.runtime import InvocationError, file_sha256
 from humanmotionlib.character_verification import _native_midpoint_beats
 
 
 class PublicApiTests(unittest.TestCase):
+    def test_supervised_receipt_rejects_duplicate_output_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            artifact = output / "artifact.bin"
+            artifact.write_bytes(b"artifact")
+            record = {"path": str(artifact.resolve()), "size_bytes": artifact.stat().st_size,
+                      "sha256": file_sha256(artifact)}
+            receipt = {"output_validation": {"status": "pass", "files": [record, record]}}
+            with self.assertRaisesRegex(ValueError, "complete render output set"):
+                _receipt_files_unchanged(receipt, output, [Path("artifact.bin")])
+
     def test_private_owned_pass_uses_same_render_operation_without_public_escape(self):
         sentinel = object()
         with patch.object(api, "_render_operation", return_value=sentinel) as operation:
@@ -44,6 +56,48 @@ class PublicApiTests(unittest.TestCase):
             _owner_run="/tmp/workspace/build/pack_r1_dev_try-1_review",
         )
         self.assertNotIn("owner_run", inspect.signature(api.render).parameters)
+
+    def test_private_owned_diagonal_paths_reach_supervisor_with_flat_owner_claims(self):
+        prepared_result = api.prepare(
+            workspace=self.workspace, output=self.output("nested-managed-input"),
+            stature=1.5, fixtures=("neutral",), bpms=(60,),
+        )
+        owner = self.workspace / "build" / "review-pack_r1_test_try-1_nested"
+        owner.mkdir()
+        routes = (
+            ("pair-skeleton", "clean-a"), ("pair-skeleton", "clean-b"),
+            ("pair-male", "clean-a"), ("pair-male", "clean-b"),
+            ("pair-female", "clean-a"), ("pair-female", "clean-b"),
+            ("skeleton-mode-check", "skeleton-default"),
+            ("skeleton-mode-check", "skeleton-explicit"),
+        )
+        for group, _name in routes:
+            (owner / group).mkdir(exist_ok=True)
+
+        observed = []
+        def stop_at_supervised_boundary(_prepared, output, **kwargs):
+            observed.append((Path(output), kwargs))
+            raise KeyboardInterrupt
+
+        with patch.object(api.run_blender, "run", side_effect=stop_at_supervised_boundary):
+            for group, name in routes:
+                with self.assertRaises(KeyboardInterrupt):
+                    api._render_owned_pass(
+                        prepared_result, workspace=self.workspace,
+                        output=owner / group / name, owner_run=owner,
+                        characters=("skeleton",), render_only=True,
+                    )
+
+        self.assertEqual(len(observed), 8)
+        for (group, name), (pass_root, kwargs) in zip(routes, observed):
+            self.assertEqual(pass_root, owner / group / name)
+            self.assertEqual(Path(kwargs["owner_run"]), owner)
+            claim = kwargs["managed_claim"]
+            self.assertEqual(Path(claim.owner_run), owner)
+            self.assertEqual(Path(claim.pass_root), pass_root)
+            request = json.loads(Path(kwargs["character_request"]).read_text())
+            self.assertEqual(request["render_identity"], claim.render_identity)
+            self.assertEqual(request["prepared_sha256"], claim.prepared_sha256)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -456,7 +510,6 @@ assert 'bpy' not in sys.modules
             (output / "render-manifest.json").write_text(json.dumps(manifest))
             required = validate_manifest(manifest, prepared_json, frames, output=output)
             required.extend((Path("evaluated.json"), Path("geometry-reference.json")))
-            required.append(Path("character-render-request.json"))
             evidence = output / "processes" / "mock"
             evidence.mkdir(parents=True)
             stdout = evidence / "stdout.log"

@@ -81,7 +81,11 @@ with 12 frames and 2000 ms total duration, two onion skins, `index.html` and
 Package/distribution tests, host and installed acceptance, cross-stature
 comparisons, baseline/determinism review packs and backend process hardening
 remain separate workflows. A matrix check covers the selected local output
-only. The known backend PGID safety finding remains separate and unresolved.
+only. Backend process-group handling now avoids PGID operations after the
+direct child is reaped; focused developer and independent reviewer checks
+passed. Timeout or cancellation reports `cleanup_pending` when descendant
+termination cannot be confirmed before reaping. Normal completion does not
+inspect or clean independently surviving descendants.
 
 ## Cleanup levels
 

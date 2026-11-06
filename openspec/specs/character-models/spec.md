@@ -1,10 +1,30 @@
-# Spec Delta
+# character-models Specification
 
 ## Purpose
-
 Provide independently selectable humanoid characters that share canonical skeletal motion and reusable surface construction, so common library changes propagate coherently without duplicated animation sources.
 
-## ADDED Requirements
+## Requirements
+
+### Requirement: Remaining real-backend acceptance uses the approved diagonal
+
+Remaining developer and independent reviewer real-backend acceptance SHALL cover exactly `skeleton` H=1.50 m, `male` H=1.70 m and `female` H=1.90 m with the approved diagnostics, applicable numerical/contact bounds, focused visual coverage and repeatability. Other supported pairs SHALL remain supported and be reported as unassessed. Source/host product contracts SHALL remain tested.
+
+#### Scenario: Verify the exact diagonal scope
+- **Verification:** independently generated pair reports, aggregate identity/coverage checks and negative input tests.
+- **WHEN** the three approved character/stature pair reports are aggregated
+- **THEN** a diagonal numeric pass requires all three successful applicable leaf checks, matching candidate package/backend/canonical source and diagnostic definitions with only declared stature scaling
+- **AND** missing, duplicate, wrong-character, wrong-height, stale, mismatched or failed members prevent a successful aggregate
+- **AND** the report enumerates required, observed and unassessed pairs and distinguishes diagonal numeric completeness from rendering, repeatability and human acceptance
+- **AND** it does not claim a complete character/stature cross-product, native same-character cross-stature equivalence or complete-character batch pixel parity.
+- **AND** source/host selection, scaling, propagation, batch-integrity and API/CLI checks retain their product coverage without requiring the excluded native/render cross-product.
+
+#### Scenario: Review only the selected live pairs
+- **Verification:** pair-scoped source/package/API/CLI comparisons, two clean render passes per pair and explicit human visual review.
+- **WHEN** the current candidate's three selected pairs are independently rendered and presented
+- **THEN** corresponding images are compared only within the same character/stature pair, and each pair's repeated decoded pixels agree exactly on the pinned backend
+- **AND** skeleton default and explicit selection agree at H=1.50 m
+- **AND** the pack labels every pair and discloses the excluded six pairs and unperformed native batch/cross-stature comparisons
+- **AND** a mixed-character/mixed-height overview is not described as a same-height silhouette or same-character scaling comparison.
 
 ### Requirement: Characters are first-class selectable library outputs
 
@@ -32,8 +52,8 @@ Character registry, descriptors, shared surface template, binding contract and a
 The three characters SHALL use identical skeletal proportions, joint centers, rest transforms, rig controls and solved movement for a given preparation. Character choice SHALL NOT alter actions, rest policies, contacts, body-group ownership, world root, timing, mobility limits or mass-model selection.
 
 #### Scenario: Compare the common movement across characters
-- **Verification:** complete fixture/consumer-source matrix, frame identities and native skeletal measurements.
-- **WHEN** all three characters render the same prepared diagnostics or consumer motion at the same stature and BPM
+- **Verification:** complete fixture/consumer-source host comparison and frame identities; native skeletal checks use the approved diagonal only.
+- **WHEN** host/source evaluation resolves the same prepared diagnostics or consumer motion for all three character selections at the same stature and BPM, without a native render of that cross-character set
 - **THEN** pose/sample/timeline identities and skeletal action/frame/contact data agree under unchanged existing tolerances
 - **AND** male/female appearance never implicitly selects sex-specific mass coefficients or reference mobility observations
 - **AND** changing appearance does not rewrite or duplicate a movement definition.
@@ -84,13 +104,22 @@ Each surface character SHALL have connected torso-to-arm shoulder junctions that
 - **AND** neck, lower shoulder boundary, distal arms and all other components preserve their previous rest geometry and weights outside the declared upper-shoulder correction
 - **AND** partial improvement does not accept the new identity or release expensive verification without an explicit human decision.
 
+#### Scenario: Repair the confirmed orientation and shoulder mirror defects
+- **Verification:** complete component directed-edge checks, ancestry-based reflected geometry/topology/weight comparisons and focused positive/negative controls; bounded identified before/after preview and explicit human decision.
+- **WHEN** the 2026-11-05 approved correction reconstructs either surface character
+- **THEN** every component is a closed consistently oriented manifold, including both leg cap fans, and each undirected edge has exactly two oppositely directed incident triangles
+- **AND** the complete left shoulder bridge, including its seam vertices and edges, has reflected coordinates, triangle connectivity and carrier-swapped weights corresponding to the canonical right bridge under stable seam/endpoint ancestry, within the existing 1e-12 canonical mirror tolerance; unselected seam-transition faces retain their original surface, material and orientation under the design's preservation checks
+- **AND** the design's explicit preservation boundary, six-component inventory, torso/regional counts and existing shape/deformation/contact limits hold; no tolerance waiver or anatomical/movement change substitutes for the repair
+- **AND** one fresh before/after preview shows male H1.70 and female H1.90 in neutral, rest, the complete arm-raise and complete squat at BPM90 with fixed full views and relevant shoulder/leg details
+- **AND** full suites, dense audits, native acceptance, repeated clean renders and the independent final pack wait for explicit acceptance of that new preview; the earlier R6 acceptance and failed host suites retain their original identities and scope.
+
 ### Requirement: Authored appearance has a frozen testable dossier
 
 The body surfaces SHALL conform to the approved numerical silhouette, topology, material and deformation dossier in this change's design. The two appearances SHALL be original stylized exercise mannequins, explicitly identified as authored approximations rather than measured or universal male/female anatomy.
 
 #### Scenario: Measure and visually identify the authored characters
 - **Verification:** independent rest-vertex/ring measurements and explicit human visual review.
-- **WHEN** male and female are generated at H=1.50, 1.70 and 1.90 m
+- **WHEN** source construction is checked at supported statures and the approved live pairs male H=1.70 m and female H=1.90 m are generated
 - **THEN** control-ring coordinates and extrema match the frozen dossier within 1e-5H for native vertices, with uniform stature scaling
 - **AND** independently measured waist/hip slices preserve the dossier's distinct silhouettes within 1e-4H
 - **AND** matte opaque suit/body regions, plain head and grouped mitten hands follow the dossier without external texture/model assets
@@ -110,7 +139,7 @@ Visible surfaces SHALL deform from explicit finite normalized carrier weights an
 
 #### Scenario: Verify deformation throughout existing movement coverage
 - **Verification:** full native delivered-vertex comparison, additional native key-interval midpoints and dense reference checks.
-- **WHEN** all packaged diagnostics are evaluated at H=1.50, 1.70 and 1.90 m
+- **WHEN** all packaged diagnostics are evaluated for male H=1.70 m and female H=1.90 m under the approved diagonal scope
 - **THEN** surface evidence reports per-character/sample worst residuals, finite vertices, stable topology and triangle areas greater than 1e-12H squared
 - **AND** weights sum to one within 1e-12 in canonical expansion and 1e-6 natively, with no unresolved or unsupported influence
 - **AND** coupled shoulder, forearm, knee and forefoot behavior reaches the surface through the existing posed carriers
@@ -122,7 +151,7 @@ Character surfaces SHALL respect the existing fixed floor and skeletal contact i
 
 #### Scenario: Check the sole beyond a rest-pose appearance
 - **Verification:** native full-vertex bounds, dense surface audit at spacing at most 0.01 beats and independent anchor-to-sole measurements.
-- **WHEN** every diagnostic, key/contact event and delivered sample is checked for both surfaces at all three supported statures
+- **WHEN** every diagnostic, key/contact event and delivered sample is checked for male H=1.70 m and female H=1.90 m under the approved diagonal scope
 - **THEN** floor bounds apply to the complete surface without hiding offending vertices or substituting intended targets
 - **AND** planted squat/walking feet and rolling forefoot support satisfy both skeletal-contact and visible-sole conditions
 - **AND** a failure reports character, component/vertex or anchor, beat, measured residual and bound
@@ -133,12 +162,12 @@ Character surfaces SHALL respect the existing fixed floor and skeletal contact i
 Character rendering SHALL preserve the shared fixed camera, floor, lights, projection, resolution and beat sampling. A character rendered alone or in a batch SHALL have identical decoded pixels for the same sample/view on the pinned reference backend. Independent repeated builds SHALL reproduce topology, surfaces and images within the stated bounds.
 
 #### Scenario: Compare singleton, batch and repeated output
-- **Verification:** native reconstruction, scene-matrix comparison and exact decoded-pixel comparison.
-- **WHEN** the focused acceptance set is rendered separately and in two independent complete-character batches
-- **THEN** each character's corresponding decoded images match exactly and canonical topology/weight identities agree
+- **Verification:** native reconstruction and exact decoded-pixel repeatability for each selected pair, plus host batch/visibility/identity contract tests.
+- **WHEN** the focused acceptance set is rendered twice independently for each approved diagonal pair
+- **THEN** each pair's corresponding decoded images match exactly and canonical topology/weight identities agree
 - **AND** native rest/posed vertices agree within 1e-6H between runs
-- **AND** other character collections cannot affect the selected image through visibility, shading or overlays
-- **AND** skeleton default/explicit/batch images match the pre-change baseline exactly under the existing rendering contract.
+- **AND** fixed scene/selection isolation and complete-character batch integrity remain covered by source/host checks; native complete-character batch pixel parity is explicitly unassessed in this reduced acceptance
+- **AND** current-candidate skeleton default and explicit output at H=1.50 m have identical evaluated geometry within existing limits and exact corresponding decoded pixels; historical pre-change Blender output is not required.
 
 ### Requirement: Common library changes propagate through the registered set
 

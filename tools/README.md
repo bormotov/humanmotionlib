@@ -374,10 +374,10 @@ rules. Character surfaces add no runtime dependency or downloaded mesh asset.
 The normal `review-pack` command accepts `--characters ID [ID ...]` and defaults
 to `skeleton`, preserving the existing skeleton-only presentation. IDs are
 validated and normalized to registry order. For the complete standalone
-character comparison pack, supply all three IDs and a primary H=1.70m
-evaluated input. Add supplementary candidate runs with repeatable
-`--stature-input H=RUN` (H=1.50 and H=1.90), and the immutable pre-change
-skeleton render with `--skeleton-baseline RUN`:
+character comparison pack, supply all three IDs, a primary H=1.70m evaluated
+input and supplementary candidate runs with repeatable `--stature-input H=RUN`
+(H=1.50 and H=1.90). Historical skeleton comparison is optional and may be
+supplied with `--skeleton-baseline RUN`:
 
 ```sh
 hml --workspace "$PWD" review-pack \
@@ -392,13 +392,40 @@ hml --workspace "$PWD" review-pack \
 All supplied evidence is checked before the output directory or managed render
 passes are created. Stature labels must match their persisted profile within
 1e-9m; the candidate profile, mobility and fixed scene sources must match, and
-neutral plus squat beat 2 must be present. The baseline is validated against
-its own historical seal and output receipt and stays read-only. Missing
-baseline/heights produce an explicitly incomplete report; no frame is
-rescaled, fabricated, or substituted. Review renders use the internal
+neutral plus squat beat 2 must be present. If supplied, the baseline is
+validated against its own historical seal and output receipt and stays
+read-only; malformed or stale evidence fails preflight. Missing required
+stature or current-mode comparison evidence produces an explicitly incomplete
+report. Historical baseline absence does not affect current-candidate pack
+completeness. No frame is rescaled, fabricated, or substituted. Review renders use the internal
 designated-owner adapter to the same sealed API preflight, supervised backend,
 and artifact validation as `api.render`. The public API still accepts only
 fresh independent flat output roots.
+
+The approved reduced acceptance route is explicit `diagonal-v1`; it accepts
+only `skeleton` H=1.50m, `male` H=1.70m and `female` H=1.90m, with each pair
+rendered in two independent clean passes. `--input` must be the skeleton H=1.50m
+run, and each `--diagonal-input` is a distinct evaluated run:
+
+```sh
+hml --workspace "$PWD" review-pack \
+  --acceptance-scope diagonal-v1 \
+  --input build/add-shared-body-characters_r9_dev_try-1_skeleton-150 \
+  --diagonal-input skeleton=build/add-shared-body-characters_r9_dev_try-1_skeleton-150 \
+  --diagonal-input male=build/add-shared-body-characters_r9_dev_try-1_male-170 \
+  --diagonal-input female=build/add-shared-body-characters_r9_dev_try-1_female-190 \
+  --output build/add-shared-body-characters_r9_reviewer_try-1_diagonal-pack
+```
+
+The diagonal pack labels its overview as mixed character/height and lists the
+six excluded pairs. It does not claim a complete Cartesian matrix or full
+change acceptance. Native numeric, source/package/API/CLI parity, independent
+review and Human Gate 2 remain separate requirements.
+
+Pack reports mark `scope=visual-comparison-pack` and
+`full_change_acceptance=not-assessed`. Source/package and API/CLI parity,
+complete native/dense numeric and contact verification, independent review,
+and human Gate 2 are separate evidence required to accept the full change.
 
 The output owns `clean-a/`, `clean-b/`, default/explicit skeleton and singleton
 comparison passes, and optional `stature-150/` / `stature-190/` passes. The
@@ -433,6 +460,24 @@ RUN` for the H=1.50/1.70/1.90 numeric matrix; each run must use the same
 candidate package, backend contract, canonical sources, diagnostics and
 sampling coverage, and all evaluated cross-stature checks must pass. A single
 stature result stays scoped and lists the other required heights as missing.
+
+The reduced `diagonal-v1` scope uses exactly skeleton H=1.50m, male H=1.70m
+and female H=1.90m. A numeric leaf uses one approved character and its matching
+run:
+
+```sh
+hml --workspace "$PWD" verify-skeleton \
+  --acceptance-scope diagonal-v1 --numeric-only --selected-character male \
+  --input build/add-shared-body-characters_r9_dev_try-1_male-170 \
+  --character-output build/add-shared-body-characters_r9_dev_try-1_male-170 \
+  --output build/add-shared-body-characters_r9_dev_try-1_numeric/report.json
+```
+
+The aggregate uses three repeatable `--diagonal-build CHARACTER=RUN` operands;
+`--input` and `--character-output` name the skeleton H=1.50m run. It reports
+required, observed and unassessed pairs without setting `matrix_complete`.
+Rendering, repeatability, visual judgment and full change acceptance remain
+separate requirements.
 
 ```sh
 build/project-tools_r1_contributor_current_environment/environment/bin/hml validate --profile adult-reference-v1
@@ -489,12 +534,14 @@ locks; the pinned backend contract names Darwin arm64 as its reference
 platform. The persistent lock file is `build/.backend-execution.lock`;
 ownership state is recorded in `build/.backend-execution-state.json`. A
 confirmed-dead owner can be recovered.
-Cancellation signals only the process group created for the current invocation
-and checks that group's state with `killpg(pgid, 0)`. It does not inspect the
-global process table. A zombie or otherwise ambiguous group remains
-`cleanup_pending`; the operation is non-success and its receipt records the
-unresolved cleanup. The backend supervisor and its dedicated tests own
-workspace lock retirement and cross-caller overlap behavior.
+Normal direct-child completion is reaped without probing or signaling its
+saved process-group ID. On timeout or cancellation, TERM/KILL and group-state
+probes are limited to the period before the direct child is reaped. If group
+termination cannot be confirmed before reaping, the receipt reports
+`cleanup_pending` and the operation fails with its diagnostics retained. The
+supervisor does not inspect the global process table. The backend supervisor
+and its dedicated tests own workspace lock retirement and cross-caller overlap
+behavior.
 
 Every supervised command that launches Blender needs a fresh, caller-owned flat
 run root under `build/`; its prepared `input.json` may be created in that same

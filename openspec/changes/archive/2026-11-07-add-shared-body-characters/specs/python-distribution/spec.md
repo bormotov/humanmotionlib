@@ -28,19 +28,19 @@ The wheel and source distribution SHALL contain the complete HML-owned resource 
 
 ### Requirement: Packaging preserves generation output
 
-Packaging SHALL preserve anatomy, controls, rest policies, contacts, fixed camera/floor/light, mirroring, beat timing and existing render/numeric tolerances. The installed skeleton default SHALL retain its baseline; added characters SHALL satisfy their character-models contract. Independent reviewer evidence SHALL compare installed output and include explicit human visual approval before archive.
+Packaging SHALL preserve anatomy, controls, rest policies, contacts, fixed camera/floor/light, mirroring, beat timing and existing render/numeric tolerances. Installed skeleton default, explicit and batch modes retain their source-workflow agreement contract: batch selection/semantics/integrity receive host/source checks, while native default/explicit equivalence is checked at H=1.50 m without requiring batch pixel evidence. Added characters SHALL satisfy their character-models contract. Independent reviewer evidence SHALL compare installed output for skeleton H=1.50 m, male H=1.70 m and female H=1.90 m and include explicit human visual approval before archive. Product batch contracts and the complete installed resource closure remain required; native full-batch pixel parity and same-character cross-stature render comparisons are outside the remaining diagonal acceptance and SHALL be labeled unassessed. Historical pre-change Blender construction and rendered output SHALL NOT be required as a comparison oracle for this change.
 
 #### Scenario: Compare the package regression pack
 - **Verification:** numeric comparison, decoded-pixel comparison, timing/link audits and explicit human visual review.
-- **WHEN** the reviewer builds the design's neutral/rest and four-beat arm-raise subset twice from the wheel on the pinned reference backend
-- **THEN** clean skeleton outputs are deterministic and match the baseline geometry and decoded render pixels within the unchanged applicable limits
-- **AND** the human receives labeled count/in-between sheets, GIFs, onion-skin overlays and baseline/package comparisons specified in design
+- **WHEN** the reviewer builds the design's neutral/rest and four-beat arm-raise subset twice for each approved diagonal pair from the wheel on the pinned reference backend
+- **THEN** each pair's outputs are deterministic and current-candidate source and installed workflows agree on evaluated geometry and decoded render pixels at the same character/stature within the unchanged applicable limits
+- **AND** the human receives labeled count/in-between sheets, GIFs, onion-skin overlays and current-candidate source/package comparisons specified in design
 - **AND** full-fixture validation/preparation coverage and focused visual coverage are separately reported, without claiming renewed complete anatomical acceptance.
 
 #### Scenario: Generate all characters from an installed artifact
-- **Verification:** non-editable wheel API/CLI runs outside the checkout, real backend suite and filesystem/resource audits.
-- **WHEN** one shared preparation is rendered with each character individually and the full registered set from a read-only installation
+- **Verification:** non-editable wheel pair-scoped API/CLI runs outside the checkout, host batch-contract tests and filesystem/resource audits.
+- **WHEN** the approved diagonal pairs are rendered from a read-only installation and complete-registry selection/closure is checked through host tests
 - **THEN** character identities, surface topology/binding, exact pose/timeline links, source provenance and expected image inventories agree with the source workflow
-- **AND** default/explicit/batch skeleton output preserves the baseline, and surface singleton/batch output agrees exactly on the pinned renderer
+- **AND** current-candidate default/explicit skeleton H=1.50 m output agrees exactly on the pinned renderer, while full-batch semantics remain host-checked and native batch pixel parity is reported as unassessed
 - **AND** invocation-directory independence, explicit workspace containment, disjoint runs and fail-closed package/render integrity remain enforced
 - **AND** host-only CI results remain labeled separately from real Blender numeric/render evidence and human visual acceptance.

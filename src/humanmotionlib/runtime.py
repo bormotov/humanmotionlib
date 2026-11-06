@@ -30,6 +30,13 @@ _MANAGED_RENDER_PASS_NAMES = frozenset({
     "clean-a", "clean-b", "skeleton-default", "skeleton-explicit",
     "male-singleton", "female-singleton", "stature-150", "stature-190",
 })
+_NESTED_MANAGED_RENDER_PASSES = frozenset({
+    ("pair-skeleton", "clean-a"), ("pair-skeleton", "clean-b"),
+    ("pair-male", "clean-a"), ("pair-male", "clean-b"),
+    ("pair-female", "clean-a"), ("pair-female", "clean-b"),
+    ("skeleton-mode-check", "skeleton-default"),
+    ("skeleton-mode-check", "skeleton-explicit"),
+})
 _MATRIX_RENDER_PASSES = frozenset({
     "clean-a", "clean-b", "skeleton-default", "skeleton-explicit",
     "male-singleton", "female-singleton", "stature-150", "stature-190",
@@ -158,13 +165,40 @@ def validate_run_root(run_root, workspace=None):
 
 
 def validate_managed_pass_root(pass_root, owner_run, workspace):
-    """Validate the two fixed render-pass directories owned by a pack run."""
-    owner = validate_run_root(owner_run, workspace)
-    if not owner.is_dir():
-        raise ValueError(f"managed render pass owner must be an existing run directory: {owner}")
-    path = resolve_workspace_path(pass_root, workspace)
-    if path.parent != owner or path.name not in _MANAGED_RENDER_PASS_NAMES:
-        raise ValueError(f"managed render pass must use a designated name directly inside its owner: {path}")
+    """Validate a direct or explicitly allowed nested pass below a flat owner."""
+    root = workspace_root(workspace)
+
+    def lexical_path(value, label):
+        operand = Path(os.fspath(value))
+        if ".." in operand.parts:
+            raise ValueError(f"managed render {label} cannot contain traversal components")
+        if not operand.is_absolute():
+            operand = root / operand
+        return Path(os.path.abspath(operand))
+
+    owner_operand = lexical_path(owner_run, "owner")
+    owner = validate_run_root(owner_operand, root)
+    if owner_operand != owner or owner.is_symlink() or not owner.is_dir():
+        raise ValueError(f"managed render pass owner must be a real existing run directory: {owner}")
+
+    path = lexical_path(pass_root, "pass")
+    try:
+        relative = path.relative_to(owner)
+    except ValueError as error:
+        raise ValueError(f"managed render pass escapes its owner: {path}") from error
+    parts = relative.parts
+    allowed = (len(parts) == 1 and parts[0] in _MANAGED_RENDER_PASS_NAMES)
+    allowed = allowed or tuple(parts) in _NESTED_MANAGED_RENDER_PASSES
+    if not allowed:
+        raise ValueError(f"managed render pass is not a designated owner destination: {path}")
+
+    # All nested grouping directories must already exist as real directories;
+    # a final pass may be absent until the API claims it, but cannot be a link.
+    for component in (owner, *(owner / part for part in parts[:-1])):
+        if component.is_symlink() or not component.is_dir():
+            raise ValueError(f"managed render path has a missing or symlinked parent: {component}")
+    if path.is_symlink():
+        raise ValueError(f"managed render pass cannot be a symlink: {path}")
     return path
 
 
@@ -359,47 +393,79 @@ def _signal_group(pgid, sig):
         return "ambiguous"
 
 
-def _wait_group_absent(pgid, deadline, *, anchor_pid=None):
-    while time.monotonic() < deadline:
-        remaining = deadline - time.monotonic()
-        state = _group_state(pgid, anchor_pid=anchor_pid, ps_timeout=min(0.2, remaining))
-        if state != "present":
-            return state
-        remaining = deadline - time.monotonic()
-        time.sleep(min(0.05, max(0.0, remaining)))
-    return "present"
+def _unreaped_child_state(child):
+    """Observe child exit without releasing its PID/PGID identity anchor."""
+    if child.returncode is not None:
+        return "reaped"
+    waitid = getattr(os, "waitid", None)
+    required = (getattr(os, "WEXITED", 0), getattr(os, "WNOHANG", 0), getattr(os, "WNOWAIT", 0))
+    if waitid is None or not all(required):
+        return "ambiguous"
+    try:
+        info = waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        return "reaped"
+    except OSError:
+        return "ambiguous"
+    return "exited" if info is not None and info.si_pid == child.pid else "running"
 
 
-def _wait_child_unreaped(child, pgid, timeout):
-    """Wait for the owned leader; group cleanup uses its invocation PGID."""
+def _wait_child_unreaped(child, timeout):
+    """Wait for the direct child without reaping its PID/PGID identity anchor."""
     deadline = time.monotonic() + timeout
     while True:
+        state = _unreaped_child_state(child)
+        if state != "running":
+            return state
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "running"
-        if child.poll() is not None:
-            return "exited"
         time.sleep(min(0.02, remaining))
 
 
 def _cleanup_owned_group(child, pgid):
-    """Terminate one owned group within fixed grace and reap budgets.
+    """Clean a live owned group while the direct-child identity remains anchored.
 
-    Signal only the group allocated for this invocation, reap the direct child
-    within the remaining budget, then confirm that the group is absent. Group
-    state uses killpg(0); an ambiguous or lingering group remains cleanup-pending.
+    Never probe or signal a PGID after the direct child has been reaped. If the
+    group cannot be confirmed absent before reaping, preserve diagnostics and
+    report cleanup_pending.
     """
+    child_state = _unreaped_child_state(child)
+    if child_state in {"reaped", "ambiguous"}:
+        return "not-attempted-after-reap" if child_state == "reaped" else "cleanup_pending"
     _signal_group(pgid, signal.SIGTERM)
     term_deadline = time.monotonic() + TERMINATE_GRACE_SECONDS
-    group_state = _wait_group_absent(pgid, term_deadline, anchor_pid=child.pid)
+    group_state = "present"
+    while time.monotonic() < term_deadline:
+        child_state = _unreaped_child_state(child)
+        if child_state in {"reaped", "ambiguous"}:
+            break
+        group_state = _group_state(pgid, anchor_pid=child.pid)
+        if group_state == "absent":
+            break
+        time.sleep(min(0.05, max(0.0, term_deadline - time.monotonic())))
     kill_deadline = time.monotonic() + KILL_REAP_SECONDS
-    if group_state != "absent":
+    child_state = _unreaped_child_state(child)
+    if group_state != "absent" and child_state in {"running", "exited"}:
         _signal_group(pgid, signal.SIGKILL)
-    try:
-        child.wait(timeout=max(0.0, kill_deadline - time.monotonic()))
-    except subprocess.TimeoutExpired:
-        return "cleanup_pending"
-    group_state = _wait_group_absent(pgid, kill_deadline)
+    while time.monotonic() < kill_deadline:
+        child_state = _unreaped_child_state(child)
+        if child_state in {"reaped", "ambiguous"}:
+            break
+        group_state = _group_state(pgid, anchor_pid=child.pid)
+        if group_state == "absent":
+            break
+        time.sleep(min(0.05, max(0.0, kill_deadline - time.monotonic())))
+    child_state = _unreaped_child_state(child)
+    if child_state == "reaped":
+        return "not-attempted-after-reap"
+    if child_state == "exited":
+        child.wait()
+    else:
+        try:
+            child.wait(timeout=max(0.0, kill_deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return "cleanup_pending"
     return "confirmed" if group_state == "absent" else "cleanup_pending"
 
 
@@ -598,7 +664,7 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                         break
                 try:
                     outcome = "exit"
-                    leader_state = _wait_child_unreaped(child, pgid, timeout)
+                    leader_state = _wait_child_unreaped(child, timeout)
                     if leader_state == "running":
                         outcome = "timeout"
                         receipt["timeout"] = True
@@ -607,19 +673,11 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                                                "term_grace_seconds": TERMINATE_GRACE_SECONDS,
                                                "kill_reap_seconds": KILL_REAP_SECONDS}
                     elif leader_state == "exited":
-                        group_state = _group_state(pgid, anchor_pid=child.pid)
-                        if group_state != "absent":
-                            outcome = "orphaned-descendant"
-                            cleanup_status = _cleanup_owned_group(child, pgid)
-                            receipt["cleanup"] = {"status": cleanup_status,
-                                                   "term_grace_seconds": TERMINATE_GRACE_SECONDS,
-                                                   "kill_reap_seconds": KILL_REAP_SECONDS,
-                                                   "reason": "owned process group remained after direct child exit",
-                                                   "initial_group_state": group_state}
-                        else:
-                            # The unreaped leader remains the PGID identity
-                            # anchor until no live group members remain.
-                            child.wait(timeout=0.1)
+                        # Once the direct child exits normally, reap it and do
+                        # not inspect or signal its now-reusable process group.
+                        child.wait(timeout=0.1)
+                        receipt["cleanup"] = {"status": "not-needed",
+                                               "reason": "direct child exited normally; process group was not inspected"}
                     else:
                         outcome = "leader-state-" + leader_state
                         cleanup_status = _cleanup_owned_group(child, pgid)
@@ -681,8 +739,11 @@ def invocation(command, *, run_root, operation, cwd=None, timeout_seconds,
                 return receipt
     except KeyboardInterrupt as error:
         cleanup_status = "confirmed"
-        if child is not None and pgid is not None:
-            cleanup_status = _cleanup_owned_group(child, pgid)
+        if child is not None:
+            # start_new_session makes the child PID its PGID. Recover the
+            # identity if cancellation arrived between spawn and assignment;
+            # cleanup itself will refuse PGID work once the child is reaped.
+            cleanup_status = _cleanup_owned_group(child, pgid if pgid is not None else child.pid)
         receipt.update({"state": "failed", "outcome": "cancelled", "cancellation": str(error),
                         "finished_at": _utc_now(), "elapsed_seconds": time.monotonic() - started,
                         "cleanup": {"status": cleanup_status,

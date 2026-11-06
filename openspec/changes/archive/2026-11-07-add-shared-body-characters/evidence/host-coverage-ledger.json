@@ -1,0 +1,71 @@
+{
+  "schema": "add-shared-body-characters-host-coverage-ledger/v1",
+  "scope": "Historical two 512-test host runs, corrected R12 affected-module batch, and R13 focused nested-managed-pass renewal. No suite was rerun to prepare this ledger.",
+  "candidate": {
+    "revision": "R13",
+    "wheel_sha256": "ac43ac83ab55bd7aa7348c129f98505c96531753e76b8767d6c9b04ff2d7c873",
+    "runtime_manifest_sha256": "ec5f1a7c010e90477a113e66a2c25e3765acca804ea5dae193e4007870819838",
+    "source_test_snapshot": "build/add-shared-body-characters_r13_dev_try-1_source/snapshot",
+    "snapshot_aggregate_sha256": "524691315220953bbbd41762161588efe855d2ad44e533d61c589ec1bb475d56"
+  },
+  "historical_runs": [
+    {
+      "run": "build/add-shared-body-characters_r10_dev_try-1_host-check/host-checks.json",
+      "independent_counterpart": "build/add-shared-body-characters_r10_reviewer_try-1_host-check/host-outcome.json",
+      "test_discovered": 512,
+      "dev_summary": {"passed": 489, "failed": 26, "errors": 10, "skipped": 8, "status": "failed", "exit_code": 1},
+      "failed_test_methods": 15,
+      "affected_modules": ["test_api", "test_character_surface", "test_character_propagation", "test_characters", "test_matrix_test_outcomes", "test_review_pack_supervision"],
+      "identity": "R10/v4 host snapshot and R10 candidate; not the R13 candidate or test snapshot",
+      "disposition": "Preserve as failed. The repeated passing assertions are historical evidence only; they are not counted as R13 acceptance without per-test source and dependency equivalence."
+    },
+    {
+      "run": "build/add-shared-body-characters_r10_reviewer_try-1_host-check/host-outcome.json",
+      "dev_counterpart": "build/add-shared-body-characters_r10_dev_try-1_host-check/host-checks.json",
+      "test_discovered": 512,
+      "failure_records": 2,
+      "error_records": 10,
+      "affected_methods": ["test_api.PublicApiTests.test_custom_render_dir_uses_shared_complete_receipt_contract", "test_character_propagation.CharacterPropagationTests.test_shared_arm_radius_propagates_to_both_appearances_only", "test_character_surface.CharacterSurfaceTests.test_control_ring_ids_and_mirrored_topology_are_frozen", "test_character_surface.CharacterSurfaceTests.test_eight_components_have_stable_ids_and_nonempty_meshes", "test_character_surface.CharacterSurfaceTests.test_end_caps_keep_the_final_ring_carrier_weights", "test_character_surface.CharacterSurfaceTests.test_every_limb_control_ring_center_matches_rest_landmark_chain", "test_character_surface.CharacterSurfaceTests.test_every_limb_control_ring_radius_matches_frozen_dossier", "test_character_surface.CharacterSurfaceTests.test_head_and_foot_control_extrema_match_frozen_dossier", "test_character_surface.CharacterSurfaceTests.test_independent_upper_arm_radius_uses_declared_female_multiplier", "test_character_surface.CharacterSurfaceTests.test_left_limb_is_reflection_with_stable_sector_ids_and_corrected_winding", "test_matrix_test_outcomes.InstalledRunOwnershipTests.test_candidate_manifest_binds_wheel_and_installed_role_environment", "test_review_pack_supervision.ReviewPackSupervisionTests.test_published_nested_sealed_pass_reuses_rebased_render_and_probe_receipts"],
+      "disposition": "Independent counterpart retains failure/error records under its own identity; do not convert either historical run to pass. Counts differ by structured subtest aggregation."
+    }
+  ],
+  "corrected_batch": {
+    "evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json",
+    "input_identity": "openspec/changes/add-shared-body-characters/evidence/r12-frozen-input-identities.json",
+    "wheel_sha256": "2c027eae3c897be17a21dbe30e861f9dfdc7064795f72e1903a1ebf58b4ca04e",
+    "runtime_manifest_sha256": "efe64b58bcb7c4e52a1e3d5684978584c281d4a6d73d00e63f75e2907d420e80",
+    "result": "partial-pass",
+    "modules": {
+      "test_character_surface": {"result": "pass", "tests": 23, "evidence": "openspec/changes/add-shared-body-characters/evidence/r11-focused-test-run.json", "identity_note": "R11 package/test group, not R12 or R13; separate prior exact-candidate group."},
+      "test_character_propagation": {"result": "pass", "tests": 4, "group_evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json", "group": "18 tests with test_characters", "identity_note": "R12 frozen source/test snapshot and R12 wheel; method IDs reconstructed in host-dependency-inventory.json."},
+      "test_characters": {"result": "pass", "tests": 14, "group_evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json", "group": "18 tests with test_character_propagation", "identity_note": "R12 frozen source/test snapshot and R12 wheel; method IDs reconstructed in host-dependency-inventory.json."},
+      "test_api": {"result": "pass", "tests": 24, "group_evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json", "group": "55 tests with test_matrix_test_outcomes and test_review_pack_supervision", "identity_note": "R12 frozen source/test snapshot and R12 wheel; test file changed by R13 though all 24 method ASTs match."},
+      "test_matrix_test_outcomes": {"result": "pass", "tests": 12, "group_evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json", "group": "55 tests with test_api and test_review_pack_supervision", "identity_note": "R12 frozen source/test snapshot and R12 wheel; dynamic import/process controls merit current-identity batch."},
+      "test_review_pack_supervision": {"result": "pass", "tests": 19, "group_evidence": "openspec/changes/add-shared-body-characters/evidence/r12-host-batch-evidence.json", "group": "55 tests with test_api and test_matrix_test_outcomes", "identity_note": "R12 frozen source/test snapshot and R12 wheel; R13 changed managed nested-pass ownership contract. Method IDs reconstructed in host-dependency-inventory.json."}
+    },
+    "counts": {"surface_prior_group": 23, "propagation_plus_characters": 18, "api_plus_matrix_plus_review_pack": 55, "affected_total_reported": 96},
+    "limitations": ["R12 batch reports partial-pass, not a complete 512-test suite pass.", "Method IDs and per-module counts are reconstructed from the full unittest module commands and frozen R12 test snapshots; the batch summary itself does not persist per-method stdout/results.", "The exact installed-process skip/permission scope must be read from the corresponding run output before claiming it covers a historical case."]
+  },
+  "r13_renewal": {
+    "evidence": "build/add-shared-body-characters_r13_dev_try-1_focus-check/focused-test-command.json",
+    "log": "build/add-shared-body-characters_r13_dev_try-1_focus-check/logs/focused-tests.log",
+    "result": "10 focused tests passed; narrow controls only",
+    "covered_changed_boundary": ["test_api.PublicApiTests.test_private_owned_diagonal_paths_reach_supervisor_with_flat_owner_claims", "test_review_pack_supervision.ReviewPackSupervisionTests.test_review_pack_output_binding_is_opt_in_and_exact", "test_review_pack_supervision.ReviewPackSupervisionTests.test_reuse_requires_successful_current_receipt_and_unchanged_output_hashes", "test_review_pack_supervision.ReviewPackSupervisionTests.test_reuse_rejects_stale_or_incomplete_receipt", "nested diagonal managed-pass path validation, flat owner claims, exact allowlist, symlink/request/foreign-entry mutation controls, synthetic diagonal CLI assembly"],
+    "not_covered_by_this_renewal": ["all other test_api methods", "all test_matrix_test_outcomes methods", "full test_review_pack_supervision suite", "all test_character_surface, test_character_propagation and test_characters methods", "the complete historical 512-test passing set"],
+    "identity_note": "R13 wheel/manifest differs from R12. The R13 freeze identity includes hashes for all 60 test files; current workspace files match those hashes. The physical R13 producer snapshot copied only the selected test subset, so source/test-hash identity is available, but execution evidence is still only the named focused tests. See host-dependency-inventory.json for per-old-case method hashes and conservative dependency mapping."
+  },
+  "coverage_decisions": [
+    {"scope": "Six originally affected modules after correction", "status": "partially-covered", "basis": "R12 batched passes total 96 reported affected cases across all six modules; R13 renews only the changed nested managed-pass boundary with 10 focused controls. R13 does not have a complete host-suite pass."},
+    {"scope": "Historical passing assertions outside the affected modules", "status": "reviewable-dependency-inventory", "basis": "host-dependency-inventory.json compares the actual R10 host wheel manifest to R13, links each old case ID to old/current method AST hashes and R13 test-file identity, checks all 64 packaged resources, and flags static imports plus dynamic/subprocess routes. The conservative analysis is not sufficient by itself to promote a pass; reviewer must validate environmental and behavioral dependencies."},
+    {"scope": "matrix-check installed-package identity defect", "status": "explicitly-out-of-scope", "basis": "Human deferred it to a separate change; no pass is claimed."},
+    {"scope": "R12 corrected 96 affected cases on R13", "status": "unresolved", "basis": "R12 passes do not transfer automatically. Comparing the actual original R10 runtime manifest to R13 shows five changed implementation modules (api.py, character_surface.py, review_pack.py, run_blender.py, runtime.py), while all 64 packaged resources match. The R12 batch summary lacks per-test IDs/statuses, and R13 focused tests cover only a narrow subset. Reviewer must decide whether method-level dependency adjudication suffices for unchanged cases or current affected tests must run."},
+    {"scope": "Remaining R13 host suite / unique R13 full host pass", "status": "unresolved", "basis": "Not run. Reviewer/orchestrator must decide whether the scoped ledger satisfies the planned acceptance or a single R13 full suite is required."}
+  ],
+  "economical_current_identity_scope": {
+    "recommended_command": "python -m unittest tests.test_api tests.test_matrix_test_outcomes tests.test_review_pack_supervision",
+    "expected_test_methods": 55,
+    "rationale": "These 55 R12-passing methods are in the modules associated with R13 API/managed-pass edits or dynamic host/package/process checks. The 41 methods in test_character_surface, test_character_propagation and test_characters already passed on R11/R12 identities; their relevant model implementation and 64 packaged resources are unchanged from R12 to R13. Reviewer must confirm function-level dependency review before carrying those 41 forward.",
+    "not_run": true
+  },
+  "reviewer_action": "Independently verify run summaries, identity comparison, the reconstructed method map, and whether the proposed 55-method R13 renewal plus reviewed 41-method carry-forward meets acceptance. This ledger is evidence indexing, not self-approval."
+}

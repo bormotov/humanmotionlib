@@ -191,6 +191,47 @@ class InvocationTests(unittest.TestCase):
         self.assertFalse((owner / "processes").exists())
         self.assertFalse((owner / "scratch").exists())
 
+    def test_diagonal_managed_pass_allowlist_is_exact_and_symlink_safe(self):
+        owner = fresh_test_run_root("diagonal-managed-owner")
+        routes = (
+            ("pair-skeleton", "clean-a"), ("pair-skeleton", "clean-b"),
+            ("pair-male", "clean-a"), ("pair-male", "clean-b"),
+            ("pair-female", "clean-a"), ("pair-female", "clean-b"),
+            ("skeleton-mode-check", "skeleton-default"),
+            ("skeleton-mode-check", "skeleton-explicit"),
+        )
+        for group, name in routes:
+            parent = owner / group
+            parent.mkdir(exist_ok=True)
+            destination = parent / name
+            self.assertEqual(validate_managed_pass_root(destination, owner,
+                                                        test_workspace("runtime")), destination)
+        invalid = (
+            owner / "pair-unknown" / "clean-a",
+            owner / "pair-skeleton" / "other",
+            owner / "pair-skeleton" / "clean-a" / "extra",
+            owner / "pair-male" / ".." / "clean-a",
+            owner / "pair-female" / "clean-a" / "nested_run_r1_dev_try-1_pack",
+        )
+        for destination in invalid:
+            with self.subTest(destination=destination), self.assertRaises(ValueError):
+                validate_managed_pass_root(destination, owner, test_workspace("runtime"))
+        linked_group = owner / "pair-linked"
+        linked_group.symlink_to(owner / "pair-skeleton", target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "designated|missing or symlinked"):
+            validate_managed_pass_root(linked_group / "clean-a", owner,
+                                       test_workspace("runtime"))
+        linked_group = owner / "pair-male"
+        linked_group.rmdir()
+        linked_group.symlink_to(owner / "pair-skeleton", target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlinked parent"):
+            validate_managed_pass_root(linked_group / "clean-a", owner,
+                                       test_workspace("runtime"))
+        linked_pass = owner / "pair-skeleton" / "clean-a"
+        linked_pass.symlink_to(owner / "pair-skeleton" / "clean-b", target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "cannot be a symlink"):
+            validate_managed_pass_root(linked_pass, owner, test_workspace("runtime"))
+
     def test_deadline_validation_prevents_spawn(self):
         for value in (0, -1, float("nan"), float("inf"), 86401, None, "bad"):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -244,29 +285,114 @@ class InvocationTests(unittest.TestCase):
             self.assertEqual(receipt["signal"], expected_signal)
             self.assertEqual(receipt["state"], "failed")
 
-    def test_direct_child_exit_with_live_descendant_fails_and_cleans_owned_group(self):
-        root = checks_root()
-        sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
-                                    start_new_session=True)
+    def test_normal_child_completion_never_probes_or_signals_reaped_group(self):
+        root = case("normal-exit-no-group-actions")
+        with mock.patch("humanmotionlib.runtime._group_state") as group_state, \
+             mock.patch("humanmotionlib.runtime._signal_group") as signal_group:
+            result = invocation([sys.executable, "-c", "print('done')"], run_root=root,
+                                operation="normal-exit", timeout_seconds=2)
+            with self.assertRaises(InvocationError) as caught:
+                invocation([sys.executable, "-c", "raise SystemExit(7)"], run_root=case("normal-nonzero"),
+                           operation="normal-nonzero", timeout_seconds=2)
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(result["cleanup"]["status"], "not-needed")
+        self.assertEqual(read_receipt(caught.exception)["return_code"], 7)
+        group_state.assert_not_called()
+        signal_group.assert_not_called()
+
+    def test_normal_exit_with_live_descendant_does_not_touch_reused_group(self):
+        script = ("import subprocess,sys; "
+                  "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+                  "print(p.pid, flush=True)")
+        with mock.patch("humanmotionlib.runtime._group_state") as group_state, \
+             mock.patch("humanmotionlib.runtime._signal_group") as signal_group:
+            result = invocation([sys.executable, "-c", script], run_root=case("exit-with-descendant"),
+                                operation="normal-exit-descendant", timeout_seconds=3)
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(result["cleanup"]["status"], "not-needed")
+        group_state.assert_not_called()
+        signal_group.assert_not_called()
+        descendant_pid = int(Path(result["stdout_log"]).read_text().splitlines()[0])
         try:
-            for exit_code in (0, 7):
-                with self.subTest(exit_code=exit_code), self.assertRaises(InvocationError) as caught:
-                    script = ("import subprocess,sys; "
-                              "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
-                              "print(p.pid, flush=True); sys.exit(" + str(exit_code) + ")")
-                    invocation([sys.executable, "-c", script], run_root=case(f"exit-descendant-{exit_code}"),
-                               operation=f"exit-descendant-{exit_code}", timeout_seconds=3,
-                               slot_timeout_seconds=2)
-                receipt = read_receipt(caught.exception)
-                self.assertEqual(receipt["outcome"], "orphaned-descendant")
-                self.assertEqual(receipt["cleanup"]["status"], "confirmed")
-                self.assertEqual(receipt["state"], "failed")
-                self.assertIsNotNone(receipt["return_code"])
-                self.assertEqual(_group_state(receipt["process_group_id"]), "absent")
-                self.assertIsNone(sentinel.poll(), "cleanup must preserve an unrelated process group")
+            os.kill(descendant_pid, 0)
         finally:
-            sentinel.terminate()
-            sentinel.wait(timeout=2)
+            try:
+                os.kill(descendant_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+    def test_late_cancellation_after_reap_never_probes_or_signals_group(self):
+        from humanmotionlib import runtime
+        original_observed_phases = runtime._observed_phases
+        calls = 0
+
+        def interrupt_once(path):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise KeyboardInterrupt("late cancel")
+            return original_observed_phases(path)
+
+        with mock.patch("humanmotionlib.runtime._observed_phases", side_effect=interrupt_once), \
+             mock.patch("humanmotionlib.runtime._group_state") as group_state, \
+             mock.patch("humanmotionlib.runtime._signal_group") as signal_group, \
+             self.assertRaises(InvocationError) as caught:
+            invocation([sys.executable, "-c", "print('finished')"], run_root=case("late-cancel"),
+                       operation="late-cancel", timeout_seconds=2)
+        receipt = read_receipt(caught.exception)
+        self.assertEqual(receipt["outcome"], "cancelled")
+        self.assertEqual(receipt["cleanup"]["status"], "not-attempted-after-reap")
+        group_state.assert_not_called()
+        signal_group.assert_not_called()
+
+    def test_group_signals_and_probes_stop_before_child_reap(self):
+        from humanmotionlib import runtime
+
+        events = []
+        child = mock.Mock()
+        child.pid = 456
+        child.returncode = None
+
+        def signal_group(pgid, sig):
+            self.assertIsNone(child.returncode)
+            events.append(("signal", sig))
+            return "sent"
+
+        def group_state(pgid, **kwargs):
+            self.assertIsNone(child.returncode)
+            events.append(("probe", pgid))
+            return "present"
+
+        def wait_child(timeout=None):
+            events.append(("reap", None))
+            child.returncode = -signal.SIGKILL
+            return child.returncode
+
+        child.wait.side_effect = wait_child
+        with mock.patch.object(runtime, "_unreaped_child_state", return_value="running"), \
+             mock.patch.object(runtime, "_signal_group", side_effect=signal_group), \
+             mock.patch.object(runtime, "_group_state", side_effect=group_state), \
+             mock.patch.object(runtime, "TERMINATE_GRACE_SECONDS", 0.02), \
+             mock.patch.object(runtime, "KILL_REAP_SECONDS", 0.02):
+            status = runtime._cleanup_owned_group(child, child.pid)
+
+        self.assertEqual(status, "cleanup_pending")
+        self.assertEqual([event for event in events if event[0] == "signal"],
+                         [("signal", signal.SIGTERM), ("signal", signal.SIGKILL)])
+        self.assertEqual(events[-1][0], "reap")
+
+    def test_cleanup_called_after_reap_does_no_group_operation(self):
+        from humanmotionlib import runtime
+
+        child = mock.Mock()
+        child.pid = 789
+        child.returncode = 0
+        with mock.patch.object(runtime, "_group_state") as group_state, \
+             mock.patch.object(runtime, "_signal_group") as signal_group:
+            status = runtime._cleanup_owned_group(child, child.pid)
+        self.assertEqual(status, "not-attempted-after-reap")
+        group_state.assert_not_called()
+        signal_group.assert_not_called()
 
     def test_timeout_kills_resistant_descendant_and_preserves_sentinel(self):
         root = case("timeout-descendant")
@@ -300,7 +426,7 @@ class InvocationTests(unittest.TestCase):
             timer.wait(timeout=2)
             receipt = read_receipt(caught.exception)
             self.assertEqual(receipt["outcome"], "cancelled")
-            self.assertEqual(receipt["cleanup"]["status"], "confirmed")
+            self.assertIn(receipt["cleanup"]["status"], {"confirmed", "cleanup_pending"})
             self.assertEqual(receipt["state"], "failed")
             self.assertIsNone(os.kill(sentinel.pid, 0))
             released = invocation([sys.executable, "-c", "print('slot released')"],

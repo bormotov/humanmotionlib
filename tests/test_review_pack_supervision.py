@@ -156,53 +156,49 @@ class ReviewPackSupervisionTests(unittest.TestCase):
                 "allowed_destinations": ["presentation/clean-a"],
             })
 
-    def test_published_nested_sealed_pass_reuses_rebased_render_and_probe_receipts(self):
+    def test_nested_sealed_pass_reuse_checks_request_probe_and_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()
             build = workspace / "build"
             build.mkdir()
-            input_dir = build / "automate-build-and-verification-matrix_r1_test_try-1_input"
-            input_dir.mkdir()
-            selected_input = input_dir / "input.json"
-            selected_input.write_text("selected input")
-            prepared = prepared_fixture()
-            work = build / "automate-build-and-verification-matrix_r1_test_try-1_work-review-pack"
-            slot = build / "automate-build-and-verification-matrix_r1_test_try-1_result-review-pack"
-            work.mkdir()
-            output = work / "clean-a"
-            source_review_pack = review_pack
-            if not hasattr(source_review_pack, "_validate_matrix_receipt_relocation"):
-                source_root = Path(__file__).resolve().parents[1] / "src/humanmotionlib"
-                contract_spec = importlib.util.spec_from_file_location(
-                    "humanmotionlib.render_contract", source_root / "render_contract.py")
-                source_contract = importlib.util.module_from_spec(contract_spec)
-                contract_spec.loader.exec_module(source_contract)
-                source_spec = importlib.util.spec_from_file_location(
-                    "matrix_test_review_pack", source_root / "review_pack.py")
-                source_review_pack = importlib.util.module_from_spec(source_spec)
-                with (mock.patch.dict(sys.modules, {"humanmotionlib.render_contract": source_contract}),
-                      mock.patch.object(package, "render_contract", source_contract, create=True)):
-                    source_spec.loader.exec_module(source_review_pack)
-            with mock.patch.object(api, "_expected_render_request", create=True, return_value={
-                    "render_identity": "fixture-render-identity", "character_ids": ["skeleton"]}):
-                output, manifest, _request = self._sealed_pass(workspace, selected_input, prepared, output)
+            prepared_result = api.prepare(
+                workspace=workspace,
+                output="build/review-pack_r1_test_try-1_nested-input/input.json",
+                fixtures=("neutral",), bpms=(60,))
+            selected_input = prepared_result.prepared_path
+            prepared = json.loads(selected_input.read_text(encoding="utf-8"))
+            output = build / "review-pack_r1_test_try-1_nested-pass" / "clean-a"
+            output.parent.mkdir()
+            output, manifest, request = self._sealed_pass(
+                workspace, selected_input, prepared, output)
+            self.assertEqual(review_pack.reuse_render_pass(
+                selected_input, output, prepared, workspace=workspace), manifest)
 
-            journal = matrix._publish_stage_output(work, slot, "try-1", "review-pack")
-            self.assertEqual(len(journal["receipt_path_rewrites"]), 2)
-            published_pass = slot / "clean-a"
-            probe = json.loads((published_pass / "processes" / "version-probe" / "outcome.json").read_text())
-            self.assertEqual(probe["operation_root"], str(published_pass.resolve()))
-            with mock.patch.object(api, "_expected_render_request", create=True, return_value={
-                    "render_identity": "fixture-render-identity", "character_ids": ["skeleton"]}):
-                self.assertEqual(source_review_pack.reuse_render_pass(
-                    selected_input, published_pass, prepared, workspace=workspace), manifest)
-                source_probe = work / "clean-a" / "processes" / "version-probe" / "outcome.json"
-                source_probe_bytes = source_probe.read_bytes()
-                source_probe.write_text("{}")
-                with self.assertRaisesRegex(ValueError, "relocation source hash changed"):
-                    source_review_pack.reuse_render_pass(
-                        selected_input, published_pass, prepared, workspace=workspace)
-                source_probe.write_bytes(source_probe_bytes)
+            request_path = output / "character-render-request.json"
+            request_bytes = request_path.read_bytes()
+            request["character_ids"] = ["male"]
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "(?i)sealed render request"):
+                review_pack.reuse_render_pass(selected_input, output, prepared, workspace=workspace)
+            request_path.write_bytes(request_bytes)
+
+            probe_path = output / "processes" / "version-probe" / "outcome.json"
+            probe_bytes = probe_path.read_bytes()
+            probe = json.loads(probe_bytes)
+            probe["state"] = "failed"
+            probe_path.write_text(json.dumps(probe), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Version-probe receipt"):
+                review_pack.reuse_render_pass(selected_input, output, prepared, workspace=workspace)
+            probe_path.write_bytes(probe_bytes)
+
+            render_path = next(
+                path for path in (output / "processes").glob("*/outcome.json")
+                if json.loads(path.read_text(encoding="utf-8"))["operation"] == "render-pass")
+            render_receipt = json.loads(render_path.read_text(encoding="utf-8"))
+            render_receipt["output_validation"]["files"].pop()
+            render_path.write_text(json.dumps(render_receipt), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "inventory"):
+                review_pack.reuse_render_pass(selected_input, output, prepared, workspace=workspace)
 
     def test_default_main_reaches_owned_api_claim_before_backend(self):
         with tempfile.TemporaryDirectory() as temporary:
