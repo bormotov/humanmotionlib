@@ -218,9 +218,16 @@ class InstalledRunOwnershipTests(unittest.TestCase):
             element = workspace / "build/automate-build-and-verification-matrix_r1_dev_current_element-male-h170"
             root = element / ".tmp/installed-acceptance"
             root.mkdir(parents=True)
-            allocated, identity = installed_acceptance.owned_run_root(workspace, root)
+            allocated, identity, selected_element = installed_acceptance.owned_run_root(workspace, root)
             self.assertEqual(allocated, root.resolve())
             self.assertEqual(identity, "automate-build-and-verification-matrix_r1_dev_current")
+            self.assertEqual(selected_element, element.resolve())
+            with self.assertRaisesRegex(ValueError, r"\.tmp/installed-acceptance"):
+                installed_acceptance.owned_run_root(workspace, element)
+            wrong_harness = element / ".tmp/wrong-harness"
+            wrong_harness.mkdir()
+            with self.assertRaisesRegex(ValueError, r"\.tmp/installed-acceptance"):
+                installed_acceptance.owned_run_root(workspace, wrong_harness)
             (root / "scratch").mkdir()
             with self.assertRaises(FileExistsError):
                 installed_acceptance.owned_run_root(workspace, root)
@@ -231,6 +238,31 @@ class InstalledRunOwnershipTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 installed_acceptance.owned_run_root(workspace, linked)
 
+    def test_rejects_workspace_and_intermediate_element_aliases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "workspace"
+            (workspace / "build").mkdir(parents=True)
+            element = workspace / "build/portable-installed-runtime_1234567_ci_run-123-attempt-1_checks"
+            harness = element / ".tmp/installed-acceptance"
+            harness.mkdir(parents=True)
+
+            workspace_alias = base / "workspace-alias"
+            workspace_alias.symlink_to(workspace, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "selected workspace path"):
+                installed_acceptance.owned_run_root(
+                    workspace, workspace_alias / "build" / element.name / ".tmp/installed-acceptance")
+
+            element_alias = element / "alias"
+            element_alias.symlink_to(element / ".tmp", target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symlink component"):
+                installed_acceptance.owned_run_root(
+                    workspace, element_alias / "installed-acceptance")
+
+            accepted, _, owner = installed_acceptance.owned_run_root(workspace, harness)
+            self.assertEqual(accepted, harness.resolve())
+            self.assertEqual(owner, element.resolve())
+
     def test_preflights_all_generated_outputs_inside_selected_scratch(self):
         with tempfile.TemporaryDirectory() as temporary:
             build = Path(temporary) / "build"
@@ -239,20 +271,68 @@ class InstalledRunOwnershipTests(unittest.TestCase):
             harness = element / ".tmp/installed-acceptance"
             harness.mkdir(parents=True)
             scratch = element / ".tmp/installed-generated"
-            paths = installed_acceptance.preflight_generated_runs(harness, scratch)
+            alias = element / ".tmp/generated-alias"
+            alias.symlink_to(scratch, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symlink component"):
+                installed_acceptance.preflight_generated_runs(
+                    harness, element, "automate-build-and-verification-matrix_r1_reviewer_try-1", alias)
+            alias.unlink()
+            for overlapping in (element / ".tmp", harness, harness / "scratch"):
+                with self.subTest(overlapping=overlapping), self.assertRaisesRegex(
+                        ValueError, "disjoint from the acceptance harness"):
+                    installed_acceptance.preflight_generated_runs(
+                        harness, element,
+                        "automate-build-and-verification-matrix_r1_reviewer_try-1", overlapping)
+            self.assertFalse((element / ".tmp/build").exists())
+            self.assertFalse((harness / "scratch").exists())
+            scratch_workspace, paths = installed_acceptance.preflight_generated_runs(
+                harness, element, "automate-build-and-verification-matrix_r1_reviewer_try-1", scratch)
+            self.assertEqual(scratch_workspace, scratch.resolve())
             self.assertEqual(set(paths), set(installed_acceptance.RUN_KINDS))
             self.assertEqual(len(paths), 15)
-            self.assertTrue(all(path.parent.resolve() == scratch.resolve()
+            self.assertTrue(all(path.parent.resolve() == (scratch / "build").resolve()
                                 for path in paths.values()))
+            self.assertTrue(all(len(path.name.split("_")) == 5 for path in paths.values()))
             self.assertTrue(all(not path.exists() for path in paths.values()))
 
             obstructed = paths["api-failure"]
             obstructed.mkdir()
             with self.assertRaises(FileExistsError):
-                installed_acceptance.preflight_generated_runs(harness, scratch)
+                installed_acceptance.preflight_generated_runs(
+                    harness, element, "automate-build-and-verification-matrix_r1_reviewer_try-1", scratch)
             self.assertTrue(obstructed.is_dir())
             self.assertTrue(all(not path.exists() for key, path in paths.items()
                                 if key != "api-failure"))
+
+            linked_scratch = element / ".tmp/installed-generated-linked-build"
+            linked_scratch.mkdir()
+            outside_build = build.parent / "outside-build"
+            outside_build.mkdir()
+            (linked_scratch / "build").symlink_to(outside_build, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "build/ contains a symlink"):
+                installed_acceptance.preflight_generated_runs(
+                    harness, element, "automate-build-and-verification-matrix_r1_reviewer_try-1",
+                    linked_scratch)
+
+    def test_accepts_ci_harness_layout_and_uses_owning_element_scratch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "caller" / "workspace"
+            (workspace / "build").mkdir(parents=True)
+            element = workspace / "build/portable-installed-runtime_1234567_ci_run-123-attempt-1_checks"
+            harness = element / ".tmp/installed-acceptance"
+            harness.mkdir(parents=True)
+
+            allocated, identity, selected_element = installed_acceptance.owned_run_root(workspace, harness)
+            self.assertEqual(allocated, harness.resolve())
+            self.assertEqual(identity, "portable-installed-runtime_1234567_ci_run-123-attempt-1")
+            self.assertEqual(selected_element, element.resolve())
+            generated_workspace, generated = installed_acceptance.preflight_generated_runs(
+                allocated, selected_element, identity)
+            expected_scratch = element / ".tmp/installed-generated"
+            self.assertEqual(generated_workspace, expected_scratch.resolve())
+            self.assertTrue(all(path.parent == (expected_scratch / "build").resolve()
+                                for path in generated.values()))
+            self.assertTrue(all(not path.exists() for path in generated.values()))
 
     def test_installed_negative_probe_is_self_contained_python(self):
         source = ast.parse(ACCEPTANCE_PATH.read_text())

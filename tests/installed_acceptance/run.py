@@ -78,14 +78,15 @@ def outside_build_inventory(workspace: Path, build: Path) -> dict[str, dict]:
     return dict(sorted(records.items()))
 
 
-def candidate_reference(manifest_path: Path | None, python: Path, run_root: Path) -> dict | None:
+def candidate_reference(manifest_path: Path | None, python: Path, run_identity: str | Path) -> dict | None:
     if manifest_path is None:
         return None
     manifest_path = manifest_path.expanduser().resolve(strict=True)
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("schema") != "matrix-candidate/v1" or manifest.get("status") != "succeeded":
         raise ValueError(f"candidate manifest is unsupported or unsuccessful: {manifest_path}")
-    role = run_root.name.split("_")[2]
+    identity_parts = run_identity.name.split("_") if isinstance(run_identity, Path) else run_identity.split("_")
+    role = identity_parts[2]
     runtime = manifest.get("runtime_environments", {}).get(role)
     if not isinstance(runtime, dict) or Path(runtime.get("python", "")).absolute() != python.absolute():
         raise ValueError("installed acceptance interpreter does not match the selected candidate role environment")
@@ -354,23 +355,32 @@ def matrix_outcome(*, status: str, python: Path | None = None,
     return value
 
 
-def owned_run_root(workspace: Path, raw: Path) -> tuple[Path, str]:
+def owned_run_root(workspace: Path, raw: Path) -> tuple[Path, str, Path]:
     """Validate the selected matrix check's caller-owned transient harness root."""
+    workspace_input = Path(workspace).expanduser().absolute()
+    if workspace_input.is_symlink():
+        raise ValueError(f"workspace root must not be a symlink: {workspace_input}")
+    workspace = workspace_input.resolve(strict=True)
     value = raw.expanduser()
     if not value.is_absolute():
         raise ValueError("--run-root must be an absolute path")
-    workspace = workspace.resolve(strict=True)
     build = workspace / "build"
     if build.is_symlink() or not build.is_dir():
         raise ValueError(f"workspace build/ must exist and must not be a symlink: {build}")
     build = build.resolve(strict=True)
     absolute = value.absolute()
-    if absolute.is_relative_to(build):
-        current = build
-        for component in absolute.relative_to(build).parts:
-            current = current / component
-            if current.is_symlink():
-                raise ValueError(f"--run-root contains a symlink component: {current}")
+    if absolute.is_relative_to(workspace_input):
+        relative = absolute.relative_to(workspace_input)
+        current = workspace_input
+    elif absolute.is_relative_to(workspace):
+        relative = absolute.relative_to(workspace)
+        current = workspace
+    else:
+        raise ValueError(f"--run-root must use the selected workspace path: {value}")
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise ValueError(f"--run-root contains a symlink component: {current}")
     if value.is_symlink() or not value.is_dir():
         raise ValueError(f"--run-root must be an existing real directory allocated by its caller: {value}")
     resolved = value.resolve(strict=True)
@@ -382,33 +392,65 @@ def owned_run_root(workspace: Path, raw: Path) -> tuple[Path, str]:
     parts = identity_root.name.split("_")
     if len(parts) != 5 or not all(RUN_COMPONENT.fullmatch(item) for item in parts):
         raise ValueError("--run-root must be within a selected five-component matrix element root")
+    expected = identity_root / ".tmp" / "installed-acceptance"
+    if resolved != expected:
+        raise ValueError(f"--run-root must be the selected element's .tmp/installed-acceptance directory: {value}")
     for reserved in (value / "scratch", value / "installed-acceptance.json"):
         if reserved.is_symlink() or reserved.exists():
             raise FileExistsError(f"installed acceptance reserved path is occupied: {reserved}")
-    return resolved, "_".join(parts[:4])
+    return resolved, "_".join(parts[:4]), identity_root
 
 
-def preflight_generated_runs(run_root: Path, raw_scratch: Path | None = None) -> dict[str, Path]:
-    """Allocate all fixture outputs inside the selected check's disposable scratch."""
-    scratch = (Path(raw_scratch).expanduser().absolute() if raw_scratch else
-               run_root / ".tmp" / "installed-generated")
-    element_root = run_root.parents[1].resolve(strict=True)
-    scratch = scratch.resolve(strict=False)
-    if not scratch.is_relative_to(element_root):
-        raise ValueError(f"installed generated scratch must remain within the selected matrix element root: {scratch}")
-    current = element_root
-    for component in scratch.relative_to(element_root).parts:
+def preflight_generated_runs(run_root: Path, element_root: Path, run_identity: str,
+                             raw_scratch: Path | None = None) -> tuple[Path, dict[str, Path]]:
+    """Create a nested caller workspace with flat owned run roots for public APIs."""
+    element_root_lexical = element_root.absolute()
+    element_root_resolved = element_root_lexical.resolve(strict=True)
+    if not run_root.resolve(strict=True).is_relative_to(element_root_resolved):
+        raise ValueError("installed acceptance root is outside its validated owning element")
+    tmp_root = element_root_lexical / ".tmp"
+    scratch_input = (Path(raw_scratch).expanduser().absolute() if raw_scratch else
+                     tmp_root / "installed-generated")
+    try:
+        relative = scratch_input.relative_to(tmp_root)
+    except ValueError as error:
+        raise ValueError(f"installed generated scratch must remain within the selected element .tmp/: {scratch_input}") from error
+    current = element_root_lexical
+    if current.is_symlink():
+        raise ValueError(f"selected installed element contains a symlink: {current}")
+    current = tmp_root
+    if current.is_symlink():
+        raise ValueError(f"installed generated scratch contains a symlink component: {current}")
+    for component in relative.parts:
         current = current / component
         if current.is_symlink():
             raise ValueError(f"installed generated scratch contains a symlink component: {current}")
+    scratch = scratch_input.resolve(strict=False)
+    if not scratch.is_relative_to(element_root_resolved / ".tmp"):
+        raise ValueError(f"installed generated scratch escapes the selected element .tmp/: {scratch}")
+    resolved_harness = run_root.resolve(strict=True)
+    if scratch == resolved_harness or scratch.is_relative_to(resolved_harness) \
+            or resolved_harness.is_relative_to(scratch):
+        raise ValueError("installed generated workspace must be disjoint from the acceptance harness")
     scratch.mkdir(parents=True, exist_ok=True)
-    result = {kind: scratch / kind for kind in RUN_KINDS}
+    generated_build_lexical = scratch_input / "build"
+    if generated_build_lexical.is_symlink():
+        raise ValueError(f"installed generated workspace build/ contains a symlink: {generated_build_lexical}")
+    generated_build_lexical.mkdir(exist_ok=True)
+    generated_build = generated_build_lexical.resolve(strict=True)
+    identity_parts = run_identity.split("_")
+    if len(identity_parts) != 4 or not all(RUN_COMPONENT.fullmatch(item) for item in identity_parts):
+        raise ValueError("selected installed acceptance identity must have four valid prefix components")
+    result = {kind: generated_build / (run_identity + "_" + kind) for kind in RUN_KINDS}
     for path in result.values():
-        if path.parent.resolve(strict=True) != scratch.resolve(strict=True):
-            raise ValueError(f"generated output escaped the selected check scratch: {path}")
+        if path.parent.resolve(strict=True) != generated_build:
+            raise ValueError(f"generated output escaped the nested workspace build/: {path}")
+        if len(path.name.split("_")) != 5 or not all(
+                RUN_COMPONENT.fullmatch(item) for item in path.name.split("_")):
+            raise ValueError(f"generated output does not have a five-component run identity: {path}")
         if path.is_symlink() or path.exists():
             raise FileExistsError(f"installed acceptance output root is occupied: {path}")
-    return result
+    return scratch, result
 
 
 def main() -> int:
@@ -428,8 +470,8 @@ def main() -> int:
     python = args.python.expanduser().absolute()
     if not python.is_file():
         raise FileNotFoundError(f"installed environment interpreter is missing: {python}")
-    workspace = args.workspace.resolve()
-    run_root, run_identity = owned_run_root(workspace, args.run_root)
+    workspace = args.workspace.expanduser().absolute()
+    run_root, run_identity, element_root = owned_run_root(workspace, args.run_root)
     ACTIVE_RUN_ROOT = run_root
     bytecode_before = sorted(str(path.relative_to(run_root))
                              for path in run_root.rglob("*.pyc"))
@@ -439,10 +481,16 @@ def main() -> int:
     if build.is_symlink() or not build.is_dir():
         raise ValueError(f"workspace build/ must exist and must not be a symlink: {build}")
     workspace_before = outside_build_inventory(workspace, build)
-    generated_roots = preflight_generated_runs(run_root, args.generated_root)
+    generated_workspace, generated_roots = preflight_generated_runs(
+        run_root, element_root, run_identity, args.generated_root)
+    generated_build = generated_workspace / "build"
+    escape_sentinel = generated_workspace / "escape-sentinel.txt"
+    escape_sentinel.write_text("protected\n")
+    generated_workspace_before = outside_build_inventory(generated_workspace, generated_build)
     global ACTIVE_GENERATED_RUNS
+    selected_role = run_identity.split("_")[2]
     ACTIVE_GENERATED_RUNS = [
-        {"path": str(path), "role": run_root.name.split("_")[2],
+        {"path": str(path), "role": selected_role,
          "status": "planned", "reason": kind}
         for kind, path in sorted(generated_roots.items())
     ]
@@ -508,7 +556,7 @@ print(json.dumps({'version': dist.version, 'origin': str(package),
  'direct_url_sha256': direct_url_sha256}, sort_keys=True))
 """], cwd=external_cwds[0], env=env)
     package_identity = json.loads(identity.stdout)
-    selected_candidate = candidate_reference(args.candidate_manifest, python, run_root)
+    selected_candidate = candidate_reference(args.candidate_manifest, python, run_identity)
     ACTIVE_CANDIDATE = selected_candidate
     if selected_candidate:
         validate_installed_candidate_origin(selected_candidate, package_identity)
@@ -579,13 +627,13 @@ print(json.dumps({'version': dist.version, 'origin': str(package),
     prepared_paths = []
     for index, cwd in enumerate(external_cwds):
         output = str(generated_roots[f"fixture-{'one' if index == 0 else 'two'}"] / "input.json")
-        command = [str(cli), "--workspace", str(workspace), "prepare-skeleton",
+        command = [str(cli), "--workspace", str(generated_workspace), "prepare-skeleton",
                    "--profile", PROFILE, "--output", output]
         if index:
-            command = [str(python), "-m", "humanmotionlib", "--workspace", str(workspace),
+            command = [str(python), "-m", "humanmotionlib", "--workspace", str(generated_workspace),
                        "prepare-skeleton", "--profile", PROFILE, "--output", output]
         run(command, cwd=cwd, env=env)
-        prepared_paths.append(workspace / output)
+        prepared_paths.append(generated_workspace / output)
     assert prepared_paths[0].read_bytes() == prepared_paths[1].read_bytes()
     prepared = json.loads(prepared_paths[0].read_text())
     assert prepared["format"] == "skeleton-prepared/v1"
@@ -602,9 +650,9 @@ from humanmotionlib.prepare_skeleton import main
 output, workspace = sys.argv[1:3]
 sys.argv = ['prepare-skeleton', '--profile', 'adult-reference-v1', '--output', output]
 raise SystemExit(main(workspace=workspace))
-""", direct_output, str(workspace)], cwd=external_cwds[0], env=env)
+""", direct_output, str(generated_workspace)], cwd=external_cwds[0], env=env)
     assert "Prepared 900 samples" in direct.stdout
-    assert (workspace / direct_output).read_bytes() == prepared_paths[0].read_bytes()
+    assert (generated_workspace / direct_output).read_bytes() == prepared_paths[0].read_bytes()
 
     # The public API prepares structured records outside the checkout. A controlled
     # missing-backend probe verifies catchable failure and receipt evidence without
@@ -621,7 +669,7 @@ assert data['timelines'][0]['entries'][0]['seconds'] == {'numerator': 0, 'denomi
 assert result.prepared_path.is_file()
 print(json.dumps({'prepared_sha256': result.prepared_sha256, 'poses': len(result.poses),
  'timelines': len(result.timelines), 'materials': result.provenance.material_ids}))
-""", str(workspace), api_output], cwd=external_cwds[0], env=env)
+""", str(generated_workspace), api_output], cwd=external_cwds[0], env=env)
     api_identity = json.loads(api_result.stdout)
     selection_failures = run([str(python), "-c", """
 import pathlib, sys
@@ -641,7 +689,7 @@ for index, (name, characters) in enumerate(cases, 1):
     else:
         raise AssertionError('invalid character selection was accepted: ' + name)
 print('invalid character selections rejected before output allocation')
-""", str(workspace), api_output,
+""", str(generated_workspace), api_output,
         *(str(generated_roots[kind]) for kind in
           ("invalid-one", "invalid-two", "invalid-three", "invalid-four"))],
         cwd=external_cwds[0], env=env)
@@ -660,16 +708,16 @@ except GenerationError as error:
       'run_root': str(error.run_root), 'outcome': error.details['supervisor_outcome']['outcome']}))
 else:
     raise AssertionError('missing Blender should fail through a catchable API error')
-""", str(workspace), api_output, str(generated_roots['api-failure'])],
+""", str(generated_workspace), api_output, str(generated_roots['api-failure'])],
         cwd=external_cwds[1], env=env | {"PATH": str(missing_path)})
     api_failure_data = json.loads(api_failure.stdout)
 
     # Installed numeric host verification also writes relative to the selected workspace.
     verification_output = str(generated_roots['host-verify'] / "report.json")
-    run([str(cli), "--workspace", str(workspace), "verify-skeleton", "--input",
+    run([str(cli), "--workspace", str(generated_workspace), "verify-skeleton", "--input",
          str(generated_roots['fixture-one'] / "input.json"),
          "--output", verification_output, "--transforms-only"], cwd=external_cwds[1], env=env)
-    verification = json.loads((workspace / verification_output).read_text())
+    verification = json.loads((generated_workspace / verification_output).read_text())
     assert verification["status"] == "pass", verification.get("status")
     assert len(verification["samples"]) == 900
 
@@ -681,10 +729,10 @@ else:
     tampered_input = tampered_root / "input.json"
     tampered_input.write_text(json.dumps(tampered_value))
     tampered_report = str(generated_roots['tampered-report'] / "report.json")
-    run([str(cli), "--workspace", str(workspace), "verify-skeleton", "--input",
+    run([str(cli), "--workspace", str(generated_workspace), "verify-skeleton", "--input",
          str(tampered_input), "--output", tampered_report, "--transforms-only"],
         cwd=external_cwds[1], env=env, expected=1)
-    assert not (workspace / tampered_report).exists()
+    assert not (generated_workspace / tampered_report).exists()
 
     # A stale/incomplete render-reuse root remains ineligible for reassembly.
     reuse_root = generated_roots["host-reuse"]
@@ -692,7 +740,7 @@ else:
     (reuse_root / "clean-a").mkdir()
     (reuse_root / "clean-a/render-manifest.json").write_text('{"status":"pass"}\n')
     reuse_before = tree_hashes(reuse_root)
-    run([str(cli), "--workspace", str(workspace), "review-pack", "--input",
+    run([str(cli), "--workspace", str(generated_workspace), "review-pack", "--input",
          str(prepared_paths[0].parent), "--reuse-renders", "--output", str(reuse_root)],
         cwd=external_cwds[1], env=env, expected=1)
     assert tree_hashes(reuse_root) == reuse_before
@@ -739,17 +787,15 @@ else:
         integrity_failures.append(label)
 
     # Reject traversal and an escaping output symlink before touching a sentinel.
-    escape_sentinel = run_root / "escape-sentinel.txt"
-    escape_sentinel.write_text("protected\n")
     sentinel_before = digest(escape_sentinel)
     escape_output = "build/../outside-escape/input.json"
-    run([str(cli), "--workspace", str(workspace), "prepare-skeleton", "--profile", PROFILE,
+    run([str(cli), "--workspace", str(generated_workspace), "prepare-skeleton", "--profile", PROFILE,
          "--output", escape_output], cwd=external_cwds[0], env=env, expected=1)
     symlink_target = run_root / "symlink-escape-target"
     symlink_root = generated_roots["host-symlink"]
     symlink_root.symlink_to(symlink_target, target_is_directory=True)
     try:
-        run([str(cli), "--workspace", str(workspace), "prepare-skeleton", "--profile", PROFILE,
+        run([str(cli), "--workspace", str(generated_workspace), "prepare-skeleton", "--profile", PROFILE,
         "--output", str(generated_roots['host-symlink'] / "input.json")],
             cwd=external_cwds[0], env=env, expected=1)
     finally:
@@ -762,11 +808,11 @@ else:
     make_synthetic_predecessor(predecessor)
     predecessor_before = tree_hashes(predecessor)
     html_output = str(generated_roots['html-only'])
-    run([str(cli), "--workspace", str(workspace), "review-pack", "--html-only-from",
+    run([str(cli), "--workspace", str(generated_workspace), "review-pack", "--html-only-from",
          str(predecessor), "--output", html_output], cwd=external_cwds[0], env=env)
-    assert (workspace / html_output / "index.html").is_file()
-    assert (workspace / html_output / "presentation-provenance.json").is_file()
-    assert (workspace / html_output / "presentation-verification.json").is_file()
+    assert (generated_workspace / html_output / "index.html").is_file()
+    assert (generated_workspace / html_output / "presentation-provenance.json").is_file()
+    assert (generated_workspace / html_output / "presentation-verification.json").is_file()
     assert tree_hashes(predecessor) == predecessor_before
 
     installed_after = tree_hashes(installed_files)
@@ -781,6 +827,9 @@ else:
     workspace_after = outside_build_inventory(workspace, build)
     assert workspace_before == workspace_after, \
         "workspace content outside build/ was added, changed, removed or retargeted"
+    generated_workspace_after = outside_build_inventory(generated_workspace, generated_build)
+    assert generated_workspace_before == generated_workspace_after, \
+        "generated workspace content outside build/ was added, changed, removed or retargeted"
     bytecode_after = sorted(str(path.relative_to(run_root))
                             for path in run_root.rglob("*.pyc"))
     assert bytecode_before == bytecode_after, "acceptance created or removed Python bytecode"
@@ -798,9 +847,12 @@ else:
         ],
         "candidate": selected_candidate,
         "installed_harness_sha256": digest(Path(__file__).resolve()),
-        "workspace_scope": "populated repository checkout; baseline outside build/ compared exactly",
+        "workspace_scope": "external caller workspace; baseline outside build/ compared exactly",
         "workspace_outside_build_unchanged": True,
         "workspace_outside_build_inventory_count": len(workspace_before),
+        "generated_workspace": str(generated_workspace),
+        "generated_workspace_outside_build_unchanged": True,
+        "generated_workspace_outside_build_inventory_count": len(generated_workspace_before),
         "empty_external_workspace": {
             "cwd": str(empty_external_cwd),
             "validation_status": empty_validation_data["status"],

@@ -315,10 +315,24 @@ class ReleaseSelectionTests(unittest.TestCase):
     def test_partial_asset_publication_resumes_without_replacing_wheel(self):
         candidate = self._reserved_candidate()
         wheel, checksum = self._wheel()
+        original_bytes = wheel.read_bytes()
         client = FakeGitHub(fail_once_asset="SHA256SUMS")
         with self.assertRaises(release.ReleaseError):
             release.publish_release(self.repo.path, client, candidate, wheel, "https://example.invalid/run/1", checksum)
         self.assertEqual(set(client.release["asset_bytes"]), {wheel.name})
+
+        with zipfile.ZipFile(wheel, "a") as archive:
+            archive.writestr("candidate-change.txt", "different checked candidate")
+        changed_checksum = hashlib.sha256(wheel.read_bytes()).hexdigest()
+        changed_checksum_path = self.root / "changed-wheel.sha256"
+        changed_checksum_path.write_text(f"{changed_checksum}  {wheel.name}\n")
+        with self.assertRaisesRegex(release.ReleaseError, "differs from the checked candidate"):
+            release.publish_release(self.repo.path, client, candidate, wheel,
+                                    "https://example.invalid/run/2", changed_checksum_path)
+        self.assertEqual(client.release["asset_bytes"][wheel.name], original_bytes)
+        self.assertEqual(set(client.release["asset_bytes"]), {wheel.name})
+
+        wheel.write_bytes(original_bytes)
         recovered = release.publish_release(self.repo.path, client, candidate, wheel, "https://example.invalid/run/1", checksum)
         self.assertFalse(recovered["already_complete"])
         self.assertEqual(set(client.release["asset_bytes"]), {wheel.name, "SHA256SUMS"})

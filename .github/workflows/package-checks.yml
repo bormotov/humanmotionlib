@@ -1,0 +1,537 @@
+name: Python package
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit or ref to check from a caller workflow
+        type: string
+        required: true
+      artifact_name:
+        description: Candidate artifact name supplied by the build job
+        type: string
+        required: true
+      wheel_sha256:
+        description: Candidate wheel checksum supplied by the build job
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Install and verify supplied CPython 3.14 wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+
+      - name: Set up CPython
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+
+      - name: Allocate fresh verification runs and download candidate
+        id: allocate
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          EXPECTED_WHEEL_SHA256: ${{ inputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          source_sha=$(git rev-parse HEAD)
+          test "$source_sha" = "$SOURCE_REF"
+          workspace_root="$RUNNER_TEMP/humanmotionlib-package-workspace"
+          package_root="$workspace_root/build/fix-github-actions-failures_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_checks"
+          sdist_root="$workspace_root/build/fix-github-actions-failures_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_sdist"
+          install_root="$RUNNER_TEMP/build/fix-github-actions-failures_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_install"
+          artifact_root="$RUNNER_TEMP/humanmotionlib-candidate-artifact"
+          caller_root="$RUNNER_TEMP/humanmotionlib-caller"
+          workspace="$caller_root/workspace"
+          character_workspace="$caller_root/character-workspace"
+          acceptance_root="$workspace/build/portable-installed-runtime_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_checks/.tmp/installed-acceptance"
+          prepared_root="$workspace/build/portable-installed-runtime_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_prepared"
+          test ! -e "$workspace_root"
+          test ! -e "$install_root"
+          test ! -e "$caller_root"
+          test ! -e "$artifact_root"
+          mkdir -p "$package_root" "$sdist_root" "$install_root" "$artifact_root" "$workspace/build" "$character_workspace/build"
+          element_root="$workspace/build/portable-installed-runtime_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_checks"
+          test ! -e "$element_root"
+          test ! -e "$prepared_root"
+          mkdir -p "$element_root/.tmp"
+          mkdir "$acceptance_root"
+          mkdir "$prepared_root"
+          {
+            echo "HML_PACKAGE_RUN_ROOT=$package_root"
+            echo "HML_SDIST_RUN_ROOT=$sdist_root"
+            echo "HML_INSTALL_ROOT=$install_root"
+            echo "HML_ARTIFACT_ROOT=$artifact_root"
+            echo "HML_EXTERNAL_CALLER_ROOT=$caller_root"
+            echo "HML_ACCEPTANCE_RUN_ROOT=$acceptance_root"
+            echo "HML_ACCEPTANCE_WORKSPACE=$workspace"
+            echo "HML_CHARACTER_WORKSPACE=$character_workspace"
+            echo "HML_PREPARED_ROOT=$prepared_root"
+            echo "UV_CACHE_DIR=$install_root/cache"
+            echo "HML_SOURCE_SHA=$source_sha"
+            echo "HML_EXPECTED_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+            echo "HML_EXPECTED_WHEEL_SHA256=$EXPECTED_WHEEL_SHA256"
+          } >> "$GITHUB_ENV"
+          {
+            echo "Candidate commit: $source_sha"
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Python: $(python --version 2>&1)"
+            echo "uv: $(uv --version 2>&1)"
+            echo "Producer artifact: $ARTIFACT_NAME"
+            echo "External acceptance run: $acceptance_root"
+            echo "External caller workspace: $workspace"
+            echo "Real Blender scope: not run in this Ubuntu host-only package job"
+          } | tee "$package_root/summary.txt"
+
+      - name: Download and verify the candidate artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ env.HML_ARTIFACT_ROOT }}
+
+      - name: Verify artifact identity and lock
+        id: direct-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/lock-check.log"
+          shopt -s globstar nullglob
+          wheel=("$HML_ARTIFACT_ROOT"/**/*.whl)
+          sdist=("$HML_ARTIFACT_ROOT"/**/*.tar.gz)
+          test "${#wheel[@]}" -eq 1
+          test "${#sdist[@]}" -eq 1
+          checksum_files=("$HML_ARTIFACT_ROOT"/**/wheel.sha256)
+          test "${#checksum_files[@]}" -eq 1
+          actual_sha=$(sha256sum "${wheel[0]}" | cut -d ' ' -f 1)
+          expected_sha=$(cut -d ' ' -f 1 "${checksum_files[0]}")
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_sha" = "$HML_EXPECTED_WHEEL_SHA256"
+          cp "${checksum_files[0]}" "$HML_PACKAGE_RUN_ROOT/wheel.sha256"
+          printf '%s\n' "HML_DIRECT_WHEEL=${wheel[0]}" "HML_DIRECT_SDIST=${sdist[0]}" >> "$GITHUB_ENV"
+          printf '%s\n' "Wheel SHA-256: $actual_sha" >> "$HML_PACKAGE_RUN_ROOT/summary.txt"
+
+      - name: Build and install a second declared-version wheel
+        id: version-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix_root="$HML_PACKAGE_RUN_ROOT/version-matrix"
+          source="$matrix_root/source"
+          output="$matrix_root/wheel"
+          mkdir "$matrix_root" "$source" "$output"
+          git archive "$HML_SOURCE_SHA" | tar -x -C "$source"
+          python "$source/tools/release.py" set-version 0.91.7 --repo "$source"
+          (cd "$source" && uv build --wheel --out-dir "$output") 2>&1 | tee "$matrix_root/build.log"
+          second_wheel=("$output"/*.whl)
+          test "${#second_wheel[@]}" -eq 1
+          second_venv="$matrix_root/venv"
+          uv venv --python 3.14 "$second_venv" 2>&1 | tee "$matrix_root/venv.log"
+          second_python="$second_venv/bin/python"
+          uv pip install --python "$second_python" "${second_wheel[0]}" 2>&1 | tee "$matrix_root/install.log"
+          uv pip check --python "$second_python" 2>&1 | tee "$matrix_root/dependency-check.log"
+          (
+            cd "$matrix_root"
+            env -u PYTHONPATH "$second_python" - "${second_wheel[0]}" "$UV_CACHE_DIR" <<'PY' > "$matrix_root/pre-test-environment.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import pathlib
+          import site
+          import sys
+
+          wheel = pathlib.Path(sys.argv[1]).resolve()
+          prefix = pathlib.Path(sys.prefix).resolve()
+          base_prefix = pathlib.Path(sys.base_prefix).resolve()
+          site_dirs = [pathlib.Path(p).resolve() for p in site.getsitepackages()]
+          pth_files = {}
+          for site_dir in site_dirs:
+              for path in sorted(site_dir.glob("*.pth")):
+                  pth_files[str(path)] = path.read_text(errors="replace")
+          module_names = ("humanmotionlib", "yaml", "jsonschema", "PIL", "referencing", "attrs")
+          origins = {}
+          for name in module_names:
+              spec = importlib.util.find_spec(name)
+              origins[name] = None if spec is None else spec.origin
+          distributions = sorted(
+              {dist.metadata["Name"].lower(): {"name": dist.metadata["Name"], "version": dist.version,
+               "root": str(pathlib.Path(dist.locate_file("")).resolve())}
+               for dist in importlib.metadata.distributions()}.values(),
+              key=lambda item: item["name"].lower(),
+          )
+          unexpected_import_origins = {
+              name: origin for name, origin in origins.items()
+              if origin is not None and not pathlib.Path(origin).resolve().is_relative_to(prefix)
+          }
+          resolved_sys_path = [pathlib.Path(p or pathlib.Path.cwd()).resolve() for p in sys.path]
+          unexpected_external_paths = [
+              str(path) for path in resolved_sys_path
+              if not path.is_relative_to(prefix) and not path.is_relative_to(base_prefix)
+              and path != pathlib.Path.cwd().resolve()
+          ]
+          assert not unexpected_import_origins, unexpected_import_origins
+          assert not unexpected_external_paths, unexpected_external_paths
+          report = {
+              "python": {"executable": sys.executable, "version": sys.version, "prefix": str(prefix),
+                         "base_prefix": str(base_prefix)},
+              "package": {"wheel": str(wheel), "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                          "version": importlib.metadata.version("humanmotionlib")},
+              "dependencies": distributions,
+              "import_origins": origins,
+              "site_packages": [str(path) for path in site_dirs],
+              "pth_contents": pth_files,
+              "sys_path": sys.path,
+              "unexpected_external_paths": unexpected_external_paths,
+              "unexpected_import_origins": unexpected_import_origins,
+              "uv_cache_dir": str(pathlib.Path(sys.argv[2]).resolve()),
+              "uv_pip_check": "passed",
+          }
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          )
+          (
+            cd "$matrix_root"
+            env -u PYTHONPATH "$second_python" - "$HML_EXPECTED_VERSION" "${second_wheel[0]}" "$HML_DIRECT_WHEEL" <<'PY'
+          import hashlib
+          import importlib.metadata
+          import json
+          import pathlib
+          import sys
+          import zipfile
+
+          expected, wheel, first_wheel = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+          def resource_hashes(path):
+              with zipfile.ZipFile(path) as archive:
+                  return {
+                      name: hashlib.sha256(archive.read(name)).hexdigest()
+                      for name in archive.namelist()
+                      if name.startswith("humanmotionlib/resources/") and not name.endswith("/")
+                      and name != "humanmotionlib/resources/runtime-manifest.json"
+                  }
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+              metadata = archive.read(metadata_name).decode()
+              assert f"Version: 0.91.7\n" in metadata
+              runtime_version = archive.read("humanmotionlib/_version.py").decode()
+              assert runtime_version == '__version__ = "0.91.7"\n'
+              manifest = json.loads(archive.read("humanmotionlib/resources/runtime-manifest.json"))
+              assert manifest["version"] == "0.91.7"
+              second_resources = resource_hashes(wheel)
+          assert second_resources == resource_hashes(first_wheel)
+          assert importlib.metadata.version("humanmotionlib") == "0.91.7"
+          import humanmotionlib
+          assert humanmotionlib.__version__ == "0.91.7"
+          print(json.dumps({"version": "0.91.7", "resource_files": len(second_resources)}, sort_keys=True))
+          PY
+            env -u PYTHONPATH "$second_python" -m humanmotionlib --version | tee "$matrix_root/module-version.log"
+            env -u PYTHONPATH "$second_venv/bin/hml" --version | tee "$matrix_root/cli-version.log"
+          )
+          grep -Fx "humanmotionlib 0.91.7" "$matrix_root/module-version.log"
+          grep -Fx "humanmotionlib 0.91.7" "$matrix_root/cli-version.log"
+
+      - name: Rebuild wheel from extracted source distribution and compare payloads
+        id: sdist-rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$HML_DIRECT_SDIST" "$HML_SDIST_RUN_ROOT" "$HML_DIRECT_WHEEL" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import tarfile
+          import zipfile
+
+          sdist = pathlib.Path(sys.argv[1])
+          root = pathlib.Path(sys.argv[2])
+          direct = pathlib.Path(sys.argv[3])
+          extract = root / "source"
+          extract.mkdir()
+          with tarfile.open(sdist, "r:gz") as archive:
+              archive.extractall(extract, filter="data")
+          projects = [p for p in extract.iterdir() if p.is_dir()]
+          assert len(projects) == 1, f"expected one sdist root, found {projects}"
+          build = root / "rebuilt"
+          build.mkdir()
+          import subprocess
+          subprocess.run(["uv", "build", "--wheel", "--out-dir", str(build)], cwd=projects[0], check=True)
+          rebuilt = list(build.glob("*.whl"))
+          assert len(rebuilt) == 1, f"expected one rebuilt wheel, found {rebuilt}"
+
+          def payload(path):
+              with zipfile.ZipFile(path) as archive:
+                  return {
+                      name: hashlib.sha256(archive.read(name)).hexdigest()
+                      for name in archive.namelist()
+                      if name.startswith("humanmotionlib/") and not name.endswith("/")
+                  }
+
+          direct_payload = payload(direct)
+          rebuilt_payload = payload(rebuilt[0])
+          assert direct_payload, "wheel has no humanmotionlib package payload"
+          assert direct_payload == rebuilt_payload, (
+              f"direct and sdist-rebuilt package payload differ: "
+              f"direct-only={sorted(direct_payload.keys() - rebuilt_payload.keys())}, "
+              f"rebuilt-only={sorted(rebuilt_payload.keys() - direct_payload.keys())}, "
+              f"changed={sorted(k for k in direct_payload.keys() & rebuilt_payload.keys() if direct_payload[k] != rebuilt_payload[k])}"
+          )
+          (root / "payload-parity.txt").write_text(
+              f"Logical package files: {len(direct_payload)}\n"
+              f"Direct wheel: {direct.name}\n"
+              f"Rebuilt wheel: {rebuilt[0].name}\n"
+              f"Result: identical package file names and SHA-256 hashes\n"
+          )
+          print((root / "payload-parity.txt").read_text(), end="")
+          PY
+          cat "$HML_SDIST_RUN_ROOT/payload-parity.txt" | tee -a "$HML_PACKAGE_RUN_ROOT/summary.txt"
+
+      - name: Install exact wheel and run isolated installed checks
+        id: installed-checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_root="$HML_INSTALL_ROOT"
+          outside="$HML_EXTERNAL_CALLER_ROOT/outside-cwd"
+          workspace="$HML_ACCEPTANCE_WORKSPACE"
+          mkdir "$outside"
+          uv export --locked --no-dev --no-emit-project --no-hashes --format requirements-txt \
+            --output-file "$HML_PACKAGE_RUN_ROOT/requirements.txt" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/lock-export.log"
+          uv venv --python 3.14 "$install_root/environment" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/venv.log"
+          installed_python="$install_root/environment/bin/python"
+          export PYTHONDONTWRITEBYTECODE=1
+          uv pip install --python "$installed_python" -r "$HML_PACKAGE_RUN_ROOT/requirements.txt" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/dependencies.log"
+          uv pip install --python "$installed_python" --no-deps "$HML_DIRECT_WHEEL" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/install.log"
+          uv pip check --python "$installed_python" 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/dependency-check.log"
+          (
+            cd "$outside"
+            env -u PYTHONPATH "$installed_python" - "$HML_DIRECT_WHEEL" "$UV_CACHE_DIR" <<'PY' > "$HML_PACKAGE_RUN_ROOT/pre-test-environment.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import pathlib
+          import site
+          import sys
+
+          wheel = pathlib.Path(sys.argv[1]).resolve()
+          prefix = pathlib.Path(sys.prefix).resolve()
+          base_prefix = pathlib.Path(sys.base_prefix).resolve()
+          site_dirs = [pathlib.Path(p).resolve() for p in site.getsitepackages()]
+          pth_files = {}
+          for site_dir in site_dirs:
+              for path in sorted(site_dir.glob("*.pth")):
+                  pth_files[str(path)] = path.read_text(errors="replace")
+          module_names = ("humanmotionlib", "yaml", "jsonschema", "PIL", "referencing", "attrs")
+          origins = {}
+          for name in module_names:
+              spec = importlib.util.find_spec(name)
+              origins[name] = None if spec is None else spec.origin
+          distributions = sorted(
+              {dist.metadata["Name"].lower(): {"name": dist.metadata["Name"], "version": dist.version,
+               "root": str(pathlib.Path(dist.locate_file("")).resolve())}
+               for dist in importlib.metadata.distributions()}.values(),
+              key=lambda item: item["name"].lower(),
+          )
+          unexpected_import_origins = {
+              name: origin for name, origin in origins.items()
+              if origin is not None and not pathlib.Path(origin).resolve().is_relative_to(prefix)
+          }
+          resolved_sys_path = [pathlib.Path(p or pathlib.Path.cwd()).resolve() for p in sys.path]
+          unexpected_external_paths = [
+              str(path) for path in resolved_sys_path
+              if not path.is_relative_to(prefix) and not path.is_relative_to(base_prefix)
+              and path != pathlib.Path.cwd().resolve()
+          ]
+          assert not unexpected_import_origins, unexpected_import_origins
+          assert not unexpected_external_paths, unexpected_external_paths
+          report = {
+              "python": {"executable": sys.executable, "version": sys.version, "prefix": str(prefix),
+                         "base_prefix": str(base_prefix)},
+              "package": {"wheel": str(wheel), "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                          "version": importlib.metadata.version("humanmotionlib")},
+              "dependencies": distributions,
+              "import_origins": origins,
+              "site_packages": [str(path) for path in site_dirs],
+              "pth_contents": pth_files,
+              "sys_path": sys.path,
+              "unexpected_external_paths": unexpected_external_paths,
+              "unexpected_import_origins": unexpected_import_origins,
+              "uv_cache_dir": str(pathlib.Path(sys.argv[2]).resolve()),
+              "uv_pip_check": "passed",
+          }
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          )
+          site_packages=$("$installed_python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          chmod -R a-w "$site_packages"
+          find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256"
+
+          (
+            cd "$outside"
+            env -u PYTHONPATH "$installed_python" - <<'PY' | tee "$HML_PACKAGE_RUN_ROOT/import-and-resource-identity.json"
+          import hashlib
+          import importlib.metadata
+          import importlib.resources
+          import json
+          import pathlib
+          import os
+          import humanmotionlib
+
+          dist = importlib.metadata.distribution("humanmotionlib")
+          package = pathlib.Path(humanmotionlib.__file__).resolve()
+          expected = os.environ["HML_EXPECTED_VERSION"]
+          assert dist.version == expected, (dist.version, expected)
+          assert humanmotionlib.__version__ == expected
+          assert "humanmotionlib" in str(package), package
+          assert not (package.parent.parent / "tools").exists()
+          resources = importlib.resources.files("humanmotionlib").joinpath("resources")
+          manifest = json.loads(resources.joinpath("runtime-manifest.json").read_text())
+          assert manifest["version"] == expected
+          print(json.dumps({
+              "distribution_version": dist.version,
+              "package_origin": str(package),
+              "runtime_manifest_sha256": hashlib.sha256(resources.joinpath("runtime-manifest.json").read_bytes()).hexdigest(),
+              "resources": manifest["resources"],
+          }, sort_keys=True))
+          PY
+            env -u PYTHONPATH "$install_root/environment/bin/hml" --version | tee "$HML_PACKAGE_RUN_ROOT/cli-version.log"
+            grep -Fx "humanmotionlib $HML_EXPECTED_VERSION" "$HML_PACKAGE_RUN_ROOT/cli-version.log"
+            env -u PYTHONPATH "$install_root/environment/bin/hml" --help > "$HML_PACKAGE_RUN_ROOT/cli-help.log"
+            env -u PYTHONPATH "$install_root/environment/bin/hml" check-environment | tee "$HML_PACKAGE_RUN_ROOT/installed-environment.log"
+            env -u PYTHONPATH "$install_root/environment/bin/python" -m humanmotionlib --version | tee "$HML_PACKAGE_RUN_ROOT/module-version.log"
+            grep -Fx "humanmotionlib $HML_EXPECTED_VERSION" "$HML_PACKAGE_RUN_ROOT/module-version.log"
+            env -u PYTHONPATH "$install_root/environment/bin/hml" --workspace "$workspace" validate --profile adult-reference-v1 2>&1 | tee "$HML_PACKAGE_RUN_ROOT/source-validation.log"
+          )
+
+          (
+            cd "$outside"
+            env -u PYTHONPATH -u PYTHONHOME "$install_root/environment/bin/hml" --workspace "$workspace" prepare-skeleton --profile adult-reference-v1 --output "$HML_PREPARED_ROOT/input.json"
+          ) 2>&1 | tee -a "$HML_PACKAGE_RUN_ROOT/all-fixture-preparation.log"
+          python - "$HML_PACKAGE_RUN_ROOT/source-validation.log" "$HML_PREPARED_ROOT/input.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          validation = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert validation["status"] == "valid-sources", validation.get("status")
+          assert validation["profile"] == "adult-reference-v1"
+          assert (validation["structures"], validation["actions"], validation["placements"], validation["fixtures"]) == (180, 67, 3, 32)
+          assert validation["source_hashes"], "source validation did not report canonical/resource hashes"
+
+          prepared = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          assert prepared["format"] == "skeleton-prepared/v1"
+          assert len(prepared["samples"]) == 900, len(prepared["samples"])
+          assert set(prepared["sources"]) == {"body-groups", "diagnostics", "humanoid-map", "mobility", "profile", "review-scene"}
+          assert all({"id", "fixture", "frame_id", "frames", "static", "animation"} <= set(sample) for sample in prepared["samples"])
+          print(json.dumps({
+              "validation_status": validation["status"],
+              "source_counts": {key: validation[key] for key in ("structures", "actions", "placements", "fixtures")},
+              "prepared_format": prepared["format"],
+              "prepared_samples": len(prepared["samples"]),
+              "source_sections": sorted(prepared["sources"]),
+          }, sort_keys=True))
+          PY
+
+          set +e
+          (cd "$outside" && env -u PYTHONPATH "$install_root/environment/bin/hml" --workspace "$workspace" validate --profile missing-package-ci-fixture) > "$HML_PACKAGE_RUN_ROOT/cli-negative.log" 2>&1
+          negative_status=$?
+          set -e
+          test "$negative_status" -ne 0
+          echo "Invalid profile exit status: $negative_status" >> "$HML_PACKAGE_RUN_ROOT/cli-negative.log"
+
+          ps -axo pid,ppid,pgid,state,command > "$HML_PACKAGE_RUN_ROOT/process-preflight.txt"
+
+          # The copied acceptance harness runs from an external five-component
+          # caller-owned run and imports only this non-editable installed wheel.
+          cp "$GITHUB_WORKSPACE/tests/installed_acceptance/run.py" "$HML_ACCEPTANCE_RUN_ROOT/run.py"
+          (
+            cd "$outside"
+            env -u PYTHONPATH -u PYTHONHOME "$installed_python" "$HML_ACCEPTANCE_RUN_ROOT/run.py" \
+              --python "$installed_python" \
+              --workspace "$workspace" \
+              --run-root "$HML_ACCEPTANCE_RUN_ROOT"
+          ) 2>&1 | tee "$HML_ACCEPTANCE_RUN_ROOT/installed-acceptance.log"
+
+          mkdir -p "$outside/characters"
+          printf 'not-a-real-character: true\n' > "$outside/characters/poison.yaml"
+          cp "$GITHUB_WORKSPACE/pyproject.toml" "$outside/pyproject.toml"
+          (
+            cd "$outside"
+            env -u PYTHONPATH \
+              HML_ACCEPTANCE_WORKSPACE="$workspace" \
+              HML_ACCEPTANCE_REPOSITORY="$HML_CHARACTER_WORKSPACE" \
+              HML_ACCEPTANCE_ROOT="$HML_ACCEPTANCE_RUN_ROOT" \
+              PYTHONDONTWRITEBYTECODE=1 \
+              "$installed_python" -c 'import sys, unittest; sys.path.insert(0, sys.argv[1]); suite=unittest.defaultTestLoader.loadTestsFromName("tests.test_character_installation"); result=unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(not result.wasSuccessful())' \
+              "$GITHUB_WORKSPACE"
+          ) 2>&1 | tee "$HML_ACCEPTANCE_RUN_ROOT/character-installation-tests.log"
+          find "$site_packages/humanmotionlib" -type f -print0 | sort -z | xargs -0 sha256sum > "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
+          cmp "$HML_PACKAGE_RUN_ROOT/installed-package-before.sha256" "$HML_PACKAGE_RUN_ROOT/installed-package-after.sha256"
+
+      - name: Record package job outcome
+        if: always()
+        shell: bash
+        env:
+          DIRECT_BUILD_OUTCOME: ${{ steps.direct-build.outcome }}
+          SDIST_REBUILD_OUTCOME: ${{ steps.sdist-rebuild.outcome }}
+          INSTALLED_CHECKS_OUTCOME: ${{ steps.installed-checks.outcome }}
+        run: |
+          {
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Commit: $HML_SOURCE_SHA"
+            echo "Python: $(python --version 2>&1 || true)"
+            echo "uv: $(uv --version 2>&1 || true)"
+            echo "Direct wheel/sdist build: $DIRECT_BUILD_OUTCOME"
+            echo "Extracted sdist rebuild and payload parity: $SDIST_REBUILD_OUTCOME"
+            echo "Installed wheel checks: $INSTALLED_CHECKS_OUTCOME"
+            echo "External caller acceptance run: $HML_ACCEPTANCE_RUN_ROOT"
+            echo "Wheel SHA-256: $(cut -d ' ' -f 1 "$HML_PACKAGE_RUN_ROOT/wheel.sha256" 2>/dev/null || true)"
+            echo "Real Blender backend: not executed; host-only scope"
+            echo "Package publication: not performed"
+          } >> "$HML_PACKAGE_RUN_ROOT/summary.txt"
+          cat "$HML_PACKAGE_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload checked wheel and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-checks-${{ inputs.artifact_name }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/summary.txt
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/*.log
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/wheel.sha256
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/pre-test-environment.json
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/import-and-resource-identity.json
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/process-preflight.txt
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/version-matrix/*.log
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/version-matrix/pre-test-environment.json
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/version-matrix/module-version.log
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/version-matrix/cli-version.log
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-before.sha256
+            ${{ env.HML_PACKAGE_RUN_ROOT }}/installed-package-after.sha256
+            ${{ env.HML_SDIST_RUN_ROOT }}/payload-parity.txt
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/run.py
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/installed-acceptance.log
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/installed-acceptance.json
+            ${{ env.HML_ACCEPTANCE_RUN_ROOT }}/character-installation-tests.log
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90

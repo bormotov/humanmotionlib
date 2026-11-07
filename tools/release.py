@@ -601,13 +601,12 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
         raise ReleaseError("draft contains a checksum file without its wheel")
     if wheel_name in assets:
         existing_checksum = _asset_digest(client, assets[wheel_name])
-        _validate_release_evidence(release, plan, tag, candidate_sha, existing_checksum)
         if existing_checksum != checksum:
-            # The first successful check uploaded this immutable candidate asset;
-            # preserve those bytes and reconcile the checksum from the draft.
-            wheel_bytes = client.asset_bytes(assets[wheel_name])
-            checksum = hashlib.sha256(wheel_bytes).hexdigest()
-            checksum_bytes = f"{checksum}  {wheel_name}\n".encode("ascii")
+            raise ReleaseError(
+                "existing draft wheel checksum differs from the checked candidate "
+                f"(expected {checksum}, found {existing_checksum})"
+            )
+        _validate_release_evidence(release, plan, tag, candidate_sha, checksum)
     else:
         _validate_release_evidence(release, plan, tag, candidate_sha, checksum)
         release_id = release.get("id")

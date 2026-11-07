@@ -114,16 +114,8 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  host-checks:
-    name: Reuse locked host verification
-    needs: reserve
-    if: needs.reserve.outputs.has_release == 'true'
-    uses: ./.github/workflows/host-python.yml
-    with:
-      source_ref: ${{ needs.reserve.outputs.candidate }}
-
   package-checks:
-    name: Reuse locked package verification
+    name: Build and verify reserved candidate
     needs: reserve
     if: needs.reserve.outputs.has_release == 'true'
     uses: ./.github/workflows/package.yml
@@ -132,7 +124,7 @@ jobs:
 
   publish:
     name: Publish verified wheel
-    needs: [reserve, host-checks, package-checks]
+    needs: [reserve, package-checks]
     if: needs.reserve.outputs.has_release == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -160,6 +152,8 @@ jobs:
       - name: Allocate fresh publication run
         id: allocate
         shell: bash
+        env:
+          CANDIDATE: ${{ needs.reserve.outputs.candidate }}
         run: |
           set -euo pipefail
           run_root="build/versioned-releases_${GITHUB_SHA:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_publish"
@@ -167,12 +161,14 @@ jobs:
           test ! -e "$run_root"
           mkdir "$run_root"
           echo "HML_PUBLISH_RUN_ROOT=$GITHUB_WORKSPACE/$run_root" >> "$GITHUB_ENV"
-          echo "Candidate commit: $GITHUB_SHA" | tee "$run_root/summary.txt"
+          candidate=$(git rev-parse HEAD)
+          test "$candidate" = "$CANDIDATE"
+          echo "Candidate commit: $candidate" | tee "$run_root/summary.txt"
 
       - name: Download exact package-check artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: humanmotionlib-${{ needs.reserve.outputs.candidate }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.package-checks.outputs.artifact_name }}
           path: ${{ env.HML_PUBLISH_RUN_ROOT }}/package-artifact
 
       - name: Publish immutable GitHub release
@@ -181,12 +177,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ needs.reserve.outputs.candidate }}
+          BUILD_SOURCE_SHA: ${{ needs.package-checks.outputs.source_sha }}
+          BUILD_WHEEL_SHA256: ${{ needs.package-checks.outputs.wheel_sha256 }}
         run: |
           set -euo pipefail
+          test "$CANDIDATE" = "$BUILD_SOURCE_SHA"
           mapfile -t wheels < <(find "$HML_PUBLISH_RUN_ROOT/package-artifact" -type f -name 'humanmotionlib-*.whl' -print)
           mapfile -t checksums < <(find "$HML_PUBLISH_RUN_ROOT/package-artifact" -type f -name 'wheel.sha256' -print)
           test "${#wheels[@]}" -eq 1
           test "${#checksums[@]}" -eq 1
+          actual_sha=$(sha256sum "${wheels[0]}" | cut -d ' ' -f 1)
+          recorded_sha=$(cut -d ' ' -f 1 "${checksums[0]}")
+          test "$actual_sha" = "$BUILD_WHEEL_SHA256"
+          test "$recorded_sha" = "$BUILD_WHEEL_SHA256"
           workflow_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           python tools/release.py publish --repo "$GITHUB_WORKSPACE" --repository "$GITHUB_REPOSITORY" \
             --candidate "$CANDIDATE" --wheel "${wheels[0]}" --checksum "${checksums[0]}" \

@@ -62,10 +62,14 @@ the last published release boundary, and selects the next `0.x` version:
 
 `tools/release-config.toml` pins the pre-automation bootstrap commit at version
 `0.2.0`; historical archives at or before that commit are not published. The
-workflow reserves a version-only commit on `main`, runs the locked host and
-package checks against that exact commit, and publishes its checked wheel and
-`SHA256SUMS` to an immutable `vX.Y.Z` GitHub Release. It records covered change
-and acceptance commits in release notes. It never publishes to PyPI.
+workflow reserves a version-only commit on `main`, then calls the shared
+package workflow for that exact commit. The workflow builds one wheel and
+source archive, uploads them as a run artifact, and starts Host Python and
+installed CLI/API checks only after upload succeeds. Both checks install the
+same wheel in fresh environments. Versioned release publishes that checked
+wheel and `SHA256SUMS` to an immutable `vX.Y.Z` GitHub Release only after both
+checks pass. It records covered change and acceptance commits in release
+notes. It never publishes to PyPI.
 
 Inspect a proposed selection without writing a commit or calling GitHub:
 
@@ -107,31 +111,38 @@ the selected workspace's `build/` tree.
 
 ## Command contract
 
-For a fresh local host check, create an empty run root directly under `build/`
-with a five-part run identity, then keep its environment and uv cache inside it.
+For a fresh local host check, create an empty five-part test run root directly
+under the checkout's `build/`. Keep the venv and uv cache in a separate
+temporary run area so the source checkout cannot shadow the installed package.
 The example below is a single developer host-check attempt:
 
 ```sh
-mkdir build/upgrade-host-python-314_r1_dev_try-1_host
-HOST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
-HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
-export UV_CACHE_DIR="$PWD/$HOST_RUN/cache"
+HOST_TEST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
+mkdir -p build
+mkdir "$HOST_TEST_RUN"
+HOST_ENV_AREA="$(mktemp -d "${TMPDIR:-/tmp}/humanmotionlib-host.XXXXXX")"
+HOST_ENV_RUN="$HOST_ENV_AREA/build/fix-github-actions-failures_r1_dev_try-1_host-env"
+mkdir -p "$HOST_ENV_RUN"
+HOST_PYTHON="$HOST_ENV_RUN/environment/bin/python"
+export UV_CACHE_DIR="$HOST_ENV_RUN/cache"
 uv lock --check
-uv venv --python 3.14 "$HOST_RUN/environment"
+uv venv --python 3.14 "$HOST_ENV_RUN/environment"
 uv export --locked --no-dev --no-emit-project --no-hashes \
-  --output-file "$HOST_RUN/requirements.txt"
-uv pip install --python "$HOST_PYTHON" --requirement "$HOST_RUN/requirements.txt"
-uv pip install --python "$HOST_PYTHON" --no-deps .
+  --output-file "$HOST_ENV_RUN/requirements.txt"
+uv pip install --python "$HOST_PYTHON" --requirement "$HOST_ENV_RUN/requirements.txt"
+uv build --wheel --out-dir "$HOST_ENV_RUN/wheel"
+uv pip install --python "$HOST_PYTHON" --no-deps "$HOST_ENV_RUN"/wheel/*.whl
 "$HOST_PYTHON" -c 'import sys; print("executable:", sys.executable); print("prefix:", sys.prefix); assert sys.prefix == sys.exec_prefix'
 "$HOST_PYTHON" -c 'import importlib.metadata as m, importlib.util as u, pathlib, site; names=("humanmotionlib", "yaml", "PIL", "jsonschema", "referencing"); print("distribution:", m.version("humanmotionlib")); print("module origins:", {n: u.find_spec(n).origin for n in names}); print("site:", site.getsitepackages()); print("pth files:", {str(p): p.read_text() for d in site.getsitepackages() for p in pathlib.Path(d).glob("*.pth")})'
 "$HOST_PYTHON" -c 'import os; print("uv cache:", os.path.realpath(os.environ["UV_CACHE_DIR"]))'
-"$HOST_RUN/environment/bin/hml" check-environment
+"$HOST_ENV_RUN/environment/bin/hml" check-environment
 uv pip check --python "$HOST_PYTHON"
-"$HOST_RUN/environment/bin/hml" validate --profile adult-reference-v1
-HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_RUN" \
+"$HOST_ENV_RUN/environment/bin/hml" validate --profile adult-reference-v1
+ps -axo pid,ppid,pgid,state,command >/dev/null
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_TEST_RUN" \
 HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
   "$HOST_PYTHON" -m humanmotionlib.check_host --test-root "$PWD/tests" \
-  --json-report "$PWD/$HOST_RUN/host-checks.json"
+  --json-report "$PWD/$HOST_TEST_RUN/host-checks.json"
 ```
 
 The installed `hml check-environment` command checks the interpreter, dependency
@@ -144,10 +155,9 @@ host-suite command applies only the two explicit Blender-module exclusions
 listed above. Real-backend acceptance runs separately with the pinned Blender
 on the Darwin arm64 reference platform. The CI uv version is pinned in
 `.github/workflows/host-python.yml`; local uv should use that same version for
-reproducible lock operations. The workflow pins uv 0.13.5 and uses `make dev`
-to prepare and install the current package before running host checks against
-that project-owned environment. The package workflow separately verifies a
-distribution wheel in a fresh independent installation.
+reproducible lock operations. CI builds one candidate wheel, then both host
+and installed package jobs download and verify that artifact in separate
+fresh environments. `make dev` remains the local contributor route.
 
 When passed `--json-report`, the host command atomically writes
 `matrix-test-outcome/v1`: selected/discovered, passed, failed, error, skipped
@@ -157,8 +167,11 @@ selection are recorded as non-success. Installed acceptance remains a
 separate package/host workflow with its own explicitly allocated run root;
 the contributor matrix does not invoke it. Its structured outcome is
 `installed-acceptance/installed-acceptance.json`, and fixtures and negative
-control outputs live under `installed-generated/<kind>/`. The package CI
-invocation in `.github/workflows/package.yml` shows its isolated installed
+control outputs live under `installed-generated/build/<five-component-run>/`.
+This inner caller workspace is disjoint from the harness and remains inside
+the selected element's `.tmp/`; its own outside-build inventory guards inputs
+and other caller files. The package CI
+invocation in `.github/workflows/package-checks.yml` shows its isolated installed
 environment setup.
 For an explicitly selected candidate runtime physically located under the
 checkout's `build/`, the host checker accepts its package import only when all
@@ -187,22 +200,18 @@ candidate environment. Allocate the run before executing; these test modules
 write process/fault cases only beneath this owned root:
 
 ```sh
-mkdir build/support-consumer-authored-motions_r1_dev_try-1_host-check
-HOST_RUN=build/support-consumer-authored-motions_r1_dev_try-1_host-check
-HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
-export UV_CACHE_DIR="$PWD/$HOST_RUN/cache"
-uv venv --python 3.14 "$HOST_RUN/environment"
-uv export --locked --no-dev --no-emit-project --no-hashes \
-  --output-file "$HOST_RUN/requirements.txt"
-uv pip install --python "$HOST_PYTHON" --requirement "$HOST_RUN/requirements.txt"
-uv pip install --python "$HOST_PYTHON" --no-deps .
+HOST_TEST_RUN=build/support-consumer-authored-motions_r1_dev_try-1_host-check
+mkdir -p build
+mkdir "$HOST_TEST_RUN"
+HOST_ENV_RUN="${HOST_ENV_RUN:?use a freshly prepared external host environment}"
+HOST_PYTHON="$HOST_ENV_RUN/environment/bin/python"
 "$HOST_PYTHON" -c 'import sys; print("executable:", sys.executable); print("prefix:", sys.prefix); assert sys.prefix == sys.exec_prefix'
 "$HOST_PYTHON" -c 'import importlib.metadata as m, importlib.util as u, pathlib, site; names=("humanmotionlib", "yaml", "PIL", "jsonschema", "referencing"); print("distribution:", m.version("humanmotionlib")); print("module origins:", {n: u.find_spec(n).origin for n in names}); print("site:", site.getsitepackages()); print("pth files:", {str(p): p.read_text() for d in site.getsitepackages() for p in pathlib.Path(d).glob("*.pth")})'
 "$HOST_PYTHON" -c 'import os; print("uv cache:", os.path.realpath(os.environ["UV_CACHE_DIR"]))'
 uv pip check --python "$HOST_PYTHON"
-"$HOST_RUN/environment/bin/hml" check-environment
+"$HOST_ENV_RUN/environment/bin/hml" check-environment
 ps -axo pid,ppid,pgid,state,command >/dev/null
-HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/build/support-consumer-authored-motions_r1_dev_try-1_host-check" \
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_TEST_RUN" \
 HUMANMOTIONLIB_SOURCE_ROOT="$PWD" \
   "$HOST_PYTHON" -m unittest \
     tests.test_consumer_motion tests.test_api tests.test_prepared_contract \
@@ -485,9 +494,12 @@ build/project-tools_r1_contributor_current_environment/environment/bin/hml --wor
 build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" run-blender --input build/anatomical-human-skeleton_r1_dev_try-1_build/input.json --output build/anatomical-human-skeleton_r1_dev_try-1_build
 build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" verify-skeleton --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_checks/metrics.json
 build/project-tools_r1_contributor_current_environment/environment/bin/hml --workspace "$PWD" review-pack --input build/anatomical-human-skeleton_r1_dev_try-1_build --output build/anatomical-human-skeleton_r1_dev_try-1_pack
-HOST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
-HOST_PYTHON="$PWD/$HOST_RUN/environment/bin/python"
-HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_RUN" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" "$HOST_PYTHON" -m humanmotionlib.check_host --test-root "$PWD/tests"
+HOST_TEST_RUN=build/upgrade-host-python-314_r1_dev_try-2_host
+mkdir "$HOST_TEST_RUN"
+HOST_ENV_RUN="${HOST_ENV_RUN:?use the external environment prepared in the host-check example}"
+HOST_PYTHON="$HOST_ENV_RUN/environment/bin/python"
+ps -axo pid,ppid,pgid,state,command >/dev/null
+HUMANMOTIONLIB_TEST_RUN_ROOT="$PWD/$HOST_TEST_RUN" HUMANMOTIONLIB_SOURCE_ROOT="$PWD" "$HOST_PYTHON" -m humanmotionlib.check_host --test-root "$PWD/tests"
 ```
 
 The runtime, wrapper, backend, and fault suites write all receipts and case

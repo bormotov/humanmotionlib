@@ -1,32 +1,34 @@
-name: Host Python
+name: Host Python verification
 
 on:
-  push:
-  pull_request:
   workflow_call:
     inputs:
       source_ref:
-        description: Commit or ref to check from a caller workflow
+        description: Exact source revision supplied by the build job
         type: string
-        required: false
+        required: true
+      artifact_name:
+        description: Candidate artifact name supplied by the build job
+        type: string
+        required: true
+      wheel_sha256:
+        description: Candidate wheel checksum supplied by the build job
+        type: string
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: host-python-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   host-python:
     name: CPython 3.14 host checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Check out source
+      - name: Check out the built source revision
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
       - name: Set up CPython
@@ -40,100 +42,160 @@ jobs:
           version: 0.13.5
           enable-cache: false
 
-      - name: Allocate fresh CI check run
+      - name: Allocate host check and download candidate
+        id: allocate
         shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          EXPECTED_WHEEL_SHA256: ${{ inputs.wheel_sha256 }}
         run: |
           set -euo pipefail
           source_sha=$(git rev-parse HEAD)
-          run_root="build/upgrade-host-python-314_commit-${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}_checks"
-          tools_root=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["humanmotionlib"]["workflow"]["tools-root"])')
-          mkdir -p build
+          test "$source_sha" = "$SOURCE_REF"
+          run_root="$GITHUB_WORKSPACE/build/upgrade-host-python-314_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_checks"
+          environment_root="$RUNNER_TEMP/build/fix-github-actions-failures_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_host-env"
           test ! -e "$run_root"
+          mkdir -p "$GITHUB_WORKSPACE/build" "$(dirname "$environment_root")"
           mkdir "$run_root"
+          mkdir "$environment_root"
+          artifact_root="$RUNNER_TEMP/candidate-artifact"
+          test ! -e "$artifact_root"
+          mkdir "$artifact_root"
           {
-            echo "HUMANMOTIONLIB_TEST_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
-            echo "HML_CI_RUN_ROOT=$GITHUB_WORKSPACE/$run_root"
-            echo "HUMANMOTIONLIB_SOURCE_ROOT=$GITHUB_WORKSPACE"
+            echo "HML_CI_RUN_ROOT=$run_root"
             echo "HML_SOURCE_SHA=$source_sha"
-            echo "HML_TOOLS_ROOT=$tools_root"
-            echo "UV_CACHE_DIR=$GITHUB_WORKSPACE/$tools_root/cache"
+            echo "HML_ARTIFACT_ROOT=$artifact_root"
+            echo "UV_CACHE_DIR=$environment_root/cache"
+            echo "HML_HOST_ENV=$environment_root/environment"
+            echo "HML_HOST_ENV_ROOT=$environment_root"
+            echo "HML_EXPECTED_WHEEL_SHA256=$EXPECTED_WHEEL_SHA256"
           } >> "$GITHUB_ENV"
           echo "Candidate commit: $source_sha" | tee "$run_root/summary.txt"
+          echo "Producer artifact: $ARTIFACT_NAME" | tee -a "$run_root/summary.txt"
 
-      - name: Prepare current package and locked development tools through Make
-        id: dev-preparation
+      - name: Download candidate distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ env.HML_ARTIFACT_ROOT }}
+
+      - name: Verify candidate identity and prepare locked host environment
+        id: host-preparation
         shell: bash
         run: |
           set -euo pipefail
-          {
-            uv --version
-            python --version
-            make dev
-          } 2>&1 | tee "$HML_CI_RUN_ROOT/setup.log"
+          mapfile -t wheels < <(find "$HML_ARTIFACT_ROOT" -type f -name 'humanmotionlib-*.whl' -print)
+          test "${#wheels[@]}" -eq 1
+          wheel="${wheels[0]}"
+          actual_sha=$(sha256sum "$wheel" | cut -d ' ' -f 1)
+          test "$actual_sha" = "$HML_EXPECTED_WHEEL_SHA256"
+          uv export --locked --no-dev --no-emit-project --no-hashes --format requirements-txt \
+            --output-file "$HML_CI_RUN_ROOT/requirements.txt" 2>&1 | tee "$HML_CI_RUN_ROOT/lock-export.log"
+          uv venv --python 3.14 "$HML_HOST_ENV" 2>&1 | tee "$HML_CI_RUN_ROOT/venv.log"
+          host_python="$HML_HOST_ENV/bin/python"
+          uv pip install --python "$host_python" -r "$HML_CI_RUN_ROOT/requirements.txt" 2>&1 | tee "$HML_CI_RUN_ROOT/dependencies.log"
+          uv pip install --python "$host_python" --no-deps "$wheel" 2>&1 | tee "$HML_CI_RUN_ROOT/wheel-install.log"
+          uv pip check --python "$host_python" 2>&1 | tee "$HML_CI_RUN_ROOT/dependency-check.log"
+          printf 'HML_HOST_PYTHON=%s\nHML_CANDIDATE_WHEEL=%s\n' "$host_python" "$wheel" >> "$GITHUB_ENV"
+          (
+            cd "$HML_HOST_ENV_ROOT"
+            env -u PYTHONPATH -u PYTHONHOME "$host_python" - "$wheel" "$HML_EXPECTED_WHEEL_SHA256" > "$HML_CI_RUN_ROOT/pre-test-environment.json" <<'PY'
+          import hashlib
+          import importlib.metadata
+          import importlib.util
+          import json
+          import pathlib
+          import site
+          import sys
 
-      - name: Check host interpreter and dependency metadata
-        id: host-environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$HML_TOOLS_ROOT/environment/bin/hml" check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
+          wheel = pathlib.Path(sys.argv[1]).resolve()
+          expected = sys.argv[2]
+          prefix = pathlib.Path(sys.prefix).resolve()
+          base_prefix = pathlib.Path(sys.base_prefix).resolve()
+          site_dirs = [pathlib.Path(path).resolve() for path in site.getsitepackages()]
+          names = ("humanmotionlib", "yaml", "jsonschema", "PIL", "referencing", "attrs")
+          specs = {name: importlib.util.find_spec(name) for name in names}
+          origins = {name: spec.origin for name, spec in specs.items()}
+          assert all(pathlib.Path(origin).resolve().is_relative_to(prefix) for origin in origins.values()), origins
+          digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+          assert digest == expected, (digest, expected)
+          pth = {str(path): path.read_text(errors="replace") for directory in site_dirs
+                 for path in sorted(directory.glob("*.pth"))}
+          resolved_sys_path = [pathlib.Path(path or pathlib.Path.cwd()).resolve() for path in sys.path]
+          unexpected_paths = [str(path) for path in resolved_sys_path
+                              if not path.is_relative_to(prefix) and not path.is_relative_to(base_prefix)
+                              and path != pathlib.Path.cwd().resolve()]
+          assert not unexpected_paths, unexpected_paths
+          distributions = sorted(
+              {dist.metadata["Name"].lower(): {"name": dist.metadata["Name"], "version": dist.version,
+               "root": str(pathlib.Path(dist.locate_file("")).resolve())}
+               for dist in importlib.metadata.distributions()}.values(),
+              key=lambda item: item["name"].lower(),
+          )
+          report = {"python": sys.executable, "version": sys.version, "prefix": str(prefix),
+                    "base_prefix": str(base_prefix),
+                    "wheel": str(wheel), "wheel_sha256": digest,
+                    "package_version": importlib.metadata.version("humanmotionlib"),
+                    "dependencies": distributions, "import_origins": origins,
+                    "site_packages": list(map(str, site_dirs)), "sys_path": sys.path,
+                    "unexpected_external_paths": unexpected_paths,
+                    "pth_contents": pth, "uv_cache_dir": str(pathlib.Path(__import__("os").environ["UV_CACHE_DIR"]).resolve()),
+                    "uv_pip_check": "passed"}
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          )
+          "$host_python" -m humanmotionlib --version | tee "$HML_CI_RUN_ROOT/module-version.log"
+          "$HML_HOST_ENV/bin/hml" --version | tee "$HML_CI_RUN_ROOT/cli-version.log"
+          "$HML_HOST_ENV/bin/hml" check-environment 2>&1 | tee "$HML_CI_RUN_ROOT/environment-check.log"
 
-      - name: Check installed dependency consistency
-        id: dependency-consistency
+      - name: Check process inspection before host tests
+        id: process-preflight
         shell: bash
-        run: |
-          set -euo pipefail
-          uv pip check --python "$HML_TOOLS_ROOT/environment/bin/python3.14" 2>&1 | tee "$HML_CI_RUN_ROOT/dependency-check.log"
+        run: ps -axo pid,ppid,pgid,state,command > "$HML_CI_RUN_ROOT/process-preflight.txt"
 
       - name: Validate canonical sources
         id: source-validation
         shell: bash
         run: |
           set -euo pipefail
-          "$HML_TOOLS_ROOT/environment/bin/hml" validate --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
+          "$HML_HOST_ENV/bin/hml" validate --profile adult-reference-v1 2>&1 | tee "$HML_CI_RUN_ROOT/source-validation.log"
 
       - name: Run host-only test suite
         id: host-tests
         shell: bash
         run: |
           set -euo pipefail
-          env -u PYTHONPATH \
-            HUMANMOTIONLIB_TEST_RUN_ROOT="$HML_CI_RUN_ROOT" \
-            HUMANMOTIONLIB_SOURCE_ROOT="$GITHUB_WORKSPACE" \
-            "$HML_TOOLS_ROOT/environment/bin/python3.14" \
-            -m humanmotionlib.check_host --test-root "$GITHUB_WORKSPACE/tests" \
-            2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
+          (
+            cd "$HML_HOST_ENV_ROOT"
+            env -u PYTHONPATH -u PYTHONHOME \
+              HUMANMOTIONLIB_TEST_RUN_ROOT="$HML_CI_RUN_ROOT" \
+              HUMANMOTIONLIB_SOURCE_ROOT="$GITHUB_WORKSPACE" \
+              "$HML_HOST_PYTHON" -m humanmotionlib.check_host \
+              --test-root "$GITHUB_WORKSPACE/tests" \
+              --json-report "$HML_CI_RUN_ROOT/host-checks.json"
+          ) 2>&1 | tee "$HML_CI_RUN_ROOT/host-tests.log"
 
-      - name: Record CI outcome
+      - name: Record host job outcome
         if: always()
         shell: bash
-        env:
-          DEV_PREPARATION_OUTCOME: ${{ steps.dev-preparation.outcome }}
-          HOST_ENVIRONMENT_OUTCOME: ${{ steps.host-environment.outcome }}
-          DEPENDENCY_CHECK_OUTCOME: ${{ steps.dependency-consistency.outcome }}
-          SOURCE_VALIDATION_OUTCOME: ${{ steps.source-validation.outcome }}
-          HOST_TESTS_OUTCOME: ${{ steps.host-tests.outcome }}
         run: |
           {
-            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "Attempt: $GITHUB_RUN_ATTEMPT"
             echo "Commit: $HML_SOURCE_SHA"
-            echo "Python: $(python --version 2>&1 || true)"
-            echo "uv: $(uv --version 2>&1 || true)"
-            echo "Make dev current-source preparation: $DEV_PREPARATION_OUTCOME"
-            echo "Host interpreter/metadata check: $HOST_ENVIRONMENT_OUTCOME"
-            echo "Dependency consistency check: $DEPENDENCY_CHECK_OUTCOME"
-            echo "Source validation: $SOURCE_VALIDATION_OUTCOME"
-            echo "Host-only tests: $HOST_TESTS_OUTCOME"
-            echo "Host-only scope excludes tests.test_blender_backend and tests.test_pipeline_faults; see host-tests.log."
+            echo "Wheel: ${HML_CANDIDATE_WHEEL:-unavailable}"
+            echo "Wheel SHA-256: ${HML_EXPECTED_WHEEL_SHA256:-unavailable}"
+            echo "Host tests: ${{ steps.host-tests.outcome }}"
+            echo "Host-only scope excludes tests.test_blender_backend and tests.test_pipeline_faults."
           } >> "$HML_CI_RUN_ROOT/summary.txt"
           cat "$HML_CI_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload check evidence
+      - name: Upload host check evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: host-python-${{ inputs.source_ref || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: host-python-${{ inputs.source_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.HML_CI_RUN_ROOT }}
           if-no-files-found: error
           retention-days: 90
