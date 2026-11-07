@@ -47,6 +47,8 @@ class CandidateWorkflowTests(unittest.TestCase):
                 downloads = [step for step in steps if step.get("uses", "").startswith("actions/download-artifact@")]
                 self.assertEqual(len(downloads), 1)
                 self.assertEqual(downloads[0]["with"]["name"], "${{ inputs.artifact_name }}")
+                if name == "host-python.yml":
+                    self.assertEqual(next(iter(workflow["jobs"].values()))["timeout-minutes"], "120")
                 script = "\n".join(step.get("run", "") for step in steps)
                 self.assertIn("HML_EXPECTED_WHEEL_SHA256", script)
                 self.assertIn("ps -axo pid,ppid,pgid,state,command", script)
