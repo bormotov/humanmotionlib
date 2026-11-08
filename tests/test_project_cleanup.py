@@ -461,17 +461,28 @@ class ProjectCleanupTests(unittest.TestCase):
         self.assertTrue((target / "build").is_dir())
 
     def test_no_python_or_uv_is_needed_and_empty_cleanup_repeats(self) -> None:
-        path = f"{self.fakebin}:/usr/bin:/bin"
+        for utility in ("awk", "find", "wc", "rm", "sh"):
+            target = shutil.which(utility)
+            self.assertIsNotNone(target, utility)
+            (self.fakebin / utility).symlink_to(target)
+        path = str(self.fakebin)
         self.assertIsNone(shutil.which("python", path=path))
+        self.assertIsNone(shutil.which("python3", path=path))
+        self.assertIsNone(shutil.which("python3.14", path=path))
         self.assertIsNone(shutil.which("uv", path=path))
         first = self.run_cleanup("distclean", env={"PATH": path})
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertIn("selected-count=0", first.stdout)
-        (self.workspace / "build").mkdir()
+        populated = self.workspace / "build" / "selected_stage"
+        populated.mkdir(parents=True)
+        (populated / "fixture.bin").write_bytes(b"cleanup fixture")
         second = self.run_cleanup("clean", env={"PATH": path})
-        third = self.run_cleanup("clean", env={"PATH": path})
         self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(populated.exists())
+        third = self.run_cleanup("clean", env={"PATH": path})
+        fourth = self.run_cleanup("clean", env={"PATH": path})
         self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertEqual(fourth.returncode, 0, fourth.stderr)
 
     def test_partial_removal_failure_reports_completed_and_pending_paths(self) -> None:
         first = self.add_build_entry("a_stage/file", b"first")

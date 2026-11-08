@@ -181,11 +181,15 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.repo.bootstrap_config()
         first_acceptance = self.repo.archive("first")
         remote = self.root / "origin.git"
-        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        subprocess.run(["git", "-c", "init.defaultBranch=master", "init", "-q", "--bare", str(remote)], check=True)
+        subprocess.run(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
         self.repo.git("remote", "add", "origin", str(remote))
         self.repo.git("push", "-q", "-u", "origin", "main")
         runner = self.root / "runner"
         subprocess.run(["git", "clone", "-q", str(remote), str(runner)], check=True)
+        self.assertEqual(subprocess.run(["git", "rev-parse", "HEAD"], cwd=runner, check=True,
+                                        capture_output=True, text=True).stdout.strip(), first_acceptance)
+        self.assertTrue((runner / "tools" / "release-config.toml").is_file())
         subprocess.run(["git", "config", "user.name", "Release runner"], cwd=runner, check=True)
         subprocess.run(["git", "config", "user.email", "runner@example.invalid"], cwd=runner, check=True)
 
