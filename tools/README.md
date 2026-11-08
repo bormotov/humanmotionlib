@@ -159,6 +159,17 @@ reproducible lock operations. CI builds one candidate wheel, then both host
 and installed package jobs download and verify that artifact in separate
 fresh environments. `make dev` remains the local contributor route.
 
+The Host Python job currently allows 300 minutes for the complete host-only
+suite; hosted Ubuntu runs were substantially slower than local runs, and two
+shorter limits cancelled otherwise progressing runs. Its evidence artifact
+contains the package identity, environment and process preflight, validation,
+suite report, suite log and summary. Generated `cases/` and nested `build/`
+fixtures are kept out of the upload. Staging and upload use `if: always()` to
+retain evidence after ordinary step failures and cancellations when the runner
+can execute final steps. A runner-enforced hard timeout may prevent those steps
+from running, so artifact upload after a hard timeout is best-effort rather
+than guaranteed.
+
 When passed `--json-report`, the host command atomically writes
 `matrix-test-outcome/v1`: selected/discovered, passed, failed, error, skipped
 and excluded counts, per-case outcomes and tracebacks, process exit status, and

@@ -23,7 +23,7 @@ jobs:
   host-python:
     name: CPython 3.14 host checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - name: Check out the built source revision
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -90,6 +90,7 @@ jobs:
           wheel="${wheels[0]}"
           actual_sha=$(sha256sum "$wheel" | cut -d ' ' -f 1)
           test "$actual_sha" = "$HML_EXPECTED_WHEEL_SHA256"
+          printf '%s  %s\n' "$actual_sha" "$(basename "$wheel")" > "$HML_CI_RUN_ROOT/candidate-wheel.sha256"
           uv export --locked --no-dev --no-emit-project --no-hashes --format requirements-txt \
             --output-file "$HML_CI_RUN_ROOT/requirements.txt" 2>&1 | tee "$HML_CI_RUN_ROOT/lock-export.log"
           uv venv --python 3.14 "$HML_HOST_ENV" 2>&1 | tee "$HML_CI_RUN_ROOT/venv.log"
@@ -191,11 +192,33 @@ jobs:
           } >> "$HML_CI_RUN_ROOT/summary.txt"
           cat "$HML_CI_RUN_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Stage host check evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${HML_CI_RUN_ROOT:-}"
+          test -d "$HML_CI_RUN_ROOT"
+          evidence_root="$HML_CI_RUN_ROOT/host-evidence"
+          test ! -e "$evidence_root"
+          mkdir "$evidence_root"
+          for name in \
+            candidate-wheel.sha256 requirements.txt lock-export.log venv.log dependencies.log \
+            wheel-install.log dependency-check.log pre-test-environment.json module-version.log \
+            cli-version.log environment-check.log process-preflight.txt source-validation.log \
+            host-checks.json host-tests.log summary.txt; do
+            source_file="$HML_CI_RUN_ROOT/$name"
+            if [[ -f "$source_file" && ! -L "$source_file" ]]; then
+              cp -- "$source_file" "$evidence_root/$name"
+            fi
+          done
+          test -s "$evidence_root/summary.txt"
+
       - name: Upload host check evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: host-python-${{ inputs.source_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.HML_CI_RUN_ROOT }}
+          path: ${{ env.HML_CI_RUN_ROOT }}/host-evidence
           if-no-files-found: error
           retention-days: 90
