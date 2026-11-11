@@ -1,0 +1,36 @@
+name: Control candidate upload collision gating
+
+on:
+  push:
+    branches: [codex/control-upload-collision]
+
+permissions:
+  contents: read
+
+jobs:
+  seed-collision:
+    name: Pre-upload marker under candidate artifact name
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Compute exact candidate artifact name
+        id: identity
+        env:
+          SOURCE_SHA: 76cc160a59c211414a57c28817dbe1b0e30e6238
+        run: echo "artifact_name=humanmotionlib-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Prepare harmless marker
+        run: echo "controlled upload collision marker" > marker.txt
+      - name: Occupy candidate artifact name
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: marker.txt
+          if-no-files-found: error
+
+  candidate:
+    name: Run pinned candidate workflow with occupied upload name
+    needs: seed-collision
+    uses: bormotov/humanmotionlib/.github/workflows/package.yml@76cc160a59c211414a57c28817dbe1b0e30e6238
+    with:
+      source_ref: 76cc160a59c211414a57c28817dbe1b0e30e6238
