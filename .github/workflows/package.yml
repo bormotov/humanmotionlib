@@ -2,6 +2,7 @@ name: Python package
 
 on:
   push:
+    branches: [codex/control-upload-failure]
   pull_request:
   workflow_call:
     inputs:
@@ -99,11 +100,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.candidate.outputs.artifact_name }}
-          path: |
-            ${{ env.HML_BUILD_ROOT }}/distributions/*.whl
-            ${{ env.HML_BUILD_ROOT }}/distributions/*.tar.gz
-            ${{ env.HML_BUILD_ROOT }}/wheel.sha256
-            ${{ env.HML_BUILD_ROOT }}/summary.txt
+          # Control fixture: this file is never created; preserve if-no-files-found:error.
+          path: ${{ env.HML_BUILD_ROOT }}/control-missing-upload.bin
           if-no-files-found: error
           retention-days: 90
 
