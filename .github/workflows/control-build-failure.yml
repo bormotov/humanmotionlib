@@ -1,0 +1,15 @@
+name: Control build failure gating
+
+on:
+  push:
+    branches: [codex/control-build-failure]
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Run pinned candidate workflow against malformed lock fixture
+    uses: bormotov/humanmotionlib/.github/workflows/package.yml@76cc160a59c211414a57c28817dbe1b0e30e6238
+    with:
+      source_ref: ${{ github.sha }}
