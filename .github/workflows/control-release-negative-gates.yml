@@ -1,0 +1,280 @@
+name: Control release negative gates (dry run)
+
+on:
+  push:
+    branches: [codex/control-release-negative-gates]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  reserve-host-failure:
+    name: Fixture reserve for host-failure case
+    runs-on: ubuntu-24.04
+    outputs:
+      has_release: ${{ steps.reserve.outputs.has_release }}
+    steps:
+      - id: reserve
+        run: echo "has_release=true" >> "$GITHUB_OUTPUT"
+      - run: echo "Fixture reserve succeeded; no release state was changed."
+
+  build-host-failure:
+    name: Fixture build for host-failure case
+    needs: reserve-host-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Fixture build succeeded."
+
+  host-check-failure:
+    name: Fixture host check failure
+    needs: build-host-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail the host check fixture
+        run: |
+          echo "Fixture: host check failed; installed check remains independent."
+          exit 86
+
+  installed-check-success:
+    name: Fixture installed check success
+    needs: build-host-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "Fixture: installed check succeeded."
+
+  package-checks-host-failure:
+    name: Aggregate host-failure checks (must skip)
+    needs: [host-check-failure, installed-check-success]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "ERROR: aggregate ran after the host check failed." >&2
+          exit 90
+
+  publish-host-failure:
+    name: Publication gate host-failure case (must skip)
+    needs: [reserve-host-failure, package-checks-host-failure]
+    if: needs.reserve-host-failure.outputs.has_release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "ERROR: publication gate ran after a required check failed." >&2
+          exit 90
+
+  reserve-install-failure:
+    name: Fixture reserve for installed-failure case
+    runs-on: ubuntu-24.04
+    outputs:
+      has_release: ${{ steps.reserve.outputs.has_release }}
+    steps:
+      - id: reserve
+        run: echo "has_release=true" >> "$GITHUB_OUTPUT"
+      - run: echo "Fixture reserve succeeded; no release state was changed."
+
+  build-install-failure:
+    name: Fixture build for installed-failure case
+    needs: reserve-install-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Fixture build succeeded."
+
+  host-check-success:
+    name: Fixture host check success
+    needs: build-install-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "Fixture: host check succeeded."
+
+  installed-check-failure:
+    name: Fixture installed check failure
+    needs: build-install-failure
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail the installed check fixture
+        run: |
+          echo "Fixture: installed check failed; host check remains independent."
+          exit 86
+
+  package-checks-install-failure:
+    name: Aggregate installed-failure checks (must skip)
+    needs: [host-check-success, installed-check-failure]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "ERROR: aggregate ran after the installed check failed." >&2
+          exit 90
+
+  publish-install-failure:
+    name: Publication gate installed-failure case (must skip)
+    needs: [reserve-install-failure, package-checks-install-failure]
+    if: needs.reserve-install-failure.outputs.has_release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "ERROR: publication gate ran after a required check failed." >&2
+          exit 90
+
+  reserve-missing-artifact:
+    name: Fixture reserve for missing-artifact case
+    runs-on: ubuntu-24.04
+    outputs:
+      has_release: ${{ steps.reserve.outputs.has_release }}
+    steps:
+      - id: reserve
+        run: echo "has_release=true" >> "$GITHUB_OUTPUT"
+      - run: echo "Fixture reserve succeeded; no release state was changed."
+
+  package-checks-missing-artifact:
+    name: Fixture required checks pass but artifact is absent
+    needs: reserve-missing-artifact
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "Fixture: required package checks passed; no candidate artifact was supplied."
+
+  publish-missing-artifact:
+    name: Publication stops before receipt when artifact is missing
+    needs: [reserve-missing-artifact, package-checks-missing-artifact]
+    if: needs.reserve-missing-artifact.outputs.has_release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Download a deliberately absent artifact
+        id: missing-artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hml-control-deliberately-absent-${{ github.run_id }}
+          path: control-artifact
+
+      - name: Simulated publish receipt (must remain unreachable)
+        id: publish-receipt
+        run: |
+          echo "ERROR: simulated publish reached without the required artifact." >&2
+          exit 90
+
+      - name: Assert missing artifact prevented the receipt
+        if: always()
+        shell: bash
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.missing-artifact.outcome }}
+          RECEIPT_OUTCOME: ${{ steps.publish-receipt.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DOWNLOAD_OUTCOME" = failure
+          test "$RECEIPT_OUTCOME" = skipped
+          echo "Missing artifact blocked the dry-run publish receipt." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  reserve-positive-control:
+    name: Fixture reserve for positive dry-run control
+    runs-on: ubuntu-24.04
+    outputs:
+      has_release: ${{ steps.reserve.outputs.has_release }}
+    steps:
+      - id: reserve
+        run: echo "has_release=true" >> "$GITHUB_OUTPUT"
+      - run: echo "Fixture reserve succeeded; no release state was changed."
+
+  package-checks-positive-control:
+    name: Fixture checks and artifact pass for positive dry-run control
+    needs: reserve-positive-control
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Name positive-control marker artifact
+        id: identity
+        shell: bash
+        run: echo "artifact_name=hml-control-positive-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Create positive-control marker
+        run: echo "surrogate positive control only" > marker.txt
+      - name: Upload positive-control marker
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: marker.txt
+          if-no-files-found: error
+
+  publish-positive-control:
+    name: Positive dry-run receipt after successful prerequisites
+    needs: [reserve-positive-control, package-checks-positive-control]
+    if: needs.reserve-positive-control.outputs.has_release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Download positive-control marker
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.package-checks-positive-control.outputs.artifact_name }}
+          path: control-artifact
+      - name: Verify surrogate positive control and write receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat control-artifact/marker.txt)" = "surrogate positive control only"
+          echo "SURROGATE ONLY — prerequisites and artifact passed; no release API called." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  assert-negative-gates:
+    name: Assert independent fixture outcomes
+    if: always()
+    needs:
+      - reserve-host-failure
+      - build-host-failure
+      - host-check-failure
+      - installed-check-success
+      - package-checks-host-failure
+      - publish-host-failure
+      - reserve-install-failure
+      - build-install-failure
+      - host-check-success
+      - installed-check-failure
+      - package-checks-install-failure
+      - publish-install-failure
+      - reserve-missing-artifact
+      - package-checks-missing-artifact
+      - publish-missing-artifact
+      - reserve-positive-control
+      - package-checks-positive-control
+      - publish-positive-control
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify failed stages block the aggregate and publication
+        shell: bash
+        env:
+          HOST_FAILURE: ${{ needs.host-check-failure.result }}
+          HOST_HAS_RELEASE: ${{ needs.reserve-host-failure.outputs.has_release }}
+          INSTALLED_PASS: ${{ needs.installed-check-success.result }}
+          HOST_AGGREGATE: ${{ needs.package-checks-host-failure.result }}
+          HOST_PUBLISH: ${{ needs.publish-host-failure.result }}
+          INSTALL_HAS_RELEASE: ${{ needs.reserve-install-failure.outputs.has_release }}
+          HOST_PASS: ${{ needs.host-check-success.result }}
+          INSTALLED_FAILURE: ${{ needs.installed-check-failure.result }}
+          INSTALLED_AGGREGATE: ${{ needs.package-checks-install-failure.result }}
+          INSTALLED_PUBLISH: ${{ needs.publish-install-failure.result }}
+          MISSING_PUBLISH: ${{ needs.publish-missing-artifact.result }}
+          MISSING_HAS_RELEASE: ${{ needs.reserve-missing-artifact.outputs.has_release }}
+          POSITIVE_PUBLISH: ${{ needs.publish-positive-control.result }}
+          POSITIVE_HAS_RELEASE: ${{ needs.reserve-positive-control.outputs.has_release }}
+        run: |
+          set -euo pipefail
+          test "$HOST_FAILURE" = failure
+          test "$HOST_HAS_RELEASE" = true
+          test "$INSTALLED_PASS" = success
+          test "$HOST_AGGREGATE" = skipped
+          test "$HOST_PUBLISH" = skipped
+          test "$INSTALL_HAS_RELEASE" = true
+          test "$HOST_PASS" = success
+          test "$INSTALLED_FAILURE" = failure
+          test "$INSTALLED_AGGREGATE" = skipped
+          test "$INSTALLED_PUBLISH" = skipped
+          test "$MISSING_HAS_RELEASE" = true
+          test "$MISSING_PUBLISH" = failure
+          test "$POSITIVE_HAS_RELEASE" = true
+          test "$POSITIVE_PUBLISH" = success
+          echo "Independent negative gates and positive surrogate matched expectations." | tee -a "$GITHUB_STEP_SUMMARY"
