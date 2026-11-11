@@ -1,0 +1,84 @@
+name: Control release artifact handoff and retry
+
+on:
+  push:
+    branches: [codex/control-release-handoff]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package-checks:
+    name: Run full pinned chain for reserved candidate
+    uses: bormotov/humanmotionlib/.github/workflows/package.yml@76cc160a59c211414a57c28817dbe1b0e30e6238
+    with:
+      source_ref: 76cc160a59c211414a57c28817dbe1b0e30e6238
+
+  handoff-retry:
+    name: Download and verify the producer artifact
+    needs: package-checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check event, producer and artifact identities
+        shell: bash
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ needs.package-checks.outputs.source_sha }}
+          EXPECTED_SOURCE_SHA: 76cc160a59c211414a57c28817dbe1b0e30e6238
+          ARTIFACT_NAME: ${{ needs.package-checks.outputs.artifact_name }}
+          WHEEL_SHA256: ${{ needs.package-checks.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$EVENT_SHA" != "$SOURCE_SHA"
+          test "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA"
+          expected_name="humanmotionlib-${SOURCE_SHA}-${GITHUB_RUN_ID}-1"
+          test "$ARTIFACT_NAME" = "$expected_name"
+          test "${#WHEEL_SHA256}" -eq 64
+          echo "Event SHA: $EVENT_SHA"
+          echo "Producer source SHA: $SOURCE_SHA"
+          echo "Original producer artifact: $ARTIFACT_NAME"
+          echo "Producer wheel SHA-256: $WHEEL_SHA256"
+
+      - name: Download the exact producer artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.package-checks.outputs.artifact_name }}
+          path: handoff-artifact
+
+      - name: Verify downloaded wheel and checksum
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.package-checks.outputs.source_sha }}
+          ARTIFACT_NAME: ${{ needs.package-checks.outputs.artifact_name }}
+          WHEEL_SHA256: ${{ needs.package-checks.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(handoff-artifact/humanmotionlib-*.whl)
+          checksums=(handoff-artifact/wheel.sha256)
+          test "${#wheels[@]}" -eq 1
+          test "${#checksums[@]}" -eq 1
+          actual_sha=$(sha256sum "${wheels[0]}" | cut -d ' ' -f 1)
+          recorded_sha=$(cut -d ' ' -f 1 "${checksums[0]}")
+          test "$actual_sha" = "$WHEEL_SHA256"
+          test "$recorded_sha" = "$WHEEL_SHA256"
+          echo "Verified source $SOURCE_SHA, artifact $ARTIFACT_NAME, wheel SHA-256 $actual_sha"
+
+      - name: Fail first attempt after verified download, then allow retry
+        shell: bash
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          ARTIFACT_NAME: ${{ needs.package-checks.outputs.artifact_name }}
+          WHEEL_SHA256: ${{ needs.package-checks.outputs.wheel_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN_ATTEMPT" = "1" ]; then
+            echo "Controlled first-attempt failure after successful artifact verification." >&2
+            exit 86
+          fi
+          test "$RUN_ATTEMPT" = "2"
+          echo "Dry-run retry receipt: attempt=$RUN_ATTEMPT artifact=$ARTIFACT_NAME wheel_sha256=$WHEEL_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"
