@@ -1,0 +1,9 @@
+Candidate commit: 76cc160a59c211414a57c28817dbe1b0e30e6238
+Producer artifact: humanmotionlib-76cc160a59c211414a57c28817dbe1b0e30e6238-42473535328-1
+Workflow: https://github.com/bormotov/humanmotionlib/actions/runs/42473535328
+Attempt: 1
+Commit: 76cc160a59c211414a57c28817dbe1b0e30e6238
+Wheel: /home/runner/work/_temp/candidate-artifact/distributions/humanmotionlib-0.3.0-py3-none-any.whl
+Wheel SHA-256: 3f9742ebe7770ee0d3f8728287a9166bbc6299da96cc734b0320bd3dd66c0704
+Host tests: success
+Host-only scope excludes tests.test_blender_backend and tests.test_pipeline_faults.

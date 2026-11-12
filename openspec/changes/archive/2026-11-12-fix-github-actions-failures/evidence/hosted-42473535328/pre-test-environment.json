@@ -1,0 +1,73 @@
+{
+  "base_prefix": "/opt/hostedtoolcache/Python/3.14.10/x64",
+  "dependencies": [
+    {
+      "name": "attrs",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "26.1.0"
+    },
+    {
+      "name": "humanmotionlib",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "0.3.0"
+    },
+    {
+      "name": "jsonschema",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "4.26.0"
+    },
+    {
+      "name": "jsonschema-specifications",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "2025.9.1"
+    },
+    {
+      "name": "pillow",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "12.3.0"
+    },
+    {
+      "name": "PyYAML",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "6.0.3"
+    },
+    {
+      "name": "referencing",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "0.37.0"
+    },
+    {
+      "name": "rpds-py",
+      "root": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages",
+      "version": "2026.9.1"
+    }
+  ],
+  "import_origins": {
+    "PIL": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/PIL/__init__.py",
+    "attrs": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/attrs/__init__.py",
+    "humanmotionlib": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/humanmotionlib/__init__.py",
+    "jsonschema": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/jsonschema/__init__.py",
+    "referencing": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/referencing/__init__.py",
+    "yaml": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages/yaml/__init__.py"
+  },
+  "package_version": "0.3.0",
+  "prefix": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment",
+  "pth_contents": {},
+  "python": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/bin/python",
+  "site_packages": [
+    "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages"
+  ],
+  "sys_path": [
+    "",
+    "/opt/hostedtoolcache/Python/3.14.10/x64/lib/python314.zip",
+    "/opt/hostedtoolcache/Python/3.14.10/x64/lib/python3.14",
+    "/opt/hostedtoolcache/Python/3.14.10/x64/lib/python3.14/lib-dynload",
+    "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/lib/python3.14/site-packages"
+  ],
+  "unexpected_external_paths": [],
+  "uv_cache_dir": "/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/cache",
+  "uv_pip_check": "passed",
+  "version": "3.14.10 (main, Oct 26 2026, 14:19:15) [GCC 13.3.0]",
+  "wheel": "/home/runner/work/_temp/candidate-artifact/distributions/humanmotionlib-0.3.0-py3-none-any.whl",
+  "wheel_sha256": "3f9742ebe7770ee0d3f8728287a9166bbc6299da96cc734b0320bd3dd66c0704"
+}

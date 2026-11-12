@@ -1,0 +1,5 @@
+Using Python 3.14.10 environment at: /home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment
+Resolved 1 package in 2ms
+Prepared 1 package in 23ms
+Installed 1 package in 5ms
+ + humanmotionlib==0.3.0 (from file:///home/runner/work/_temp/candidate-artifact/distributions/humanmotionlib-0.3.0-py3-none-any.whl)

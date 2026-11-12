@@ -1,0 +1,6 @@
+Host interpreter: cpython 3.14.10 (/home/runner/work/_temp/build/fix-github-actions-failures_76cc160_ci_run-42473535328-attempt-1_host-env/environment/bin/python)
+humanmotionlib: 0.3.0
+PyYAML: 6.0.3
+jsonschema: 4.26.0
+Pillow: 12.3.0
+referencing: 0.37.0
