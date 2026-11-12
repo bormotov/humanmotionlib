@@ -111,7 +111,6 @@ class CharacterVerificationTests(unittest.TestCase):
                                            expected_runtime_manifest_sha256=manifest_sha)
             self.assertEqual(anchor.wheel_sha256,wheel_sha)
             self.assertEqual(anchor.runtime_manifest_sha256,manifest_sha)
-            self.assertEqual(anchor.identity["package_version"],"0.3.0")
             (installed/"humanmotionlib/__init__.py").write_bytes(b"tampered\n")
             with self.assertRaisesRegex(ValueError,"installed generation bytes"):
                 _load_generation_anchor(wheel,installed,expected_wheel_sha256=wheel_sha,

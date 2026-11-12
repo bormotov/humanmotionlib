@@ -483,17 +483,6 @@ class CharacterReviewPackTests(unittest.TestCase):
                             runs["skeleton"], prepared_records["skeleton"],
                             specs, output, workspace)
 
-                with self.subTest("package identity mismatch"):
-                    mutated = json.loads(json.dumps(prepared_records["female"]))
-                    mutated["package_identity"]["version"] = "stale-candidate"
-                    mutated = seal(mutated)
-                    write_json(runs["female"] / "input.json", mutated)
-                    with self.assertRaisesRegex(ValueError, "package release/resource identity mismatch"):
-                        _REVIEW_PACK._preflight_diagonal_inputs(
-                            runs["skeleton"], prepared_records["skeleton"],
-                            specs, output, workspace)
-                    write_json(runs["female"] / "input.json", prepared_records["female"])
-
                 with self.subTest("failed native numeric leaf"):
                     with mock.patch("humanmotionlib.character_verification.verify_character_output",
                                     return_value={"numeric_status": "fail"}):

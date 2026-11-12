@@ -338,7 +338,7 @@ build_skeleton = importlib.import_module("humanmotionlib.build_skeleton")
 integrity_calls = []
 def verify_integrity():
     integrity_calls.append(True)
-    return {"version": humanmotionlib.__version__, "resources": {}}
+    return {"version": "fixture", "resources": {}}
 
 build_skeleton.verify_runtime_integrity = verify_integrity
 build_skeleton.read_prepared_backend = lambda *_args: prepared_record

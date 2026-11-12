@@ -153,7 +153,7 @@ class CandidateWorkflowTests(unittest.TestCase):
         result = run_stage(missing_root)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_versioned_release_calls_chain_once_and_uses_producer_outputs(self):
+    def test_release_calls_chain_once_and_uses_producer_outputs(self):
         release = load_workflow("release.yml")
         jobs = release["jobs"]
         self.assertNotIn("host-checks", jobs)

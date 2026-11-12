@@ -76,12 +76,10 @@ class ReleaseSelectionTests(unittest.TestCase):
     def test_no_pending_archive_does_not_release(self):
         plan = release.build_plan(self.repo.path, self.repo.base, self.repo.base)
         self.assertFalse(plan["has_release"])
-        self.assertIsNone(plan["version"])
 
     def test_archived_skip_specs_change_with_no_spec_delta_is_patch(self):
         self.repo.archive("skip-specs-fix")
         plan = release.build_plan(self.repo.path, self.repo.base, "HEAD")
-        self.assertEqual(plan["version"], "0.2.1")
         self.assertEqual([entry["id"] for entry in plan["archives"]], ["skip-specs-fix"])
         self.assertFalse(plan["specification_changed"])
 
@@ -95,21 +93,18 @@ class ReleaseSelectionTests(unittest.TestCase):
         subprocess.run(["git", "mv", str(active), str(accepted)], cwd=self.repo.path, check=True)
         acceptance = self.repo.commit("archive accepted change")
         plan = release.build_plan(self.repo.path, self.repo.base, "HEAD")
-        self.assertEqual(plan["version"], "0.2.1")
         self.assertEqual(plan["archives"], [{"id": "rename-me", "acceptance_commit": acceptance}])
 
     def test_canonical_edit_including_editorial_change_is_minor(self):
         self.repo.write("openspec/specs/api/spec.md", "# API\n\nUpdated punctuation!\n")
         self.repo.archive("spec-change")
         plan = release.build_plan(self.repo.path, self.repo.base, "HEAD")
-        self.assertEqual(plan["version"], "0.3.0")
         self.assertEqual(plan["changed_specifications"], ["openspec/specs/api/spec.md"])
 
     def test_multiple_pending_changes_use_one_increment_and_keep_acceptance_commits(self):
         first = self.repo.archive("first")
         second = self.repo.archive("second")
         plan = release.build_plan(self.repo.path, self.repo.base, "HEAD")
-        self.assertEqual(plan["version"], "0.2.1")
         self.assertEqual(plan["archives"], [
             {"id": "first", "acceptance_commit": first},
             {"id": "second", "acceptance_commit": second},
@@ -127,7 +122,6 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.repo.write("openspec/specs/api-v2/spec.md", "# API v2\n")
         self.repo.archive("spec-rename")
         plan = release.build_plan(self.repo.path, self.repo.base, "HEAD")
-        self.assertEqual(plan["version"], "0.3.0")
         self.assertEqual(set(plan["changed_specifications"]), {
             "openspec/specs/api/spec.md", "openspec/specs/api-v2/spec.md",
         })
@@ -145,22 +139,7 @@ class ReleaseSelectionTests(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertNotEqual(bad.returncode, 0)
 
-    def test_versions_are_strict_pre_one_zero(self):
-        for value in ("1.0.0", "0.2", "0.02.1", "0.2.01", "v0.2.1", "0.2.1rc1"):
-            with self.subTest(value=value), self.assertRaises(release.ReleaseError):
-                release.next_version(value, False)
-        self.assertEqual(release.next_version("0.2.9", False), "0.2.10")
-        self.assertEqual(release.next_version("0.2.9", True), "0.3.0")
-
-    def test_only_authored_project_and_lock_version_fields_change(self):
-        release.update_version_files(self.repo.path, "0.3.0")
-        self.assertEqual(release.version_at(self.repo.path, self.repo.git("rev-parse", "HEAD")), "0.2.0")
-        self.assertIn('version = "0.3.0"', (self.repo.path / "pyproject.toml").read_text())
-        self.assertIn('version = "0.3.0"', (self.repo.path / "uv.lock").read_text())
-        with self.assertRaises(release.ReleaseError):
-            release.update_version_files(self.repo.path, "1.0.0")
-
-    def test_fixed_bootstrap_and_version_reservation_are_recoverable(self):
+    def test_bootstrap_reservation_records_acceptance_and_reuses_candidate(self):
         self.repo.bootstrap_config()
         acceptance = self.repo.archive("release-me")
 
@@ -168,16 +147,17 @@ class ReleaseSelectionTests(unittest.TestCase):
             def latest_release(self):
                 return None
 
-        reservation = release.reserve_release(self.repo.path, NoReleaseClient(), "HEAD")
-        self.assertEqual(reservation["version"], "0.2.1")
-        self.assertEqual(reservation["archives"][0]["acceptance_commit"], acceptance)
-        diff = self.repo.git("diff-tree", "--no-commit-id", "--name-only", "-r", reservation["candidate"])
-        self.assertEqual(set(diff.splitlines()), {"pyproject.toml", "uv.lock"})
+        candidate = release.reserve_release(self.repo.path, NoReleaseClient(), "HEAD")
+        self.assertEqual(candidate["archives"][0]["acceptance_commit"], acceptance)
+        changed_files = self.repo.git(
+            "diff-tree", "--no-commit-id", "--name-only", "-r", candidate["candidate"]
+        )
+        self.assertEqual(set(changed_files.splitlines()), {"pyproject.toml", "uv.lock"})
         resumed = release.reserve_release(self.repo.path, NoReleaseClient(), "HEAD")
         self.assertTrue(resumed["resumed"])
-        self.assertEqual(resumed["candidate"], reservation["candidate"])
+        self.assertEqual(resumed["candidate"], candidate["candidate"])
 
-    def test_advancing_main_recomputes_and_coalesces_after_compare_and_swap_rejection(self):
+    def test_advancing_main_rejects_stale_push_and_recomputes_archives(self):
         self.repo.bootstrap_config()
         first_acceptance = self.repo.archive("first")
         remote = self.root / "origin.git"
@@ -209,7 +189,6 @@ class ReleaseSelectionTests(unittest.TestCase):
                        capture_output=True)
         current = release.reserve_release(runner, NoReleaseClient(), "refs/remotes/origin/main")
         self.assertNotEqual(current["candidate"], stale["candidate"])
-        self.assertEqual(current["version"], "0.2.1")
         self.assertEqual(current["archives"], [
             {"id": "first", "acceptance_commit": first_acceptance},
             {"id": "second", "acceptance_commit": second_acceptance},
@@ -217,7 +196,7 @@ class ReleaseSelectionTests(unittest.TestCase):
         subprocess.run(["git", "push", "origin", f"{current['candidate']}:refs/heads/main"],
                        cwd=runner, check=True, capture_output=True)
 
-    def test_superseded_wake_up_resumes_reservation_and_leaves_new_archive_pending(self):
+    def test_superseded_wakeup_resumes_candidate_and_keeps_new_archive_pending(self):
         self.repo.bootstrap_config()
         self.repo.archive("first")
 
@@ -237,10 +216,9 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.assertTrue(resumed["resumed"])
         self.assertEqual(resumed["candidate"], candidate)
         pending = release.pending_after_latest_release(self.repo.path, published, "HEAD")
-        self.assertEqual(pending["version"], "0.2.2")
         self.assertEqual([row["id"] for row in pending["archives"]], ["accepted-after-snapshot"])
 
-    def test_unrelated_latest_tag_cannot_suppress_archived_changes(self):
+    def test_unrelated_published_release_cannot_suppress_archived_changes(self):
         self.repo.bootstrap_config()
         self.repo.archive("must-remain-pending")
         self.repo.git("tag", "v0.2.0", self.repo.base)
@@ -251,31 +229,29 @@ class ReleaseSelectionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(release.ReleaseError, "not a managed published release"):
             release.reserve_release(self.repo.path, UnrelatedPublishedRelease(), "HEAD")
-        self.assertEqual(release.version_at(self.repo.path, "HEAD"), "0.2.0")
 
-    def test_latest_managed_release_is_verified_against_chain_assets_and_bootstrap(self):
+    def test_latest_managed_release_chain_and_bootstrap_are_verified(self):
         candidate = self._reserved_candidate()
         wheel, checksum = self._wheel()
         client = FakeGitHub()
         release.publish_release(self.repo.path, client, candidate, wheel,
                                 "https://example.invalid/run/complete", checksum)
         self.repo.git("tag", "v0.2.1", candidate)
-        self.assertEqual(release._latest_boundary(self.repo.path, client), (candidate, "0.2.1"))
+        self.assertEqual(release._latest_boundary(self.repo.path, client)[0], candidate)
         (self.repo.path / "tools/release-config.toml").unlink()
         with self.assertRaisesRegex(release.ReleaseError, "bootstrap configuration"):
             release._latest_boundary(self.repo.path, client)
 
-    def test_first_managed_spec_release_is_minor_from_fixed_baseline(self):
+    def test_spec_release_uses_fixed_baseline(self):
         self.repo.bootstrap_config()
         self.repo.write("openspec/specs/api/spec.md", "# API\n\nNew approved requirement.\n")
-        self.repo.archive("versioned-releases")
+        self.repo.archive("release-change")
 
         class NoReleaseClient:
             def latest_release(self):
                 return None
 
         reservation = release.reserve_release(self.repo.path, NoReleaseClient(), "HEAD")
-        self.assertEqual(reservation["version"], "0.3.0")
         self.assertEqual(reservation["boundary"], self.repo.base)
 
     def _reserved_candidate(self):

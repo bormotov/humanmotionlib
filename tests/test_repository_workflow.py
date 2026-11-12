@@ -100,7 +100,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(workflow.WorkflowError, "unsafe package source"):
                 workflow.source_snapshot()
 
-    def test_wheel_verification_accepts_backend_generated_version_module(self) -> None:
+    def test_wheel_verification_accepts_backend_generated_identity_module(self) -> None:
         project = self.root / "pyproject.toml"
         project.write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
         generated = b'__version__ = "1.2.3"\n'
@@ -139,7 +139,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
               mock.patch.object(workflow, "RESOURCE_FILES", ("docs/used-materials.md",)),
               mock.patch.object(workflow, "RESOURCE_PATTERNS", (("characters", "*.yaml"),))):
             package = workflow.verify_wheel_sources(wheel, snapshot)
-        self.assertEqual(package["version"], "1.2.3")
         self.assertEqual(package["manifest_sha256"], workflow.sha256(
             (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()))
 

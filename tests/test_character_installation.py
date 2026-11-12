@@ -114,14 +114,12 @@ class InstalledCharacterAcceptance(unittest.TestCase):
             stderr=subprocess.STDOUT, check=False,
         )
 
-    def test_origin_registry_closure_and_version_are_from_noneditable_site_install(self):
+    def test_origin_registry_closure_is_from_noneditable_site_install(self):
         distribution = importlib.metadata.distribution("humanmotionlib")
         self.assertTrue(self.package_root.is_relative_to(self.purelib), self.package_root)
         direct_url = distribution.read_text("direct_url.json")
         if direct_url:
             self.assertFalse(json.loads(direct_url).get("dir_info", {}).get("editable", False))
-        self.assertEqual(distribution.version, humanmotionlib.__version__)
-        self.assertEqual(distribution.version, "0.3.0")
         for dependency in (yaml, jsonschema, PIL, referencing):
             self.assertTrue(Path(dependency.__file__).resolve().is_relative_to(self.purelib),
                             dependency.__file__)

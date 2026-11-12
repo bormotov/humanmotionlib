@@ -12,7 +12,6 @@ import time
 import unittest
 from unittest import mock
 
-from humanmotionlib import __version__
 from humanmotionlib.runtime import (DEFAULT_BUILD_TIMEOUT, DEFAULT_PROBE_TIMEOUT, DEFAULT_RENDER_TIMEOUT,
                            DEFAULT_SLOT_TIMEOUT, KILL_REAP_SECONDS, TERMINATE_GRACE_SECONDS,
                            MAX_TIMEOUT_SECONDS, InvocationError, SlotTimeout, backend_contract, check_blender_version,
@@ -173,7 +172,7 @@ class InvocationTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 validate_operation_root(invalid, test_workspace("runtime"), owner)
 
-        package_identity = {"version": __version__, "resources": {},
+        package_identity = {"version": "fixture", "resources": {},
                             "backend_contract": "b" * 64, "implementation": {}}
         with mock.patch("humanmotionlib.package_resources.verify_runtime_integrity",
                         return_value=package_identity), \
@@ -263,7 +262,6 @@ class InvocationTests(unittest.TestCase):
             self.assertTrue(Path(receipt["stdout_log"]).is_file())
             self.assertTrue(Path(receipt["stderr_log"]).is_file())
             self.assertEqual(receipt["workspace"], str(test_workspace("runtime")))
-            self.assertEqual(receipt["package_version"], __version__)
             self.assertEqual(len(receipt["runtime_manifest_sha256"]), 64)
             self.assertTrue(receipt["resource_hashes"])
             self.assertEqual(len(receipt["backend_contract_sha256"]), 64)

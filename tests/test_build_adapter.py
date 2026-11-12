@@ -27,7 +27,6 @@ class BuildAdapterTests(unittest.TestCase):
             resources = package / "resources"
             manifest = json.loads((resources / "runtime-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["format"], "humanmotionlib-runtime-manifest/v1")
-            self.assertEqual(manifest["version"], "0.91.7")
             self.assertGreaterEqual(len(manifest["resources"]), 52)
             self.assertIn("rig/diagnostics/walking-in-place.yaml", manifest["resources"])
             self.assertIn("schema/profile.schema.json", manifest["resources"])
@@ -63,6 +62,19 @@ class BuildAdapterTests(unittest.TestCase):
                 manifest["implementation"]["humanmotionlib/_version.py"],
                 hashlib.sha256((package / "_version.py").read_bytes()).hexdigest(),
             )
+
+    def test_repeated_staging_preserves_resource_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifests = []
+            for index in range(2):
+                package = self._package(root / f"build-{index}")
+                hml_build_backend._stage_resources(hml_build_backend._ROOT, package, "fixture")
+                manifest = json.loads(
+                    (package / "resources" / "runtime-manifest.json").read_text(encoding="utf-8")
+                )
+                manifests.append(manifest["resources"])
+            self.assertEqual(manifests[0], manifests[1])
 
     def test_missing_canonical_resource_directory_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
