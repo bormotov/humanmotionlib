@@ -1,30 +1,48 @@
-name: Release pipeline control (mock checks)
+name: Python package
 
 on:
   push:
-    branches: [codex/release-pipeline-control]
+    branches-ignore: [codex/release-pipeline-control]
+  pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit or ref to check from a caller workflow
+        type: string
+        required: false
+    outputs:
+      source_sha:
+        description: Commit checked out by the package build
+        value: ${{ jobs.build.outputs.source_sha }}
+      artifact_name:
+        description: Name of the uploaded candidate artifact
+        value: ${{ jobs.build.outputs.artifact_name }}
+      wheel_sha256:
+        description: SHA-256 of the candidate wheel
+        value: ${{ jobs.build.outputs.wheel_sha256 }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-pipeline-control-${{ github.run_id }}
-  cancel-in-progress: false
+  group: package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build wheel and source distribution
+    name: Build candidate wheel and source distribution
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      artifact_name: ${{ steps.identity.outputs.artifact_name }}
-      wheel_name: ${{ steps.identity.outputs.wheel_name }}
-      wheel_sha256: ${{ steps.identity.outputs.wheel_sha256 }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      artifact_name: ${{ steps.candidate.outputs.artifact_name }}
+      wheel_sha256: ${{ steps.package-build.outputs.wheel_sha256 }}
     steps:
-      - name: Check out pushed commit
+      - name: Check out selected source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
 
       - name: Set up CPython
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -37,96 +55,78 @@ jobs:
           version: 0.13.5
           enable-cache: false
 
-      - name: Build distributions and report wheel identity
-        id: identity
+      - name: Allocate candidate build
+        id: candidate
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          uv lock --check
-          uv build --wheel --sdist --out-dir "$RUNNER_TEMP/distributions"
+          source_sha=$(git rev-parse HEAD)
+          run_root="build/fix-github-actions-failures_${source_sha:0:7}_ci_run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}_build"
+          test ! -e "$run_root"
+          mkdir -p build
+          mkdir "$run_root"
+          artifact_name="humanmotionlib-${source_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "HML_BUILD_ROOT=$GITHUB_WORKSPACE/$run_root" >> "$GITHUB_ENV"
+          echo "HML_ARTIFACT_NAME=$artifact_name" >> "$GITHUB_ENV"
+          echo "Candidate commit: $source_sha" | tee "$run_root/summary.txt"
+
+      - name: Check lock and build wheel and source distribution
+        id: package-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check 2>&1 | tee "$HML_BUILD_ROOT/lock-check.log"
+          mkdir "$HML_BUILD_ROOT/distributions"
+          uv build --wheel --sdist --out-dir "$HML_BUILD_ROOT/distributions" 2>&1 | tee "$HML_BUILD_ROOT/build.log"
           shopt -s nullglob
-          wheels=("$RUNNER_TEMP"/distributions/*.whl)
-          sdists=("$RUNNER_TEMP"/distributions/*.tar.gz)
+          wheels=("$HML_BUILD_ROOT"/distributions/*.whl)
+          sdists=("$HML_BUILD_ROOT"/distributions/*.tar.gz)
           test "${#wheels[@]}" -eq 1
           test "${#sdists[@]}" -eq 1
-          wheel_name=$(basename "${wheels[0]}")
-          wheel_sha256=$(sha256sum "${wheels[0]}" | cut -d ' ' -f 1)
-          artifact_name="release-control-${GITHUB_SHA}-${GITHUB_RUN_ID}"
-          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
-          echo "wheel_name=$wheel_name" >> "$GITHUB_OUTPUT"
-          echo "wheel_sha256=$wheel_sha256" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "ARTIFACT file=$wheel_name sha256=$wheel_sha256"
-          printf '%s  %s\n' "$wheel_sha256" "$wheel_name" > "$RUNNER_TEMP/distributions/wheel.sha256"
+          sha256sum "${wheels[0]}" > "$HML_BUILD_ROOT/wheel.sha256"
+          wheel_sha256=$(cut -d ' ' -f 1 "$HML_BUILD_ROOT/wheel.sha256")
+          {
+            echo "wheel_sha256=$wheel_sha256" >> "$GITHUB_OUTPUT"
+            echo "Wheel SHA-256: $wheel_sha256" >> "$HML_BUILD_ROOT/summary.txt"
+            echo "Wheel: $(basename "${wheels[0]}")" >> "$HML_BUILD_ROOT/summary.txt"
+            echo "Source distribution: $(basename "${sdists[0]}")" >> "$HML_BUILD_ROOT/summary.txt"
+            echo "Python: $(python --version 2>&1)" >> "$HML_BUILD_ROOT/summary.txt"
+            echo "uv: $(uv --version 2>&1)" >> "$HML_BUILD_ROOT/summary.txt"
+          }
 
-      - name: Upload built package
+      - name: Upload candidate distributions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ steps.identity.outputs.artifact_name }}
-          path: ${{ runner.temp }}/distributions/*
+          name: ${{ steps.candidate.outputs.artifact_name }}
+          path: |
+            ${{ env.HML_BUILD_ROOT }}/distributions/*.whl
+            ${{ env.HML_BUILD_ROOT }}/distributions/*.tar.gz
+            ${{ env.HML_BUILD_ROOT }}/wheel.sha256
+            ${{ env.HML_BUILD_ROOT }}/summary.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
-  mock-checks:
-    name: Receive wheel (tests intentionally stubbed)
+      - name: Summarize candidate build
+        if: always()
+        shell: bash
+        run: cat "$HML_BUILD_ROOT/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  host-checks:
+    name: Host Python verification
     needs: build
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Download the built package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: ${{ needs.build.outputs.artifact_name }}
-          path: received-package
+    uses: ./.github/workflows/host-python.yml
+    with:
+      source_ref: ${{ needs.build.outputs.source_sha }}
+      artifact_name: ${{ needs.build.outputs.artifact_name }}
+      wheel_sha256: ${{ needs.build.outputs.wheel_sha256 }}
 
-      - name: Report received wheel and simulate test failure
-        env:
-          EXPECTED_WHEEL_NAME: ${{ needs.build.outputs.wheel_name }}
-          EXPECTED_WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          wheels=(received-package/*.whl)
-          test "${#wheels[@]}" -eq 1
-          wheel_name=$(basename "${wheels[0]}")
-          wheel_sha256=$(sha256sum "${wheels[0]}" | cut -d ' ' -f 1)
-          test "$wheel_name" = "$EXPECTED_WHEEL_NAME"
-          test "$wheel_sha256" = "$EXPECTED_WHEEL_SHA256"
-          printf '%s\n' "ARTIFACT received file=$wheel_name sha256=$wheel_sha256"
-          echo "Mock checks: intentional failure after artifact receipt (no tests were executed)." >> "$GITHUB_STEP_SUMMARY"
-          exit 1
-
-  publish-artifact:
-    name: Publish verified package as an Actions artifact
-    needs: [build, mock-checks]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Download the built package
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: ${{ needs.build.outputs.artifact_name }}
-          path: publish-package
-
-      - name: Confirm wheel identity before artifact publication
-        env:
-          EXPECTED_WHEEL_NAME: ${{ needs.build.outputs.wheel_name }}
-          EXPECTED_WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          wheels=(publish-package/*.whl)
-          test "${#wheels[@]}" -eq 1
-          wheel_name=$(basename "${wheels[0]}")
-          wheel_sha256=$(sha256sum "${wheels[0]}" | cut -d ' ' -f 1)
-          test "$wheel_name" = "$EXPECTED_WHEEL_NAME"
-          test "$wheel_sha256" = "$EXPECTED_WHEEL_SHA256"
-          printf '%s\n' "ARTIFACT publishing file=$wheel_name sha256=$wheel_sha256"
-
-      - name: Publish package artifact (no GitHub Release)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: published-${{ needs.build.outputs.wheel_name }}-${{ github.run_id }}
-          path: publish-package/*
-          if-no-files-found: error
-          retention-days: 7
+  package-checks:
+    name: Installed CLI and API verification
+    needs: build
+    uses: ./.github/workflows/package-checks.yml
+    with:
+      source_ref: ${{ needs.build.outputs.source_sha }}
+      artifact_name: ${{ needs.build.outputs.artifact_name }}
+      wheel_sha256: ${{ needs.build.outputs.wheel_sha256 }}
