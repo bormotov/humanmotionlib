@@ -87,6 +87,7 @@ jobs:
           printf '%s\n' "ARTIFACT received file=$EXPECTED_WHEEL_NAME sha256=$actual_sha256"
           uv venv "$RUNNER_TEMP/test-env"
           uv pip install --python "$RUNNER_TEMP/test-env/bin/python" "$wheel"
+          mkdir -p "$GITHUB_WORKSPACE/build"
           echo "TEST_PYTHON=$RUNNER_TEMP/test-env/bin/python" >> "$GITHUB_ENV"
       - name: Run host-only test suite
         env:
