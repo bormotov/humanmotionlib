@@ -78,7 +78,7 @@ jobs:
           name: ${{ needs.build.outputs.artifact_name }}
           path: received-package
 
-      - name: Report received wheel and simulate test success
+      - name: Report received wheel and simulate test failure
         env:
           EXPECTED_WHEEL_NAME: ${{ needs.build.outputs.wheel_name }}
           EXPECTED_WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
@@ -93,7 +93,8 @@ jobs:
           test "$wheel_name" = "$EXPECTED_WHEEL_NAME"
           test "$wheel_sha256" = "$EXPECTED_WHEEL_SHA256"
           printf '%s\n' "ARTIFACT received file=$wheel_name sha256=$wheel_sha256"
-          echo "Mock checks: success (no tests were executed)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Mock checks: intentional failure after artifact receipt (no tests were executed)." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   publish-artifact:
     name: Publish verified package as an Actions artifact
