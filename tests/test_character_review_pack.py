@@ -477,11 +477,15 @@ class CharacterReviewPackTests(unittest.TestCase):
                     first_source = next(iter(mutated["source_hashes"]))
                     mutated["source_hashes"][first_source] = "0" * 64
                     mutated = seal(mutated)
-                    write_json(runs["female"] / "input.json", mutated)
-                    with self.assertRaisesRegex(ValueError, "Source/schema hash mismatch"):
-                        _REVIEW_PACK._preflight_diagonal_inputs(
-                            runs["skeleton"], prepared_records["skeleton"],
-                            specs, output, workspace)
+                    input_path = runs["female"] / "input.json"
+                    write_json(input_path, mutated)
+                    try:
+                        with self.assertRaisesRegex(ValueError, "Source/schema hash mismatch"):
+                            _REVIEW_PACK._preflight_diagonal_inputs(
+                                runs["skeleton"], prepared_records["skeleton"],
+                                specs, output, workspace)
+                    finally:
+                        write_json(input_path, prepared_records["female"])
 
                 with self.subTest("failed native numeric leaf"):
                     with mock.patch("humanmotionlib.character_verification.verify_character_output",

@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -140,16 +141,25 @@ class FocusedVisualKernelTests(unittest.TestCase):
                 "test_selected_skeleton_runs_real_transform_verifier_and_stays_global_incomplete")
             surface_builder = SelectedSurfaceNumericFixtureTests(
                 "test_selected_male_and_female_accept_complete_host_oracle_numeric_evidence")
+            profile = {"prepare_s": 0.0, "skeleton_evidence_s": 0.0,
+                       "surface_evidence_s": 0.0, "verify_character_output_s": {}}
+            overall_started = time.perf_counter()
             for identifier, height in heights.items():
                 run = build / f"add-shared-body-characters_r10_test_try-1_{identifier}-h{int(height * 100)}"
                 run.mkdir()
+                phase_started = time.perf_counter()
                 prepared = prepare("adult-reference-v1", height,
                                    fixtures=_FOCUSED_VISUAL_FIXTURES, bpms=(90,))
+                profile["prepare_s"] += time.perf_counter() - phase_started
                 if identifier == "skeleton":
+                    phase_started = time.perf_counter()
                     skeleton_builder._make_run(identifier, prepared=prepared, run_root=run)
+                    profile["skeleton_evidence_s"] += time.perf_counter() - phase_started
                 else:
+                    phase_started = time.perf_counter()
                     surface_builder._make_surface_run(identifier, identifier,
                                                        prepared=prepared, run_root=run)
+                    profile["surface_evidence_s"] += time.perf_counter() - phase_started
                 runs[identifier] = run
                 prepared_records[identifier] = prepared
             output = build / "add-shared-body-characters_r10_test_try-1-pack-output"
@@ -158,8 +168,12 @@ class FocusedVisualKernelTests(unittest.TestCase):
             verifier = verify_character_output
 
             def capture(prepared, render_run, expected_ids, *args, **kwargs):
+                character_id = kwargs.get("selected_character_id")
+                phase_started = time.perf_counter()
                 report = verifier(prepared, render_run, expected_ids, *args, **kwargs)
-                captured[kwargs.get("selected_character_id")] = report
+                profile["verify_character_output_s"][character_id] = \
+                    time.perf_counter() - phase_started
+                captured[character_id] = report
                 return report
 
             with mock.patch("humanmotionlib.runtime.check_blender_version"), \
@@ -167,9 +181,14 @@ class FocusedVisualKernelTests(unittest.TestCase):
                                      return_value={"status": "pass", "samples": []}), \
                  mock.patch("humanmotionlib.character_verification.verify_character_output",
                                      side_effect=capture):
+                phase_started = time.perf_counter()
                 records, resolved, identities = _preflight_diagonal_inputs(
                     runs["skeleton"], prepared_records["skeleton"],
                     specifications, output, workspace)
+                profile["diagonal_preflight_s"] = time.perf_counter() - phase_started
+                profile["total_s"] = time.perf_counter() - overall_started
+                print("TEST_PROFILE actual-diagonal-preflight " +
+                      json.dumps(profile, sort_keys=True), flush=True)
                 self.assertEqual(set(records), set(heights))
                 self.assertEqual(set(resolved), set(heights))
                 self.assertEqual(set(identities["numeric_verification"]), set(heights))

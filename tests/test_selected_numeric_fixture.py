@@ -5,6 +5,7 @@ import hashlib
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -374,6 +375,12 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
         from humanmotionlib.characters import expand_surface
 
         prepared = self.prepared if prepared is None else prepared
+        profile_started = time.perf_counter()
+        profile = {"request_and_components_s": 0.0, "source_world_transforms_s": 0.0,
+                   "compile_pose_skinning_s": 0.0, "surface_poses_s": 0.0,
+                   "floor_and_contact_metrics_s": 0.0, "key_rows_s": 0.0,
+                   "midpoint_inventory_s": 0.0, "dense_rows_s": 0.0,
+                   "write_and_receipt_s": 0.0}
         stature = float(prepared["sources"]["profile"]["stature_m"])
         run = Path(run_root).resolve() if run_root is not None else test_case_root("selected-numeric-fixture", name)
         if run_root is not None:
@@ -390,14 +397,22 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
         surfaces = {character_id: components}
         weight_set, offsets, carriers = _compiled_surface_weight_layout(surfaces)
         _, rest_frames = _rest_frames(prepared["sources"]["profile"], 1.0)
+        profile["request_and_components_s"] = time.perf_counter() - profile_started
 
         def make_row(sample_id, fixture, beat, frames, contacts):
             solved_sample = {"frames": frames, "contacts": contacts}
+            phase_started = time.perf_counter()
             transforms = source_world_transforms(prepared["sources"]["profile"], frames,
                                                   carriers, rest_frames=rest_frames)
+            profile["source_world_transforms_s"] += time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
             compiled = compile_pose_skinning(transforms, weight_set)
+            profile["compile_pose_skinning_s"] += time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
             posed = _surface_poses(prepared["sources"]["profile"], frames, components,
                                    rest_frames, compiled_pose=compiled, component_offsets=offsets)
+            profile["surface_poses_s"] += time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
             actual = []
             for component in posed:
                 minimum = _minimum_vertex_z(component["vertices_m"], component["vertex_ids"])
@@ -423,6 +438,7 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
                                         "closest_sole_distance_m": distance})
             sample_min = _native_sample_floor_extremum(
                 {item["id"]: item for item in actual}, sorted(item["id"] for item in actual))
+            profile["floor_and_contact_metrics_s"] += time.perf_counter() - phase_started
             return {"sample_id": sample_id, "fixture": fixture, "beat": beat,
                     "components": actual, "contacts": actual_contacts,
                     "minimum_z_m": sample_min[0], "worst_floor_vertex_id": sample_min[1]}
@@ -443,23 +459,30 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
             "template_id": character["template"]["id"],
             "appearance_id": character["appearance"]["id"], "components": reference_components})
 
+        phase_started = time.perf_counter()
         evaluated_samples = [make_row(sample["id"], sample["fixture"], sample["beat"],
             sample["frames"], sample["contacts"]) for sample in prepared["samples"]]
+        profile["key_rows_s"] = time.perf_counter() - phase_started
+        phase_started = time.perf_counter()
         from humanmotionlib.api import _native_surface_midpoint_samples
         midpoints = _native_surface_midpoint_samples(prepared)
         from humanmotionlib.character_midpoints import expected_midpoint_inventory
         expected_midpoints = expected_midpoint_inventory(prepared)
         self.assertEqual([(row["fixture"], row["beat"]) for row in midpoints], expected_midpoints)
+        profile["midpoint_inventory_s"] = time.perf_counter() - phase_started
         if tamper_dense or omit_dense:
             self.assertTrue(midpoints, "negative control must mutate a nonempty midpoint inventory")
+        phase_started = time.perf_counter()
         dense_rows = [make_row(row["id"], row["fixture"], row["beat"], row["frames"], row["contacts"])
                       for row in midpoints]
+        profile["dense_rows_s"] = time.perf_counter() - phase_started
         if tamper_dense and dense_rows:
             dense_rows[0]["components"][0]["vertices_m"] = [list(vertex)
                 for vertex in dense_rows[0]["components"][0]["vertices_m"]]
             dense_rows[0]["components"][0]["vertices_m"][0][0] += 0.02
         if omit_dense and dense_rows:
             dense_rows.pop()
+        phase_started = time.perf_counter()
         write_json(character_root / "surface-evaluated.json", {
             "format": "hml-surface-evaluated/v1", "prepared_sha256": prepared["content_sha256"],
             "render_identity": request["render_identity"], "character_id": character_id,
@@ -508,15 +531,51 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
                  "render_identity": request["render_identity"], "character_ids": [character_id]}],
             "output_validation": {"status": "pass", "files": files}}
         write_json(process / "outcome.json", receipt)
+        profile["write_and_receipt_s"] = time.perf_counter() - phase_started
+        profile["total_s"] = time.perf_counter() - profile_started
+        print("TEST_PROFILE _make_surface_run " + character_id + " " +
+              json.dumps(profile, sort_keys=True), flush=True)
         return run
 
     def test_selected_male_and_female_accept_complete_host_oracle_numeric_evidence(self):
         for character_id in ("male", "female"):
             with self.subTest(character_id=character_id):
+                phase_started = time.perf_counter()
                 run = self._make_surface_run("valid-" + character_id, character_id)
+                build_s = time.perf_counter() - phase_started
+                phase_started = time.perf_counter()
+                verify_phases = {"native_midpoints_s": 0.0, "dense_surface_audit_s": 0.0}
+                from humanmotionlib import character_verification
+                original_midpoints = character_verification._verify_native_midpoints
+                original_dense_audit = character_verification._run_dense_surface_audit
+
+                def timed_midpoints(*args, **kwargs):
+                    started = time.perf_counter()
+                    try:
+                        return original_midpoints(*args, **kwargs)
+                    finally:
+                        verify_phases["native_midpoints_s"] += time.perf_counter() - started
+
+                def timed_dense_audit(*args, **kwargs):
+                    started = time.perf_counter()
+                    try:
+                        return original_dense_audit(*args, **kwargs)
+                    finally:
+                        verify_phases["dense_surface_audit_s"] += time.perf_counter() - started
+
                 with patch("humanmotionlib.runtime.check_blender_version"):
-                    report = verify_character_output(self.prepared, run, self.registry_ids,
-                        (1.7,), numeric_only=True, selected_character_id=character_id)
+                    with patch("humanmotionlib.character_verification._verify_native_midpoints",
+                               side_effect=timed_midpoints), \
+                         patch("humanmotionlib.character_verification._run_dense_surface_audit",
+                               side_effect=timed_dense_audit):
+                        report = verify_character_output(self.prepared, run, self.registry_ids,
+                            (1.7,), numeric_only=True, selected_character_id=character_id)
+                verify_s = time.perf_counter() - phase_started
+                print(f"TEST_PROFILE selected-surface {character_id} " +
+                      json.dumps({"verify_character_output_s": verify_s,
+                                  **verify_phases,
+                                  "build_surface_evidence_s": build_s,
+                                  "total_s": build_s + verify_s}, sort_keys=True), flush=True)
                 self.assertEqual(report["numeric_status"], "pass", report["failures"][:3])
                 self.assertEqual(report["status"], "incomplete")
                 self.assertEqual(report["registry"]["checked_ids"], [character_id])
@@ -529,10 +588,42 @@ class SelectedSurfaceNumericFixtureTests(unittest.TestCase):
             ("missing-dense", {"omit_dense": True}, "native-midpoint"),
         ):
             with self.subTest(case=name):
+                phase_started = time.perf_counter()
                 run = self._make_surface_run(name, "male", **kwargs)
+                build_s = time.perf_counter() - phase_started
+                phase_started = time.perf_counter()
+                verify_phases = {"native_midpoints_s": 0.0, "dense_surface_audit_s": 0.0}
+                from humanmotionlib import character_verification
+                original_midpoints = character_verification._verify_native_midpoints
+                original_dense_audit = character_verification._run_dense_surface_audit
+
+                def timed_midpoints(*args, **kwargs):
+                    started = time.perf_counter()
+                    try:
+                        return original_midpoints(*args, **kwargs)
+                    finally:
+                        verify_phases["native_midpoints_s"] += time.perf_counter() - started
+
+                def timed_dense_audit(*args, **kwargs):
+                    started = time.perf_counter()
+                    try:
+                        return original_dense_audit(*args, **kwargs)
+                    finally:
+                        verify_phases["dense_surface_audit_s"] += time.perf_counter() - started
+
                 with patch("humanmotionlib.runtime.check_blender_version"):
-                    report = verify_character_output(self.prepared, run, self.registry_ids,
-                        (1.7,), numeric_only=True, selected_character_id="male")
+                    with patch("humanmotionlib.character_verification._verify_native_midpoints",
+                               side_effect=timed_midpoints), \
+                         patch("humanmotionlib.character_verification._run_dense_surface_audit",
+                               side_effect=timed_dense_audit):
+                        report = verify_character_output(self.prepared, run, self.registry_ids,
+                            (1.7,), numeric_only=True, selected_character_id="male")
+                verify_s = time.perf_counter() - phase_started
+                print(f"TEST_PROFILE selected-surface-negative {name} " +
+                      json.dumps({"verify_character_output_s": verify_s,
+                                  **verify_phases,
+                                  "build_surface_evidence_s": build_s,
+                                  "total_s": build_s + verify_s}, sort_keys=True), flush=True)
                 self.assertEqual(report["numeric_status"], "fail")
                 self.assertIn(expected_code, {item["code"] for item in report["failures"]})
 
