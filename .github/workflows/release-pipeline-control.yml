@@ -117,10 +117,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP"
-          mkdir -p "$RUNNER_TEMP/characters"
-          printf 'not-a-real-character: true\n' > "$RUNNER_TEMP/characters/poison.yaml"
-          cp "$HUMANMOTIONLIB_SOURCE_ROOT/pyproject.toml" "$RUNNER_TEMP/pyproject.toml"
+          acceptance_cwd="$RUNNER_TEMP/acceptance-cwd"
+          mkdir -p "$acceptance_cwd/characters"
+          printf 'not-a-real-character: true\n' > "$acceptance_cwd/characters/poison.yaml"
+          cp "$HUMANMOTIONLIB_SOURCE_ROOT/pyproject.toml" "$acceptance_cwd/pyproject.toml"
+          cd "$acceptance_cwd"
           env -u PYTHONPATH -u PYTHONHOME "$TEST_PYTHON" -c \
             'import sys, unittest; sys.path.insert(0, sys.argv[1]); suite=unittest.defaultTestLoader.loadTestsFromName("tests.test_character_installation"); result=unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(not result.wasSuccessful())' \
             "$HUMANMOTIONLIB_SOURCE_ROOT"
