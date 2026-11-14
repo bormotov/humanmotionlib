@@ -49,42 +49,59 @@ validates current output without generating it.
 
 ## Versioned GitHub releases
 
-Each newly archived OpenSpec change on `main` triggers the serialized release
-workflow. Closely spaced accepted changes may share a release. The contributor
-helper treats an archived change directory with `.openspec.yaml` as the
-acceptance marker, compares canonical `openspec/specs/**/spec.md` file bytes to
-the last published release boundary, and selects the next `0.x` version:
+Every push and pull request builds the selected commit once and uploads one
+wheel as a workflow artifact. For pull requests, Actions checks the selected
+`github.sha` revision (the pull request merge revision when GitHub supplies
+one). CI installs that wheel in a fresh environment and runs the host-only and
+installed character test suites. These tests run whether or not the project
+version changed. The artifact remains available from that workflow run on any
+branch; only a push to `main` can publish a GitHub Release. Publication jobs
+queue so a later no-op push cannot replace a waiting version bump.
 
-- Any canonical specification path or byte change increments MINOR and resets
-  PATCH, including editorial corrections.
-- With no canonical specification change, PATCH increments.
-- Invalid, non-`0.x`, conflicting, or missing release history fails closed.
+To request a release, choose a higher `0.MINOR.PATCH` version in
+`pyproject.toml`, update and check `uv.lock` with the pinned `uv`, commit both
+files, and push to `main`. The release job compares the `before` and `after`
+versions in that push. It publishes only after the build and both checks for
+the pushed commit succeed, and uses the wheel artifact from that run. Archive
+changes alone and later pushes with the same version do not request another
+release. An already published or superseded version produces a diagnostic and
+no release write.
 
-`tools/release-config.toml` pins the pre-automation bootstrap commit at version
-`0.2.0`; historical archives at or before that commit are not published. The
-workflow reserves a version-only commit on `main`, then calls the shared
-package workflow for that exact commit. The workflow builds one wheel and
-source archive, uploads them as a run artifact, and starts Host Python and
-installed CLI/API checks only after upload succeeds. Both checks install the
-same wheel in fresh environments. Versioned release publishes that checked
-wheel and `SHA256SUMS` to an immutable `vX.Y.Z` GitHub Release only after both
-checks pass. It records covered change and acceptance commits in release
-notes. It never publishes to PyPI.
+`tools/release-config.toml` pins the bootstrap commit at version `0.2.0` when
+there is no published release. The old `0.3.0` reservation remains in Git
+history but does not count as published; the next authored increase must be
+higher than the version at the `main` tip before this push and the published
+baseline. On a multi-commit push, CI compares the before-push tip to the final
+after-push commit. The
+first post-cutover release attributes accepted archives since the last actual
+published release (or bootstrap) that are present in the checked push snapshot.
+Branch deletion has no release snapshot and cannot request publication. Publication creates
+an immutable `vX.Y.Z` GitHub Release with exactly the checked wheel and
+`SHA256SUMS`; it never publishes to PyPI. Only the publication job receives
+tag and release write permission.
 
-Inspect a proposed selection without writing a commit or calling GitHub:
+At cutover, inspect existing tags, drafts and releases and confirm that no
+legacy publication run is active or can be rerun with write permission. The
+retired archive/dispatch publisher must be quiescent before enabling this
+workflow; disable any external dispatch caller or operator procedure that can
+start it. The historical `0.3.0` reservation at `42b1ec1` remains unmodified
+and does not advance the release boundary. If a legacy run or a `0.3.0` tag,
+draft or release appeared after the migration review, stop and reconcile that
+state before a qualifying push. Do not rerun an old publisher to complete the
+reservation.
+
+Check the local version metadata before committing the push:
 
 ```sh
-build/project-tools_r1_contributor_current_environment/environment/bin/python3.14 tools/release.py plan \
-  --boundary <published-release-commit> --target main
+uv lock --check
+uv run --python 3.14 --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
 ```
 
-The GitHub workflow owns version reservation and publication. To recover a
-failed run, rerun the failed workflow or start `Versioned release` with
-`workflow_dispatch`; it reconciles the reserved commit, tag, draft and checksums
-before selecting another version. It requires Actions write access to `main`
-for the version-only commit and `contents: write` for the tag and release.
-Branch rules must permit the workflow identity to make those commits; the
-workflow does not bypass branch protection or use a permanent token.
+If a qualifying run fails, rerun that original push's workflow after correcting
+the cause. The rerun retains the pushed commit and can use the original
+successful build artifact. A new push with the same version reruns CI but does
+not inherit the earlier release request. A conflicting tag or unrelated draft
+requires investigation; the workflow never moves tags or replaces assets.
 
 HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
@@ -121,7 +138,7 @@ HOST_TEST_RUN=build/upgrade-host-python-314_r1_dev_try-1_host
 mkdir -p build
 mkdir "$HOST_TEST_RUN"
 HOST_ENV_AREA="$(mktemp -d "${TMPDIR:-/tmp}/humanmotionlib-host.XXXXXX")"
-HOST_ENV_RUN="$HOST_ENV_AREA/build/fix-github-actions-failures_r1_dev_try-1_host-env"
+HOST_ENV_RUN="$HOST_ENV_AREA/build/publish-releases-from-version-bumps_r1_dev_try-1_host-env"
 mkdir -p "$HOST_ENV_RUN"
 HOST_PYTHON="$HOST_ENV_RUN/environment/bin/python"
 export UV_CACHE_DIR="$HOST_ENV_RUN/cache"
@@ -153,37 +170,23 @@ and `tests.test_pipeline_faults`. It fails on an interpreter/metadata mismatch,
 dependency import error, discovery error, empty selection or failed test. This
 host-suite command applies only the two explicit Blender-module exclusions
 listed above. Real-backend acceptance runs separately with the pinned Blender
-on the Darwin arm64 reference platform. The CI uv version is pinned in
-`.github/workflows/host-python.yml`; local uv should use that same version for
-reproducible lock operations. CI builds one candidate wheel, then both host
-and installed package jobs download and verify that artifact in separate
-fresh environments. `make dev` remains the local contributor route.
+on the Darwin arm64 reference platform. CI builds one candidate wheel, then
+installs and tests that wheel in a fresh environment. Local uv should use the
+pinned CI version for reproducible lock operations. `make dev` remains the
+local contributor route.
 
-The Host Python job currently allows 300 minutes for the complete host-only
-suite; hosted Ubuntu runs were substantially slower than local runs, and two
-shorter limits cancelled otherwise progressing runs. Its evidence artifact
-contains the package identity, environment and process preflight, validation,
-suite report, suite log and summary. Generated `cases/` and nested `build/`
-fixtures are kept out of the upload. Staging and upload use `if: always()` to
-retain evidence after ordinary step failures and cancellations when the runner
-can execute final steps. A runner-enforced hard timeout may prevent those steps
-from running, so artifact upload after a hard timeout is best-effort rather
-than guaranteed.
+The package workflow gives the complete host-only suite up to 300 minutes.
+The host and installed character suites run against the candidate wheel; the
+release job uses that same wheel only after both suites pass and the pushed
+version qualifies for publication.
 
 When passed `--json-report`, the host command atomically writes
 `matrix-test-outcome/v1`: selected/discovered, passed, failed, error, skipped
 and excluded counts, per-case outcomes and tracebacks, process exit status, and
 the interpreter/package import identity. Discovery/import failures and an empty
-selection are recorded as non-success. Installed acceptance remains a
-separate package/host workflow with its own explicitly allocated run root;
-the contributor matrix does not invoke it. Its structured outcome is
-`installed-acceptance/installed-acceptance.json`, and fixtures and negative
-control outputs live under `installed-generated/build/<five-component-run>/`.
-This inner caller workspace is disjoint from the harness and remains inside
-the selected element's `.tmp/`; its own outside-build inventory guards inputs
-and other caller files. The package CI
-invocation in `.github/workflows/package-checks.yml` shows its isolated installed
-environment setup.
+selection are recorded as non-success. Installed acceptance is also part of
+the package workflow and exercises the installed wheel from a caller directory
+outside the checkout.
 For an explicitly selected candidate runtime physically located under the
 checkout's `build/`, the host checker accepts its package import only when all
 five declarations are supplied together: `--expected-python`,
