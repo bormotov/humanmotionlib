@@ -30,3 +30,14 @@ Still pending: full required host and installed package checks, controlled hoste
 - The current wheel `humanmotionlib-0.3.0-py3-none-any.whl` has SHA-256 `c687ba5e46ff82017fd78b66c95d52cadb91d37477096be32e8f5d53b0bfc7e9`; built in `build/publish-releases-from-version-bumps_r1_dev_try-2_build`. An external clean CPython 3.14.6 environment was installed from it and audited at `/private/tmp/publish-releases-from-version-bumps_r1_dev_try-3_acceptance/environment-audit.txt`.
 - The full host suite passed 553 tests with eight skips in `build/publish-releases-from-version-bumps_r1_dev_try-3_host-checks/host-suite.log`. Seven installed-character tests passed separately using the same wheel; the remaining process-visibility test passed separately with process-inspection access.
 - The prior local attempt using a virtual environment inside the checkout was stopped and is not evidence for the required external installation. Hosted verification, final independent review, candidate commit identity and role-owned cleanup remain pending.
+
+## Hosted workflow evidence
+
+- GitHub Actions run [43591485884](https://github.com/bormotov/humanmotionlib/actions/runs/43591485884) checked commit `9196ce5` and built `humanmotionlib-0.3.0-py3-none-any.whl` with SHA-256 `eec21c0fd323c55c6491fd51f529bf1e049bba867c73f1488e998a38a6987df6`.
+- The run's host and character test jobs passed; the host suite reported 553 tests `OK` with 8 skips, and the character installation suite passed 7 tests. The checked wheel identity matched the build and test handoff.
+- The publication job was skipped because the run was not on `main`. This confirms branch runs retain the tested wheel without publishing a GitHub Release; it does not verify an actual main-branch release or GitHub upload-failure handling.
+- Negative GitHub Actions run [43608671109](https://github.com/bormotov/humanmotionlib/actions/runs/43608671109) exercised the artifact upload failure path: upload failed and both tests and publication were skipped. The temporary test branch has since been deleted. Together, the hosted runs verify successful artifact handoff on a non-main branch and fail-closed behavior when upload fails; no public release was created.
+
+## Developer cleanup status
+
+- Cleanup is pending for `build/publish-releases-from-version-bumps_r1_dev_try-2_tests`. Its resolved path was inside this checkout and its measured size before removal was 44,832 KiB. Process visibility was available and showed no matching active workflow/test processes. The removal command was interrupted, so whether the directory was removed is unknown and has not been rechecked. No other run roots were removed by this worker.
