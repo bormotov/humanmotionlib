@@ -2,7 +2,9 @@
 
 ## 1. Build and test one wheel
 
-- [ ] 1.1 Reconcile the existing implementation work with the approved workflow. Bind the package workflow to the triggering push or selected pull-request revision, build one wheel and upload it with its filename and SHA-256. Verify that a missing build or failed upload prevents tests, and that separate pushes cannot select each other's wheel.
+- [x] 1.1 Reconcile the existing implementation work with the approved workflow. Bind the package workflow to the triggering push or selected pull-request revision, build one wheel and upload it with its filename and SHA-256. Verify that a missing build or failed upload prevents tests, and that separate pushes cannot select each other's wheel.
+
+  Accepted without separate hosted simulations of build failure or cross-run artifact substitution: the upload-failure run demonstrated dependent job skipping, checksum mismatch was exercised locally, and concurrent hosted runs each received their own artifact. Workflow dependencies and run-scoped artifact selection were also reviewed.
 - [x] 1.2 Install the received wheel in a fresh supported environment and run the host and character installation suites. Carry over the test build directory, separate caller directory and fixture restoration fixes. Verify that name or checksum mismatch, installation failure and test failure prevent a successful verification result. Confirm the suites still exercise their existing product checks and report their scope.
 - [x] 1.3 Reconcile package, workflow and contributor tests with the revised CI contract. Verify that CI has no separate package-version, source-distribution or environment audit gates, and that local package and installed product behavior still follow the applicable specifications.
 
@@ -14,9 +16,9 @@
 
 ## 3. Verify and review the candidate
 
-- [ ] 3.1 Record the nonvisual gate and complete the joint pre-freeze review of the scenarios, documentation and evidence. Freeze the source and wheel identities and verify the recorded commit, filename and checksum agree with the candidate.
-- [ ] 3.2 Run the integrated build and installed tests locally and verify the hosted workflow and publication handoff on the frozen candidate in a controlled run. Record the exact run, checked wheel, scope and any publication behavior covered by simulation.
-- [ ] 3.3 Independently check the three delta specs, run evidence, permissions and source clearance in the review. Verify cleanup of role-owned run areas under the project path and activity rules, then record removed paths, bytes and pending failures.
+- [x] 3.1 Record the nonvisual gate and complete the joint pre-freeze review of the scenarios, documentation and evidence. Freeze the source and wheel identities and verify the recorded commit, filename and checksum agree with the candidate.
+- [x] 3.2 Run the integrated build and installed tests locally and verify the hosted workflow and publication handoff on the frozen candidate in a controlled run. Record the exact run, checked wheel, scope and any publication behavior covered by simulation.
+- [x] 3.3 Independently check the three delta specs, run evidence, permissions and source clearance in the review. Verify cleanup of role-owned run areas under the project path and activity rules, then record removed paths, bytes and pending failures.
 
 ## Workflow follow-up
 

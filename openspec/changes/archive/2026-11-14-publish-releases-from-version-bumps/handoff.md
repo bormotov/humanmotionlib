@@ -40,4 +40,11 @@ Still pending: full required host and installed package checks, controlled hoste
 
 ## Developer cleanup status
 
-- Cleanup is pending for `build/publish-releases-from-version-bumps_r1_dev_try-2_tests`. Its resolved path was inside this checkout and its measured size before removal was 44,832 KiB. Process visibility was available and showed no matching active workflow/test processes. The removal command was interrupted, so whether the directory was removed is unknown and has not been rechecked. No other run roots were removed by this worker.
+- Removed the dev-owned run roots below after process-activity and open-file checks found no use. Each resolved path was inside this checkout, and every path was confirmed absent after removal:
+  - `build/publish-releases-from-version-bumps_r1_dev_try-2_tests` — 45,908,992 bytes.
+  - `build/publish-releases-from-version-bumps_r1_dev_try-1_build` — 5,738,496 bytes.
+  - `build/publish-releases-from-version-bumps_r1_dev_try-2_build` — 5,767,168 bytes.
+  - `build/publish-releases-from-version-bumps_r1_dev_try-3_host-checks` — 4,576,387,072 bytes.
+  - `build/publish-releases-from-version-bumps_r1_dev_try-2_character-workspace` — 141,348,864 bytes.
+  - `build/publish-releases-from-version-bumps_r1_dev_try-2_character-output` — 6,668,288 bytes.
+  No dev-owned run roots from this list remain pending cleanup.
