@@ -25,7 +25,7 @@ HML SHALL support standard CPython 3.14 as its host interpreter. Declared requir
 
 ### Requirement: Locked host dependencies reproduce a usable environment
 
-The committed dependency lock SHALL resolve consistently with the host Python requirement. Fresh locked setup SHALL install HML's declared dependencies without rewriting project requirements or the lock. Dependency changes SHALL be justified by Python 3.14 compatibility, lock consistency or the approved installable-distribution/build contract, and all installed direct dependencies SHALL import successfully. Wheel installation SHALL resolve the declared runtime dependencies without a checkout lock; contributor setup SHALL continue to use the committed lock.
+The committed dependency lock SHALL resolve consistently with the host Python requirement. Fresh locked setup SHALL install HML's declared dependencies without rewriting project requirements or the lock. Dependency changes SHALL be justified by Python 3.14 compatibility, lock consistency or the approved installable-distribution, build or contributor-tool contract, and all installed direct dependencies SHALL import successfully. Wheel installation SHALL resolve the declared runtime dependencies without a checkout lock; contributor setup SHALL continue to use the committed lock.
 
 #### Scenario: Recreate the host environment from the committed lock
 - **Verification:** clean-environment locked sync, dependency consistency/import checks and before/after file hashes.
@@ -41,6 +41,13 @@ The committed dependency lock SHALL resolve consistently with the host Python re
 - **AND** build-only tools are separated from runtime requirements and the installed version agrees with source/build metadata
 - **AND** installed validation and environment inspection need no repository version selector or lock file
 - **AND** contributor locked sync installs the actual project package and the lock remains fresh.
+
+#### Scenario: Install the release client in its intended environment
+- **Verification:** fresh locked release-tool setup, dependency consistency and import checks, and inspection of the candidate wheel metadata and release job.
+- **WHEN** a contributor or the publication job prepares the documented release tooling on CPython 3.14
+- **THEN** the approved GitHub client and its dependencies install from the committed lock
+- **AND** the configured interpreter can import the client and run release intent evaluation and publication commands
+- **AND** the candidate wheel declares no new runtime dependency on that GitHub client.
 
 ### Requirement: Host checks retain existing HML behavior
 

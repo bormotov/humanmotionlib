@@ -85,9 +85,16 @@ Automation SHALL never move a conflicting tag, overwrite a published asset or re
 - **THEN** the waiting release skips publication using the current published state
 - **AND** its build and tests remain attributable to its original push.
 
+#### Scenario: Recheck a draft by its numeric release ID
+- **Verification:** controlled GitHub client responses with a stable release ID and matching, missing or conflicting follow-up responses.
+- **WHEN** creation returns a draft for the expected version tag and a subsequent read by ID returns a different tag, including an `untagged-*` value
+- **THEN** publication stops before promoting the draft or altering its tag
+- **AND** the diagnostic identifies the expected tag, returned tag and release ID
+- **AND** the equivalent matching read allows the ordinary publication path to continue.
+
 ### Requirement: Release permissions and evidence are bounded
 
-Only the publication job SHALL require tag and release write permission. Automation SHALL use documented repository permissions without a new permanent token. Release verification and cleanup SHALL follow the project build-artifact lifecycle. External materials actually used SHALL meet the existing source clearance rules.
+Only the publication job SHALL require tag and release write permission. Automation SHALL use documented repository permissions without a new permanent token. Release verification and cleanup SHALL follow the project build-artifact lifecycle. External materials actually used SHALL meet the existing source clearance rules. Project-authored GitHub API operations SHALL use the approved locked Python client.
 
 #### Scenario: Operate with configured or denied permissions
 - **Verification:** workflow permission inspection and a denied-write control.
@@ -99,6 +106,13 @@ Only the publication job SHALL require tag and release write permission. Automat
 - **WHEN** the candidate is independently reviewed
 - **THEN** the evidence identifies the checked commit, run, wheel filename, SHA-256 and test outcomes
 - **AND** new external materials are recorded and role-owned cleanup follows the project rules.
+
+#### Scenario: Run GitHub operations through the approved client
+- **Verification:** tracked source audit and controlled release history, creation, update and asset operations through the locked client interface.
+- **WHEN** project tooling lists or reads GitHub releases, creates or updates a release, or lists, uploads or downloads its assets
+- **THEN** the approved client performs the API operation
+- **AND** project code has no direct HTTP fallback for GitHub API calls
+- **AND** logs distinguish the requested release identity from the returned release identity and omit credentials and raw asset bytes.
 
 ### Requirement: A version increase in a push requests release publication
 

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Version and accepted-change selection for GitHub releases.
 
-This contributor-only tool intentionally uses Git and the Python standard
-library. Release evaluation is based on archived OpenSpec changes in Git
-history; canonical specification bytes select the 0.x increment.
+This contributor-only tool uses Git and PyGithub for release operations.
+Release evaluation is based on archived OpenSpec changes in Git history;
+canonical specification bytes select the 0.x increment.
 """
 
 from __future__ import annotations
@@ -19,9 +19,6 @@ import re
 import subprocess
 import sys
 import tomllib
-from urllib.error import HTTPError
-from urllib.parse import quote
-from urllib.request import Request, urlopen
 
 
 _VERSION = re.compile(r"^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
@@ -55,7 +52,8 @@ def _safe_argument(name: str, value: object) -> object:
     return f"<{type(value).__name__}>"
 
 
-def _log_exception(error: BaseException, **context: object) -> None:
+def _log_exception(error: BaseException, *, safe_message: str | None = None,
+                   **context: object) -> None:
     """Log the handled exception and the enclosing function's declared arguments."""
     frame = inspect.currentframe()
     caller = frame.f_back if frame is not None else None
@@ -69,7 +67,8 @@ def _log_exception(error: BaseException, **context: object) -> None:
     }
     arguments.update({name: _safe_argument(name, value) for name, value in context.items()})
     _LOGGER.error("%s handled %s: %s; arguments=%s",
-                  caller.f_code.co_name, type(error).__name__, error, arguments)
+                  caller.f_code.co_name, type(error).__name__,
+                  str(error) if safe_message is None else safe_message, arguments)
 
 
 class ReleaseError(RuntimeError):
@@ -335,142 +334,193 @@ def format_release_notes(plan: dict[str, object], release_commit: str, workflow_
 
 
 class GitHubClient:
-    """Small stdlib GitHub REST client scoped to one repository."""
+    """PyGithub adapter exposing the release operations used by policy code."""
 
-    def __init__(self, repository: str, token: str, opener=urlopen):
+    def __init__(self, repository: str, token: str, *, github=None):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise ReleaseError(f"invalid GitHub repository identity: {repository!r}")
         if not token:
             raise ReleaseError("GITHUB_TOKEN is required for release automation")
         self.repository = repository
-        self.token = token
-        self.opener = opener
-        self.api = f"https://api.github.com/repos/{repository}"
+        if github is None:
+            try:
+                from github import Auth, Github
+            except ImportError as error:
+                raise ReleaseError(
+                    "PyGithub is required for release commands; install the locked release dependency group"
+                ) from error
+            github = Github(auth=Auth.Token(token), per_page=100, timeout=60,
+                            retry=None, api_version="2022-11-28")
+        self._github = github
+        try:
+            self._repo = self._call("load repository", lambda: github.get_repo(repository))
+        except ReleaseError:
+            raise
+        self._releases: dict[int, object] = {}
+        self._assets: dict[int, object] = {}
 
-    def request(self, path: str, *, method: str = "GET", payload: object | None = None,
-                content: bytes | None = None, content_type: str = "application/vnd.github+json",
-                accept: str = "application/vnd.github+json", allow_missing: bool = False) -> tuple[int, object | bytes | None]:
-        url = path if path.startswith("https://") else f"{self.api}{path}"
-        data = content if content is not None else (
-            json.dumps(payload, separators=(",", ":")).encode("utf-8") if payload is not None else None
-        )
-        headers = {
-            "Accept": accept,
-            "Authorization": f"Bearer {self.token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "humanmotionlib-release",
-        }
-        if data is not None:
-            headers["Content-Type"] = content_type
-        request = Request(url, data=data, headers=headers, method=method)
+    def _call(self, operation: str, function, *, allow_missing: bool = False):
         try:
-            with self.opener(request, timeout=60) as response:
-                body = response.read()
-                status = response.status
-        except HTTPError as error:
-            _log_exception(error)
-            body = error.read()
-            status = error.code
+            return function()
+        except Exception as error:
+            status = getattr(error, "status", None)
+            module = error.__class__.__module__
+            is_transport_error = (isinstance(error, (OSError, TimeoutError))
+                                  or module.startswith(("requests.", "urllib3.", "http.client", "ssl.")))
+            is_github_error = status is not None or module.startswith("github.")
+            if not is_github_error and not is_transport_error:
+                raise
+            _log_exception(error, safe_message=(f"HTTP status {status}" if status is not None
+                                                else "GitHub transport or stream failure"))
+            _LOGGER.error("PyGithub operation failed operation=%r status=%r", operation, status)
             if allow_missing and status == 404:
-                return status, None
-            detail = body.decode("utf-8", "replace")[:1000]
-            raise ReleaseError(f"GitHub API {method} {url} returned {status}: {detail}") from error
-        if not 200 <= status < 300:
-            raise ReleaseError(f"GitHub API {method} {url} returned {status}")
-        if not body:
-            return status, None
-        if accept == "application/octet-stream":
-            return status, body
-        try:
-            return status, json.loads(body)
-        except json.JSONDecodeError as error:
-            _log_exception(error)
-            raise ReleaseError(f"GitHub API returned invalid JSON for {method} {url}") from error
+                return None
+            raise ReleaseError(f"GitHub {operation} failed (HTTP {status or 'unknown'})") from error
+
+    @staticmethod
+    def _value(obj: object, name: str, default=None):
+        return getattr(obj, name, default)
+
+    def _release_record(self, release: object) -> dict[str, object]:
+        record = {
+            "id": self._value(release, "id"),
+            "tag_name": self._value(release, "tag_name"),
+            "draft": self._value(release, "draft"),
+            "prerelease": self._value(release, "prerelease", False),
+            "name": self._value(release, "name"),
+            "body": self._value(release, "body"),
+            "target_commitish": self._value(release, "target_commitish"),
+        }
+        release_id = record["id"]
+        if not isinstance(release_id, int):
+            raise ReleaseError("PyGithub returned a release without a numeric identity")
+        if not isinstance(record["tag_name"], str) or not isinstance(record["draft"], bool):
+            raise ReleaseError("PyGithub returned a malformed release identity or draft flag")
+        if not isinstance(record["prerelease"], bool):
+            raise ReleaseError("PyGithub returned a malformed release prerelease flag")
+        self._releases[release_id] = release
+        _LOGGER.info("GitHub release identity id=%r tag_name=%r draft=%r",
+                     release_id, record["tag_name"], record["draft"])
+        return record
 
     def latest_release(self) -> dict[str, object] | None:
-        _, release = self.request("/releases/latest", allow_missing=True)
-        return release if isinstance(release, dict) else None
+        release = self._call("get latest release", self._repo.get_latest_release, allow_missing=True)
+        if release is None:
+            return None
+        return self._call("read latest release", lambda: self._release_record(release), allow_missing=True)
 
     def published_releases(self) -> list[dict[str, object]]:
-        result: list[dict[str, object]] = []
-        page = 1
-        while True:
-            _, records = self.request(f"/releases?per_page=100&page={page}")
-            if not isinstance(records, list):
-                raise ReleaseError("GitHub returned invalid release history")
-            for record in records:
-                if not isinstance(record, dict) or not isinstance(record.get("draft"), bool):
-                    raise ReleaseError("GitHub returned a malformed release record")
-                if record["draft"] is False:
-                    result.append(record)
-            if len(records) < 100:
-                break
-            page += 1
-        return result
+        records = self._call("list releases", lambda: [
+            self._release_record(item) for item in self._repo.get_releases()
+        ])
+        return [record for record in records if record["draft"] is False]
 
     def release_for_tag(self, tag: str) -> dict[str, object] | None:
         _LOGGER.info("GitHub release lookup request tag_name=%r", tag)
-        matches: list[dict[str, object]] = []
-        page = 1
-        while True:
-            _, records = self.request(f"/releases?per_page=100&page={page}")
-            if not isinstance(records, list):
-                raise ReleaseError("GitHub returned invalid release history while looking up a draft")
-            for record in records:
-                if not isinstance(record, dict) or not isinstance(record.get("draft"), bool):
-                    raise ReleaseError("GitHub returned a malformed release record while looking up a draft")
-                _LOGGER.info("GitHub release lookup response id=%r tag_name=%r draft=%r",
-                             record.get("id"), record.get("tag_name"), record.get("draft"))
-                if record.get("tag_name") == tag:
-                    matches.append(record)
-            if len(records) < 100:
-                break
-            page += 1
+        records = self._call("list releases by tag", lambda: [
+            self._release_record(item) for item in self._repo.get_releases()
+        ])
+        matches = [record for record in records if record["tag_name"] == tag]
         if len(matches) > 1:
             raise ReleaseError(f"GitHub returned multiple releases for tag {tag}")
         return matches[0] if matches else None
 
     def release_by_id(self, release_id: int) -> dict[str, object] | None:
-        _, release = self.request(f"/releases/{release_id}", allow_missing=True)
-        if isinstance(release, dict):
-            _LOGGER.info("GitHub release-by-id response id=%r tag_name=%r draft=%r",
-                         release.get("id"), release.get("tag_name"), release.get("draft"))
-        else:
+        _LOGGER.info("GitHub release read request id=%r", release_id)
+        release = self._call(f"read release {release_id}",
+                             lambda: self._repo.get_release(release_id), allow_missing=True)
+        if release is None:
             _LOGGER.info("GitHub release-by-id response requested_id=%r result=missing", release_id)
-        return release if isinstance(release, dict) else None
+            return None
+        record = self._call(f"complete release {release_id}",
+                             lambda: self._release_record(release), allow_missing=True)
+        if record is None:
+            _LOGGER.info("GitHub release-by-id response requested_id=%r result=missing", release_id)
+            return None
+        _LOGGER.info("GitHub release-by-id response id=%r tag_name=%r draft=%r",
+                     record["id"], record["tag_name"], record["draft"])
+        return record
+
+    def create_release(self, tag: str, candidate: str, title: str, body: str) -> dict[str, object]:
+        _LOGGER.info("GitHub release create request tag_name=%r target_commitish=%r draft=True", tag, candidate)
+        release = self._call("create draft release", lambda: self._repo.create_git_release(
+            tag=tag, name=title, message=body, draft=True, prerelease=False,
+            target_commitish=candidate,
+        ))
+        record = self._call("complete created release", lambda: self._release_record(release))
+        _LOGGER.info("GitHub release create response id=%r tag_name=%r draft=%r",
+                     record["id"], record["tag_name"], record["draft"])
+        return record
+
+    def update_release(self, record: dict[str, object], *, body: str, draft: bool) -> dict[str, object]:
+        release_id = record.get("id")
+        release = self._releases.get(release_id) if isinstance(release_id, int) else None
+        if release is None:
+            raise ReleaseError("release update has no previously read PyGithub object")
+        _LOGGER.info("GitHub release update request id=%r tag_name=%r draft=%r",
+                     release_id, record.get("tag_name"), draft)
+        return self._call(f"update release {release_id}", lambda: self._release_record(
+            release.update_release(
+                name=str(record["name"] or ""), message=body,
+                draft=draft, prerelease=bool(record["prerelease"]),
+                tag_name=str(record["tag_name"]),
+                target_commitish=str(record["target_commitish"] or ""),
+            )
+        ))
 
     def release_assets(self, release: dict[str, object]) -> dict[str, dict[str, object]]:
-        assets = release.get("assets")
-        if not isinstance(assets, list):
-            raise ReleaseError("GitHub release has no valid asset list")
-        result: dict[str, dict[str, object]] = {}
-        for asset in assets:
-            if not isinstance(asset, dict) or not isinstance(asset.get("name"), str):
-                raise ReleaseError("GitHub release contains an invalid asset record")
-            if asset["name"] in result:
-                raise ReleaseError(f"GitHub release contains duplicate asset {asset['name']!r}")
-            result[asset["name"]] = asset
-        return result
+        release_id = release.get("id")
+        obj = self._releases.get(release_id) if isinstance(release_id, int) else None
+        if obj is None:
+            raise ReleaseError("release asset listing has no previously read PyGithub object")
+        def materialize_assets():
+            result: dict[str, dict[str, object]] = {}
+            for asset in obj.get_assets():
+                name = self._value(asset, "name")
+                asset_id = self._value(asset, "id")
+                if not isinstance(name, str) or not isinstance(asset_id, int):
+                    raise ReleaseError("GitHub release contains an invalid asset record")
+                if name in result:
+                    raise ReleaseError(f"GitHub release contains duplicate asset {name!r}")
+                self._assets[asset_id] = asset
+                result[name] = {"id": asset_id, "name": name,
+                                "digest": self._value(asset, "digest"), "size": self._value(asset, "size")}
+            return result
+        return self._call(f"list release assets for {release_id}", materialize_assets)
 
     def asset_bytes(self, asset: dict[str, object]) -> bytes:
-        url = asset.get("url")
-        if not isinstance(url, str):
-            raise ReleaseError("GitHub release asset has no API URL")
-        _, result = self.request(url, accept="application/octet-stream")
-        if not isinstance(result, bytes):
-            raise ReleaseError(f"could not download release asset {asset.get('name')!r}")
-        return result
+        asset_id = asset.get("id")
+        obj = self._assets.get(asset_id) if isinstance(asset_id, int) else None
+        if obj is None:
+            raise ReleaseError(f"release asset {asset.get('name')!r} has no previously read PyGithub object")
+        def download():
+            response = obj.download_asset(chunk_size=65536)
+            if not isinstance(response, tuple) or len(response) != 3:
+                raise ReleaseError(f"could not download release asset {asset.get('name')!r}")
+            status, _headers, chunks = response
+            return status, b"".join(chunks)
+        status, data = self._call(f"download release asset {asset.get('name')!r}", download)
+        if status != 200:
+            raise ReleaseError(f"GitHub asset download returned HTTP {status}")
+        return data
 
     def upload_asset(self, release: dict[str, object], name: str, data: bytes) -> dict[str, object]:
-        template = release.get("upload_url")
-        if not isinstance(template, str):
-            raise ReleaseError("GitHub release has no upload URL")
-        upload_url = template.split("{", 1)[0] + "?name=" + quote(name, safe="")
-        _, result = self.request(upload_url, method="POST", content=data,
-                                 content_type="application/octet-stream")
-        if not isinstance(result, dict):
-            raise ReleaseError(f"GitHub did not confirm upload of {name!r}")
-        return result
+        from io import BytesIO
+
+        release_id = release.get("id")
+        obj = self._releases.get(release_id) if isinstance(release_id, int) else None
+        if obj is None:
+            raise ReleaseError("release asset upload has no previously read PyGithub object")
+        def upload():
+            result = obj.upload_asset_from_memory(
+                BytesIO(data), len(data), name=name, content_type="application/octet-stream")
+            asset_id = self._value(result, "id")
+            if not isinstance(asset_id, int):
+                raise ReleaseError(f"GitHub did not confirm upload of {name!r}")
+            self._assets[asset_id] = result
+            return {"id": asset_id, "name": self._value(result, "name"),
+                    "digest": self._value(result, "digest"), "size": self._value(result, "size")}
+        return self._call(f"upload release asset {name!r}", upload)
 
 
 def _managed_release_history(root: Path, client: GitHubClient) -> tuple[str, str, set[str]]:
@@ -626,22 +676,7 @@ def _create_or_get_draft(client: GitHubClient, tag: str, candidate: str,
         if existing.get("draft") is False:
             return existing
         return existing
-    payload = {
-        "tag_name": tag,
-        "target_commitish": candidate,
-        "name": title,
-        "body": body,
-        "draft": True,
-        "prerelease": False,
-    }
-    _LOGGER.info("GitHub release create request tag_name=%r target_commitish=%r draft=%r",
-                 payload["tag_name"], payload["target_commitish"], payload["draft"])
-    _, release = client.request("/releases", method="POST", payload=payload)
-    if not isinstance(release, dict):
-        raise ReleaseError("GitHub did not confirm release draft creation")
-    _LOGGER.info("GitHub release create response id=%r tag_name=%r draft=%r",
-                 release.get("id"), release.get("tag_name"), release.get("draft"))
-    return release
+    return client.create_release(tag, candidate, title, body)
 
 
 def _remote_tag_commit(root: Path, tag: str) -> str | None:
@@ -753,6 +788,11 @@ def _read_verified_draft(client: GitHubClient, tag: str, release_id: int,
         raise ReleaseError("release draft disappeared before publication")
     if release.get("id") != release_id:
         raise ReleaseError("release identity changed before publication")
+    if release.get("tag_name") != tag:
+        raise ReleaseError(
+            f"release {release_id} tag mismatch: expected {tag!r}, "
+            f"GitHub returned {release.get('tag_name')!r}"
+        )
     if release.get("draft") is not True:
         raise ReleaseError("release was no longer a draft before publication")
     _validate_release_evidence(release, plan, tag, candidate, checksum, workflow_url,
@@ -764,6 +804,25 @@ def _read_verified_draft(client: GitHubClient, tag: str, release_id: int,
         raise ReleaseError("draft wheel changed before publication")
     if client.asset_bytes(assets["SHA256SUMS"]) != checksum_bytes:
         raise ReleaseError("draft checksum changed before publication")
+    return release
+
+
+def _verify_release_identity(release: dict[str, object] | None, tag: str,
+                             release_id: int, *, draft: bool) -> dict[str, object]:
+    """Require every persisted release response to retain its ID, tag and state."""
+    if release is None:
+        raise ReleaseError(f"release {release_id} disappeared before the next release write")
+    if release.get("id") != release_id:
+        raise ReleaseError(f"release identity changed: expected ID {release_id}, "
+                           f"GitHub returned {release.get('id')!r}")
+    if release.get("tag_name") != tag:
+        raise ReleaseError(
+            f"release {release_id} tag mismatch: expected {tag!r}, "
+            f"GitHub returned {release.get('tag_name')!r}"
+        )
+    if release.get("draft") is not draft:
+        state = "draft" if draft else "published release"
+        raise ReleaseError(f"release {release_id} is not the expected {state}")
     return release
 
 
@@ -813,10 +872,19 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
         _ensure_remote_tag(root, tag, candidate_sha)
     release = _create_or_get_draft(client, tag, candidate_sha, f"HumanMotionLib {plan['version']}", notes)
     if release.get("tag_name") != tag:
-        raise ReleaseError("release identity does not match reserved version")
+        raise ReleaseError(
+            f"release {release.get('id')!r} tag mismatch: expected {tag!r}, "
+            f"GitHub returned {release.get('tag_name')!r}"
+        )
     release_id = release.get("id")
     if not isinstance(release_id, int):
         raise ReleaseError("GitHub release has no numeric identity")
+    # A draft response may contain a server-generated `untagged-*` tag even
+    # when the create request named the intended tag. Read the persisted object
+    # back by ID before the first asset or metadata write.
+    fresh_release = client.release_by_id(release_id)
+    release = _verify_release_identity(fresh_release, tag, release_id,
+                                       draft=release.get("draft") is True)
     if release.get("draft") is False:
         assets = client.release_assets(release)
         if set(assets) != {wheel_name, "SHA256SUMS"}:
@@ -848,9 +916,11 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
     else:
         _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url,
                                    check_target_commitish=plan_override is None)
-        client.request(f"/releases/{release_id}", method="PATCH", payload={"body": notes})
+        release = client.update_release(release, body=notes, draft=True)
+        release = _verify_release_identity(release, tag, release_id, draft=True)
         client.upload_asset(release, wheel_name, wheel_bytes)
-    assets = client.release_assets(client.release_by_id(release_id) or release)
+    release = _verify_release_identity(client.release_by_id(release_id), tag, release_id, draft=True)
+    assets = client.release_assets(release)
     if "SHA256SUMS" in assets:
         if client.asset_bytes(assets["SHA256SUMS"]) != checksum_bytes:
             raise ReleaseError("draft SHA256SUMS conflicts with its immutable wheel asset")
@@ -865,9 +935,8 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
         raise ReleaseError("GitHub release has no numeric identity")
     if plan_override is not None and _remote_tag_commit(root, tag) != candidate_sha:
         raise ReleaseError(f"remote tag {tag} does not target the checked commit")
-    _, result = client.request(f"/releases/{release_id}", method="PATCH", payload={"draft": False})
-    if not isinstance(result, dict) or result.get("draft") is not False:
-        raise ReleaseError("GitHub did not confirm publication")
+    result = client.update_release(release, body=str(release.get("body") or ""), draft=False)
+    result = _verify_release_identity(result, tag, release_id, draft=False)
     if plan_override is not None:
         final_release = client.release_by_id(release_id)
         if final_release is None or final_release.get("draft") is not False:

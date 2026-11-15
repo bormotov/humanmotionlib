@@ -21,6 +21,7 @@ backend-path = ["."]
 
 [dependency-groups]
 build = ["setuptools==83.0.0"]
+release = ["PyGithub==2.10.0"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

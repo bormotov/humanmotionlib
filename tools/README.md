@@ -85,6 +85,23 @@ tag. A rejected tag push stops before any release write. The publication job
 uses the checkout credential for this Git push and is the only job with tag
 and release write permission.
 
+Release history, draft and release updates, and release asset transfers use the
+locked PyGithub client. Its `release` dependency group is intentionally kept
+out of the HML wheel. To prepare a separate contributor environment, use a new
+direct-child run directory under `build/`:
+
+```sh
+release_run=build/release-tools_r1_contributor_try-1_environment
+mkdir -p "$release_run"
+uv venv "$release_run/venv" --python 3.14
+UV_PROJECT_ENVIRONMENT="$release_run/venv" UV_CACHE_DIR="$release_run/uv-cache" uv sync --locked --no-default-groups --group release --no-install-project
+"$release_run/venv/bin/python" tools/release.py --help
+```
+
+The publication job creates the same kind of isolated environment on its clean
+runner and uses its interpreter for both release intent and publication. The
+token remains supplied by the GitHub Actions job environment.
+
 At cutover, inspect existing tags, drafts and releases and confirm that no
 legacy publication run is active or can be rerun with write permission. The
 retired archive/dispatch publisher must be quiescent before enabling this

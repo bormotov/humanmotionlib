@@ -187,7 +187,15 @@ class CandidateWorkflowTests(unittest.TestCase):
         self.assertEqual(publish["concurrency"]["queue"], "max")
         self.assertNotIn("cancel-in-progress", publish["concurrency"])
         intent = next(step for step in publish["steps"] if step.get("id") == "intent")
+        release_environment = next(step for step in publish["steps"]
+                                    if step.get("name") == "Prepare locked release tooling")
+        self.assertIn("uv sync --locked --no-default-groups --group release --no-install-project",
+                      release_environment["run"])
+        self.assertIn("RELEASE_PYTHON=$release_env/bin/python", release_environment["run"])
+        self.assertIn("UV_PROJECT_ENVIRONMENT=\"$release_env\"", release_environment["run"])
+        self.assertNotIn("--group dev", release_environment["run"])
         self.assertEqual(intent["name"], "Evaluate version increase after tests")
+        self.assertIn('"$RELEASE_PYTHON" tools/release.py intent', intent["run"])
         self.assertIn("--before", intent["run"])
         self.assertIn("--after", intent["run"])
         self.assertIn("release.py intent", intent["run"])
@@ -200,6 +208,7 @@ class CandidateWorkflowTests(unittest.TestCase):
                             and step.get("name") == "Publish the tested wheel"
                             for step in publish["steps"]))
         publisher = "\n".join(step.get("run", "") for step in publish["steps"])
+        self.assertIn('"$RELEASE_PYTHON" tools/release.py publish-push', publisher)
         self.assertIn("publish-push", publisher)
         self.assertIn('"push"', (ROOT / "tools" / "release.py").read_text(encoding="utf-8"))
         self.assertNotIn("/git/refs", (ROOT / "tools" / "release.py").read_text(encoding="utf-8"))

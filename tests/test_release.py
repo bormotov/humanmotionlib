@@ -4,19 +4,20 @@
 from __future__ import annotations
 
 import importlib.util
+import importlib.metadata
 import hashlib
 import copy
-from io import BytesIO
 from contextlib import redirect_stdout
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
-from urllib.error import HTTPError
 
 from tests.run_roots import test_case_root, test_run_root
 
@@ -285,45 +286,375 @@ class ReleaseSelectionTests(unittest.TestCase):
         for command in ("reserve", "set-version", "pending", "dispatch"):
             self.assertNotIn(command, result.stdout)
 
-    def test_draft_lookup_uses_release_list_when_tag_endpoint_returns_not_found(self):
-        draft = {"id": 9, "tag_name": "v0.2.1", "draft": True}
-        calls = []
-        not_found_errors = []
-
-        class Response:
-            status = 200
-            def __init__(self, body):
+    def test_release_client_lists_drafts_and_reads_fresh_objects_by_id(self):
+        class SDKRelease:
+            def __init__(self, release_id, tag_name, draft=True, name="HumanMotionLib 0.2.1",
+                         body="release notes", target_commitish="commit"):
+                self.id = release_id
+                self.tag_name = tag_name
+                self.draft = draft
+                self.prerelease = False
+                self.name = name
                 self.body = body
-            def __enter__(self):
+                self.target_commitish = target_commitish
+                self.assets = []
+
+            def get_assets(self):
+                return self.assets
+
+        class SDKRepo:
+            def __init__(self):
+                self.draft = SDKRelease(9, "v0.2.1")
+                self.other_page = [SDKRelease(8, "v0.2.0", draft=False)]
+                self.release_reads = []
+
+            def get_releases(self):
+                return iter([self.draft, *self.other_page])
+
+            def get_release(self, release_id):
+                self.release_reads.append(release_id)
+                return SDKRelease(9, "untagged-server-response")
+
+            def get_latest_release(self):
+                raise AssertionError("draft-only history has no latest published release")
+
+        repo = SDKRepo()
+        sdk = SimpleNamespace(get_repo=lambda name: repo)
+        client = release.GitHubClient("example/repo", "token", github=sdk)
+        self.assertEqual(client.release_for_tag("v0.2.1")["id"], 9)
+        fresh = client.release_by_id(9)
+        self.assertEqual(fresh["tag_name"], "untagged-server-response")
+        self.assertEqual(repo.release_reads, [9])
+        self.assertEqual(client.published_releases()[0]["id"], 8)
+
+    def test_release_client_uses_sdk_for_creation_updates_and_exact_asset_bytes(self):
+        uploaded = {}
+
+        class SDKAsset:
+            id = 53
+            name = "humanmotionlib-0.2.1-py3-none-any.whl"
+            digest = None
+            size = 6
+
+            def download_asset(self, *, chunk_size):
+                self.chunk_size = chunk_size
+                return 200, {"content-type": "application/octet-stream"}, iter((b"wheel ", b"bytes"))
+
+        class SDKRelease:
+            id = 42
+            tag_name = "v0.2.1"
+            draft = True
+            prerelease = False
+            name = "HumanMotionLib 0.2.1"
+            body = "notes"
+            target_commitish = "candidate-sha"
+
+            def __init__(self):
+                self.assets = [SDKAsset()]
+                self.update_arguments = None
+                self.upload_arguments = None
+
+            def get_assets(self):
+                return iter(self.assets)
+
+            def update_release(self, **kwargs):
+                self.update_arguments = kwargs
+                self.name = kwargs["name"]
+                self.body = kwargs["message"]
+                self.draft = kwargs["draft"]
                 return self
-            def __exit__(self, *args):
-                return False
-            def read(self):
-                return self.body
 
-        def opener(request, timeout):
-            calls.append(request.full_url)
-            if "/releases/tags/" in request.full_url:
-                error = HTTPError(request.full_url, 404, "not found", {}, BytesIO(b"not found"))
-                not_found_errors.append(error)
-                raise error
-            return Response(json.dumps([draft]).encode())
+            def upload_asset_from_memory(self, file_like, file_size, *, name, content_type):
+                uploaded["bytes"] = file_like.read()
+                uploaded["size"] = file_size
+                uploaded["name"] = name
+                uploaded["content_type"] = content_type
+                asset = SimpleNamespace(id=54, name=name, digest="sha256:abc", size=file_size)
+                self.assets.append(asset)
+                return asset
 
-        client = release.GitHubClient("example/repo", "token", opener=opener)
-        self.assertIsNone(client.request("/releases/tags/v0.2.1", allow_missing=True)[1])
-        self.assertEqual(client.release_for_tag("v0.2.1"), draft)
-        self.assertEqual(sum("/releases?per_page=100&page=1" in url for url in calls), 1)
-        self.assertEqual(sum("/releases/tags/" in url for url in calls), 1)
-        for error in not_found_errors:
-            error.close()
+        class SDKRepo:
+            def __init__(self):
+                self.release = SDKRelease()
+                self.create_arguments = None
+                self.release_reads = []
+
+            def create_git_release(self, **kwargs):
+                self.create_arguments = kwargs
+                return self.release
+
+            def get_release(self, release_id):
+                self.release_reads.append(release_id)
+                return self.release
+
+        repo = SDKRepo()
+        client = release.GitHubClient("example/repo", "token",
+                                      github=SimpleNamespace(get_repo=lambda _name: repo))
+        created = client.create_release("v0.2.1", "candidate-sha", "HumanMotionLib 0.2.1", "notes")
+        self.assertEqual(repo.create_arguments, {
+            "tag": "v0.2.1", "name": "HumanMotionLib 0.2.1", "message": "notes",
+            "draft": True, "prerelease": False, "target_commitish": "candidate-sha",
+        })
+        self.assertEqual(client.release_by_id(42)["tag_name"], "v0.2.1")
+        assets = client.release_assets(created)
+        asset = assets["humanmotionlib-0.2.1-py3-none-any.whl"]
+        self.assertEqual(client.asset_bytes(asset), b"wheel bytes")
+        uploaded_asset = client.upload_asset(created, "SHA256SUMS", b"checksum")
+        self.assertEqual(uploaded["bytes"], b"checksum")
+        self.assertEqual(uploaded["size"], len(b"checksum"))
+        self.assertEqual(uploaded_asset["name"], "SHA256SUMS")
+        updated = client.update_release(created, body="updated notes", draft=False)
+        self.assertEqual(updated["draft"], False)
+        self.assertEqual(repo.release.update_arguments, {
+            "name": "HumanMotionLib 0.2.1", "message": "updated notes", "draft": False,
+            "prerelease": False, "tag_name": "v0.2.1", "target_commitish": "candidate-sha",
+        })
+        self.assertEqual(repo.release_reads, [42])
+
+    def test_release_client_maps_missing_objects_and_denied_sdk_operations(self):
+        class SDKError(Exception):
+            def __init__(self, status):
+                super().__init__("controlled SDK failure")
+                self.status = status
+
+        missing_repo = SimpleNamespace(get_release=lambda _id: (_ for _ in ()).throw(SDKError(404)))
+        missing = release.GitHubClient("example/repo", "secret-token",
+                                       github=SimpleNamespace(get_repo=lambda _name: missing_repo))
+        self.assertIsNone(missing.release_by_id(9))
+
+        denied_repo = SimpleNamespace(get_releases=lambda: (_ for _ in ()).throw(SDKError(403)))
+        denied = release.GitHubClient("example/repo", "secret-token",
+                                      github=SimpleNamespace(get_repo=lambda _name: denied_repo))
+        with self.assertLogs("humanmotionlib.release", level="ERROR") as captured:
+            with self.assertRaisesRegex(release.ReleaseError, r"list releases failed \(HTTP 403\)"):
+                denied.published_releases()
+        output = "\n".join(captured.output)
+        self.assertIn("operation='list releases' status=403", output)
+        self.assertNotIn("secret-token", output)
+
+    def test_controlled_publication_with_candidate_wheel_preserves_identity_and_failure_gate(self):
+        wheel_value = os.environ.get("HML_CONTROLLED_WHEEL")
+        if not wheel_value:
+            self.skipTest("set HML_CONTROLLED_WHEEL to run the clean candidate integration")
+        wheel = Path(wheel_value).resolve()
+        repo = Path(os.environ.get("HML_CONTROLLED_REPO", Path(__file__).resolve().parents[1])).resolve()
+        self.assertTrue(wheel.is_file())
+        with zipfile.ZipFile(wheel) as archive:
+            metadata_names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+            self.assertEqual(len(metadata_names), 1)
+            metadata = archive.read(metadata_names[0]).decode("utf-8")
+        package_name = next(line.split(":", 1)[1].strip() for line in metadata.splitlines()
+                            if line.startswith("Name:"))
+        package_version = next(line.split(":", 1)[1].strip() for line in metadata.splitlines()
+                               if line.startswith("Version:"))
+        self.assertEqual(package_name.lower(), "humanmotionlib")
+        self.assertEqual(wheel.name, f"humanmotionlib-{package_version}-py3-none-any.whl")
+        self.assertEqual(importlib.metadata.version("humanmotionlib"), package_version)
+        candidate = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                   check=True, capture_output=True, text=True).stdout.strip()
+        self.assertRegex(candidate, r"^[0-9a-f]{40,64}$")
+        wheel_bytes = wheel.read_bytes()
+        checksum = hashlib.sha256(wheel_bytes).hexdigest()
+        checksum_path = self.root / "candidate-wheel.sha256"
+        checksum_path.write_text(f"{checksum}  {wheel.name}\n", encoding="ascii")
+        plan = {
+            "candidate": candidate,
+            "version": package_version,
+            "boundary": candidate,
+            "archives": [{"id": "controlled-pygithub-integration", "acceptance_commit": candidate}],
+        }
+        client = FakeGitHub(fail_once_asset="SHA256SUMS")
+        workflow_url = "https://example.invalid/controlled-candidate-integration"
+        with patch.object(release, "_ensure_remote_tag"), \
+                patch.object(release, "_remote_tag_commit", return_value=candidate):
+            with self.assertRaisesRegex(release.ReleaseError, "simulated interrupted asset upload"):
+                release.publish_release(repo, client, candidate, wheel, workflow_url,
+                                        checksum_path, plan_override=plan)
+            self.assertTrue(client.release["draft"], "failed checksum upload must leave release unpublished")
+            self.assertEqual(set(client.release["assets"]), {wheel.name})
+            self.assertEqual(client.release["asset_bytes"][wheel.name], wheel_bytes)
+            result = release.publish_release(repo, client, candidate, wheel, workflow_url,
+                                             checksum_path, plan_override=plan)
+
+        checksum_bytes = f"{checksum}  {wheel.name}\n".encode("ascii")
+        self.assertEqual(result["candidate"], candidate)
+        self.assertEqual(result["wheel_sha256"], checksum)
+        self.assertFalse(client.release["draft"])
+        self.assertEqual(set(client.release["asset_bytes"]), {wheel.name, "SHA256SUMS"})
+        self.assertEqual(client.release["asset_bytes"][wheel.name], wheel_bytes)
+        self.assertEqual(client.release["asset_bytes"]["SHA256SUMS"], checksum_bytes)
+        evidence = {
+            "source_commit": candidate,
+            "wheel": wheel.name,
+            "wheel_sha256": checksum,
+            "first_attempt": "failed-before-publication; draft retained with wheel only",
+            "retry": "published; matching wheel and SHA256SUMS",
+        }
+        (self.root / "controlled-publication.json").write_text(
+            json.dumps(evidence, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    def test_pygithub_210_real_lazy_pagination_is_materialized_inside_safe_boundary(self):
+        try:
+            import github  # noqa: F401
+            import requests
+            import urllib3
+        except ImportError:
+            self.skipTest("PyGithub release dependency group is not installed")
+
+        from urllib.parse import urlparse
+
+        requests_seen = []
+
+        def response(status, payload, headers=None):
+            result = requests.Response()
+            result.status_code = status
+            result.headers.update({"X-RateLimit-Remaining": "5000",
+                                   "X-RateLimit-Reset": "4102444800"})
+            result.headers.update(headers or {})
+            result._content = json.dumps(payload).encode("utf-8")
+            result.url = "https://api.github.com"
+            return result
+
+        def request(_session, method, url, **kwargs):
+            parsed_url = urlparse(url)
+            path = parsed_url.path
+            request_path = path + (f"?{parsed_url.query}" if parsed_url.query else "")
+            requests_seen.append((method, request_path, kwargs.get("headers", {})))
+            if path == "/repos/acme/widgets":
+                return response(200, {"id": 5, "full_name": "acme/widgets"})
+            if path == "/repos/acme/widgets/releases/99":
+                return response(404, {"message": "Not Found"})
+            if path == "/repos/acme/widgets/releases/latest":
+                return response(404, {"message": "Not Found"})
+            if path == "/repos/acme/widgets/releases" and "page=2" in parsed_url.query:
+                return response(500, {"message": "sensitive server body must not be logged"})
+            if path == "/repos/acme/widgets/releases":
+                return response(200, [{"id": 10, "tag_name": "v0.2.1", "draft": True,
+                                      "prerelease": False, "name": "release", "body": "notes",
+                                      "target_commitish": "main"}],
+                                {"Link": '<https://api.github.com/repos/acme/widgets/releases?page=2>; rel="next"'})
+            self.fail(f"unexpected SDK request: {method} {path}")
+
+        with patch("requests.Session.request", new=request), \
+                patch("github.Requester.time.sleep", return_value=None):
+            client = release.GitHubClient("acme/widgets", "secret-token")
+            requester = client._github._Github__requester
+            self.assertIsNone(requester.kwargs["retry"], "SDK retries must remain disabled")
+            self.assertEqual(requester.kwargs["api_version"], "2022-11-28")
+            with self.assertLogs("humanmotionlib.release", level="ERROR") as captured:
+                with self.assertRaisesRegex(release.ReleaseError, r"list releases by tag failed \(HTTP 500\)"):
+                    client.release_for_tag("v0.2.1")
+            with self.assertLogs("humanmotionlib.release", level="ERROR") as missing_logs:
+                self.assertIsNone(client.release_by_id(99))
+            with self.assertLogs("humanmotionlib.release", level="ERROR") as latest_logs:
+                self.assertIsNone(client.latest_release())
+
+        logs = "\n".join(captured.output)
+        logs += "\n" + "\n".join(missing_logs.output)
+        logs += "\n" + "\n".join(latest_logs.output)
+        self.assertNotIn("sensitive server body", logs)
+        self.assertNotIn("secret-token", logs)
+        self.assertEqual([path for _method, path, _headers in requests_seen], [
+            "/repos/acme/widgets", "/repos/acme/widgets/releases?per_page=100",
+            "/repos/acme/widgets/releases?page=2", "/repos/acme/widgets/releases/99",
+            "/repos/acme/widgets/releases/latest",
+        ])
+        self.assertTrue(all(headers.get("X-GitHub-Api-Version") == "2022-11-28"
+                            for _method, _path, headers in requests_seen))
+
+    def test_pygithub_real_asset_download_upload_and_stream_failure_contract(self):
+        try:
+            import github  # noqa: F401
+            import requests
+            import urllib3
+        except ImportError:
+            self.skipTest("PyGithub release dependency group is not installed")
+
+        from urllib.parse import urlparse
+
+        uploaded = {}
+        stream_failure = [True]
+
+        class RawStream:
+            def __init__(self, fail=False):
+                self.fail = fail
+
+            def stream(self, _chunk_size, decode_content=True):
+                yield b"partial" if self.fail else b"wheel bytes"
+                if self.fail:
+                    raise urllib3.exceptions.ProtocolError("sensitive stream failure")
+
+        release_payload = {
+            "id": 42, "tag_name": "v0.2.1", "draft": True, "prerelease": False,
+            "name": "HumanMotionLib 0.2.1", "body": "notes", "target_commitish": "candidate",
+            "url": "https://api.github.com/repos/acme/widgets/releases/42",
+            "assets_url": "https://api.github.com/repos/acme/widgets/releases/42/assets",
+            "upload_url": "https://uploads.github.com/repos/acme/widgets/releases/42/assets{?name,label}",
+        }
+
+        def response(status, payload, url, headers=None, content=None):
+            result = requests.Response()
+            result.status_code = status
+            result.headers.update({"X-RateLimit-Remaining": "5000",
+                                   "X-RateLimit-Reset": "4102444800"})
+            result.headers.update(headers or {})
+            result._content = json.dumps(payload).encode("utf-8") if content is None else content
+            result.url = url
+            return result
+
+        def request(_session, method, url, **kwargs):
+            parsed_url = urlparse(url)
+            if parsed_url.path == "/repos/acme/widgets":
+                return response(200, {"id": 5, "full_name": "acme/widgets"}, url)
+            if parsed_url.path == "/repos/acme/widgets/releases/42" and method == "GET":
+                return response(200, release_payload, url)
+            if parsed_url.path == "/repos/acme/widgets/releases/42/assets" and method == "GET":
+                return response(200, [{
+                    "id": 53, "name": "humanmotionlib-0.2.1-py3-none-any.whl",
+                    "size": 11, "digest": None,
+                    "url": "https://api.github.com/repos/acme/widgets/releases/assets/53",
+                    "browser_download_url": "https://github.com/acme/widgets/releases/download/v0.2.1/humanmotionlib-0.2.1-py3-none-any.whl",
+                }], url)
+            if parsed_url.path == "/repos/acme/widgets/releases/assets/53" and method == "GET":
+                result = response(200, None, url)
+                result._content = False
+                result.raw = RawStream(fail=stream_failure[0])
+                stream_failure[0] = False
+                return result
+            if parsed_url.path == "/repos/acme/widgets/releases/42/assets" and method == "POST":
+                file_like = kwargs["data"]
+                uploaded["bytes"] = file_like.read() if hasattr(file_like, "read") else file_like
+                uploaded["name"] = parsed_url.query.split("name=", 1)[1]
+                return response(201, {
+                    "id": 54, "name": "SHA256SUMS", "size": len(uploaded["bytes"]),
+                    "digest": None, "url": "https://api.github.com/repos/acme/widgets/releases/assets/54",
+                    "browser_download_url": "https://github.com/acme/widgets/releases/download/v0.2.1/SHA256SUMS",
+                }, url)
+            self.fail(f"unexpected SDK asset request: {method} {url}")
+
+        with patch("requests.Session.request", new=request), \
+                patch("github.Requester.time.sleep", return_value=None):
+            client = release.GitHubClient("acme/widgets", "secret-token")
+            record = client.release_by_id(42)
+            assets = client.release_assets(record)
+            wheel = assets["humanmotionlib-0.2.1-py3-none-any.whl"]
+            with self.assertLogs("humanmotionlib.release", level="ERROR") as captured:
+                with self.assertRaisesRegex(release.ReleaseError, r"download release asset .* failed"):
+                    client.asset_bytes(wheel)
+            self.assertNotIn("sensitive stream failure", "\n".join(captured.output))
+            self.assertEqual(client.asset_bytes(wheel), b"wheel bytes")
+            checksum = client.upload_asset(record, "SHA256SUMS", b"checksum bytes")
+
+        self.assertEqual(uploaded, {"bytes": b"checksum bytes", "name": "SHA256SUMS"})
+        self.assertEqual(checksum["name"], "SHA256SUMS")
 
     def test_release_history_rejects_malformed_records_instead_of_using_bootstrap(self):
-        for records in ([None], [{"tag_name": "v0.2.1"}], [{"tag_name": "v0.2.1", "draft": "false"}]):
-            with self.subTest(records=records):
-                client = release.GitHubClient("example/repo", "token", opener=lambda *_args, **_kwargs: None)
-                client.request = lambda *_args, _records=records, **_kwargs: (200, _records)
-                with self.assertRaisesRegex(release.ReleaseError, "malformed release record"):
-                    client.published_releases()
+        record = SimpleNamespace(id=None, tag_name="v0.2.1", draft=True)
+        with self.subTest(record=record):
+            sdk = SimpleNamespace(get_repo=lambda _name: SimpleNamespace(get_releases=lambda: [record]))
+            client = release.GitHubClient("example/repo", "token", github=sdk)
+            with self.assertRaisesRegex(release.ReleaseError, "numeric identity"):
+                client.published_releases()
 
     def test_release_tag_push_creates_only_exact_local_tag_ref(self):
         before, candidate, remote, _wheel, _checksum = self._pushed_fixture("exact-tag-push")
@@ -359,25 +690,12 @@ class ReleaseSelectionTests(unittest.TestCase):
             check=True, capture_output=True, text=True).stdout.strip(), other)
 
     def test_release_lookup_after_draft_creation_uses_release_id(self):
-        requests = []
-
-        class Response:
-            status = 200
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                return False
-            def read(self):
-                return b'{"id":42,"tag_name":"v0.2.1","draft":true}'
-
-        def opener(request, timeout):
-            requests.append(request)
-            return Response()
-
-        client = release.GitHubClient("example/repo", "token", opener=opener)
+        draft = SimpleNamespace(id=42, tag_name="v0.2.1", draft=True, prerelease=False,
+                                name="HumanMotionLib 0.2.1", body="notes", target_commitish="commit")
+        repo = SimpleNamespace(get_release=lambda release_id: draft)
+        client = release.GitHubClient("example/repo", "token",
+                                      github=SimpleNamespace(get_repo=lambda _name: repo))
         self.assertEqual(client.release_by_id(42)["id"], 42)
-        self.assertEqual(requests[0].method, "GET")
-        self.assertTrue(requests[0].full_url.endswith("/releases/42"))
 
     def test_rejected_release_tag_push_stops_before_release_writes(self):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("reject-tag-push")
@@ -422,6 +740,7 @@ class ReleaseSelectionTests(unittest.TestCase):
                 "--token", "token", "--github-output", str(output_path)]
         stdout = StringIO()
         with patch.object(sys, "argv", args), patch.object(
+                release, "_client_from_args", return_value=FakeGitHub()), patch.object(
                 release, "_latest_boundary", side_effect=release.ReleaseError("GitHub API 503")), \
                 redirect_stdout(stdout):
             status = release._main()
@@ -535,14 +854,12 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": 7, "tag_name": "v0.2.1", "target_commitish": candidate,
             "name": "HumanMotionLib 0.2.1", "body": notes, "draft": False,
             "assets": {}, "asset_bytes": {},
-            "upload_url": "https://uploads.github.test/releases/7/assets{?name,label}",
         }
         for name, data in ((wheel.name, wheel.read_bytes()),
                            ("SHA256SUMS", f"{checksum}  {wheel.name}\n".encode("ascii"))):
             client.release["asset_bytes"][name] = data
             client.release["assets"][name] = {
                 "name": name, "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
-                "url": f"https://api.github.test/assets/{name}",
             }
         self.assertEqual(release._latest_boundary(self.repo.path, client), (candidate, "0.2.1"))
         intent = release.release_intent(self.repo.path, prior, candidate,
@@ -637,6 +954,63 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.assertEqual(self.repo.git("rev-parse", "refs/tags/v0.2.1"), candidate)
         self.assertEqual(set(client.release["assets"]), {wheel.name, "SHA256SUMS"})
         self.assertEqual(release._latest_boundary(self.repo.path, client), (candidate, "0.2.1"))
+
+    def test_publish_stops_when_fresh_release_read_changes_tag_to_untagged(self):
+        before, candidate, _remote, wheel, checksum = self._pushed_fixture("untagged-readback")
+        client = FakeGitHub()
+        client.on_read_by_id = lambda record: record.update(tag_name="untagged-sdk-response")
+
+        with self.assertRaisesRegex(
+            release.ReleaseError,
+            r"release 1 tag mismatch: expected 'v0\.2\.1', GitHub returned 'untagged-sdk-response'",
+        ):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/611", checksum)
+
+        self.assertTrue(client.release["draft"], "a conflicting fresh read must never publish the draft")
+        self.assertEqual(client.release["tag_name"], "v0.2.1")
+        self.assertEqual(set(client.release["assets"]), set(),
+                         "a conflicting ID read must stop before any asset upload")
+
+    def test_publish_stops_before_checksum_when_second_id_read_changes_to_untagged(self):
+        before, candidate, _remote, wheel, checksum = self._pushed_fixture("untagged-second-read")
+        client = FakeGitHub()
+        reads = 0
+
+        def change_tag_on_second_read(record):
+            nonlocal reads
+            reads += 1
+            if reads == 2:
+                record["tag_name"] = "untagged-sdk-response"
+
+        client.on_read_by_id = change_tag_on_second_read
+        with self.assertRaisesRegex(
+            release.ReleaseError,
+            r"release 1 tag mismatch: expected 'v0\.2\.1', GitHub returned 'untagged-sdk-response'",
+        ):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/612", checksum)
+
+        self.assertEqual(reads, 2)
+        self.assertTrue(client.release["draft"])
+        self.assertEqual(set(client.release["assets"]), {wheel.name},
+                         "conflicting second read must stop before SHA256SUMS upload")
+
+    def test_publish_stops_before_wheel_when_draft_update_response_changes_identity(self):
+        before, candidate, _remote, wheel, checksum = self._pushed_fixture("untagged-update-response")
+        client = FakeGitHub()
+        client.on_update_release = lambda record: record.update(tag_name="untagged-update-response")
+        with self.assertRaisesRegex(
+            release.ReleaseError,
+            r"release 1 tag mismatch: expected 'v0\.2\.1', GitHub returned 'untagged-update-response'",
+        ):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/613", checksum)
+        self.assertEqual(client.release["assets"], {},
+                         "an update response with a conflicting tag must stop before the wheel upload")
 
     def test_publish_pushed_release_uses_only_wheel_filename_and_checksum(self):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("opaque-wheel")
@@ -774,7 +1148,6 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": 303, "tag_name": "v0.2.1", "target_commitish": candidate,
             "name": "HumanMotionLib 0.2.1", "body": notes, "draft": True,
             "assets": {}, "asset_bytes": {},
-            "upload_url": "https://uploads.github.test/releases/303/assets{?name,label}",
         }
         with self.assertRaisesRegex(release.ReleaseError, "different qualifying workflow run"):
             release.publish_release(self.repo.path, draft_client, candidate, wheel,
@@ -794,7 +1167,6 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": 402, "tag_name": "v0.2.1", "target_commitish": unrelated_target,
             "name": "HumanMotionLib 0.2.1", "body": notes, "draft": True,
             "assets": {}, "asset_bytes": {},
-            "upload_url": "https://uploads.github.test/releases/402/assets{?name,label}",
         }
         with self.assertRaisesRegex(release.ReleaseError, "targets a conflicting commit"):
             release.publish_release(self.repo.path, client, candidate, wheel,
@@ -857,10 +1229,8 @@ class ReleaseSelectionTests(unittest.TestCase):
             "assets": {wheel.name: {
                 "name": wheel.name,
                 "digest": f"sha256:{hashlib.sha256(wheel_bytes).hexdigest()}",
-                "url": f"https://api.github.test/assets/{wheel.name}",
             }},
             "asset_bytes": {wheel.name: wheel_bytes},
-            "upload_url": "https://uploads.github.test/releases/1/assets{?name,label}",
         }
 
     def _published_push_record(self, client, plan, candidate, version, release_id):
@@ -875,13 +1245,11 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": release_id, "tag_name": f"v{version}", "target_commitish": candidate,
             "name": f"HumanMotionLib {version}", "body": body, "draft": False,
             "assets": {}, "asset_bytes": {},
-            "upload_url": f"https://uploads.github.test/releases/{release_id}/assets{{?name,label}}",
         }
         for name, data in ((wheel_name, wheel.read_bytes()), ("SHA256SUMS", checksum_bytes)):
             record["asset_bytes"][name] = data
             record["assets"][name] = {
                 "name": name, "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
-                "url": f"https://api.github.test/assets/{release_id}/{name}",
             }
         return record
 
@@ -1048,7 +1416,6 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": 42, "tag_name": "v0.2.1", "target_commitish": candidate,
             "name": "HumanMotionLib 0.2.1", "body": "", "draft": True,
             "assets": {}, "asset_bytes": {},
-            "upload_url": "https://uploads.github.test/releases/42/assets{?name,label}",
         }
         with self.assertRaisesRegex(release.ReleaseError, "release notes"):
             release.publish_release(self.repo.path, unrelated_draft, candidate, wheel,
@@ -1062,7 +1429,6 @@ class ReleaseSelectionTests(unittest.TestCase):
             "id": 43, "tag_name": "v0.2.1", "target_commitish": candidate,
             "name": "HumanMotionLib 0.2.1", "body": "unrelated published release",
             "draft": False, "assets": {}, "asset_bytes": {},
-            "upload_url": "https://uploads.github.test/releases/43/assets{?name,label}",
         }
         for name, data in ((wheel.name, wheel.read_bytes()),
                            ("SHA256SUMS", f"{checksum_value}  {wheel.name}\n".encode("ascii"))):
@@ -1070,7 +1436,6 @@ class ReleaseSelectionTests(unittest.TestCase):
             completed.release["assets"][name] = {
                 "name": name,
                 "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
-                "url": f"https://api.github.test/assets/{name}",
             }
         with self.assertRaisesRegex(release.ReleaseError, "release notes"):
             release.publish_release(self.repo.path, completed, candidate, wheel,
@@ -1089,6 +1454,8 @@ class FakeGitHub:
         self.tag_exists_for_create = None
         self.release_by_id_calls = []
         self.on_upload_asset = None
+        self.on_read_by_id = None
+        self.on_update_release = None
 
     def latest_release(self):
         if self.release is not None and self.release.get("draft") is False:
@@ -1109,7 +1476,10 @@ class FakeGitHub:
     def release_by_id(self, release_id):
         self.release_by_id_calls.append(release_id)
         if self.release is not None and self.release.get("id") == release_id:
-            return copy.deepcopy(self.release) if self.detached_release_reads else self.release
+            result = copy.deepcopy(self.release) if self.detached_release_reads or self.on_read_by_id else self.release
+            if self.on_read_by_id is not None:
+                self.on_read_by_id(result)
+            return result
         return None
 
     def release_assets(self, release_record):
@@ -1122,37 +1492,38 @@ class FakeGitHub:
                     return record["asset_bytes"][asset["name"]]
         return self.release["asset_bytes"][asset["name"]]
 
-    def request(self, path, *, method="GET", payload=None, **kwargs):
-        if path == "/releases" and method == "POST":
-            if self.fail_stage == "draft-create":
-                self.fail_stage = None
-                raise release.ReleaseError("simulated denied GitHub draft write (403)")
-            self.release = {
-                **payload,
-                "id": self.next_id,
-                "upload_url": "https://uploads.github.test/releases/1/assets{?name,label}",
-                "assets": {},
-                "asset_bytes": {},
-            }
-            if self.tag_exists_for_create is not None and not self.tag_exists_for_create(payload["tag_name"]):
-                self.release["tag_name"] = "untagged-temporary"
-            self.next_id += 1
-            if self.on_create_release is not None:
-                self.on_create_release(self.release)
-            if self.fail_stage == "after-draft-create":
-                self.fail_stage = None
-                raise release.ReleaseError("simulated lost draft creation response")
-            return 201, self.release
-        if path == "/releases/1" and method == "PATCH":
-            if payload.get("draft") is False and self.fail_stage == "before-final-publish":
-                self.fail_stage = None
-                raise release.ReleaseError("simulated denied final publication (403)")
-            self.release.update(payload)
-            if payload.get("draft") is False and self.fail_stage == "after-final-publish":
-                self.fail_stage = None
-                raise release.ReleaseError("simulated lost final publication response")
-            return 200, self.release
-        raise AssertionError((path, method, payload))
+    def create_release(self, tag, candidate, title, body):
+        if self.fail_stage == "draft-create":
+            self.fail_stage = None
+            raise release.ReleaseError("simulated denied GitHub draft write (403)")
+        payload = {
+            "tag_name": tag, "target_commitish": candidate, "name": title,
+            "body": body, "draft": True, "prerelease": False,
+        }
+        self.release = {
+            **payload, "id": self.next_id, "assets": {}, "asset_bytes": {},
+        }
+        if self.tag_exists_for_create is not None and not self.tag_exists_for_create(tag):
+            self.release["tag_name"] = "untagged-temporary"
+        self.next_id += 1
+        if self.on_create_release is not None:
+            self.on_create_release(self.release)
+        if self.fail_stage == "after-draft-create":
+            self.fail_stage = None
+            raise release.ReleaseError("simulated lost draft creation response")
+        return self.release
+
+    def update_release(self, release_record, *, body, draft):
+        if draft is False and self.fail_stage == "before-final-publish":
+            self.fail_stage = None
+            raise release.ReleaseError("simulated denied final publication (403)")
+        self.release.update(body=body, draft=draft)
+        if self.on_update_release is not None:
+            self.on_update_release(self.release)
+        if draft is False and self.fail_stage == "after-final-publish":
+            self.fail_stage = None
+            raise release.ReleaseError("simulated lost final publication response")
+        return self.release
 
     def upload_asset(self, release_record, name, data):
         if self.fail_once_asset == name:
@@ -1162,7 +1533,6 @@ class FakeGitHub:
         self.release["assets"][name] = {
             "name": name,
             "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
-            "url": f"https://api.github.test/assets/{name}",
         }
         if self.on_upload_asset is not None:
             self.on_upload_asset(name)

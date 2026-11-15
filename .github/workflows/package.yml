@@ -150,6 +150,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - name: Prepare locked release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_env="$RUNNER_TEMP/release-env"
+          UV_PROJECT_ENVIRONMENT="$release_env" uv sync --locked --no-default-groups --group release --no-install-project
+          "$release_env/bin/python" -c 'from importlib.metadata import version; print("RELEASE_CLIENT PyGithub=" + version("PyGithub"))'
+          echo "RELEASE_PYTHON=$release_env/bin/python" >> "$GITHUB_ENV"
       - name: Evaluate version increase after tests
         id: intent
         env:
@@ -167,7 +179,7 @@ jobs:
           intent_flags=()
           [[ "$PUSH_FORCED" == "true" ]] && intent_flags+=(--forced)
           [[ "$PUSH_DELETED" == "true" ]] && intent_flags+=(--deleted)
-          python tools/release.py intent \
+          "$RELEASE_PYTHON" tools/release.py intent \
             --before "$BEFORE_SHA" --after "$AFTER_SHA" --event-after "$EVENT_AFTER_SHA" \
             --ref "$PUSH_REF" --event "$EVENT_NAME" "${intent_flags[@]}" \
             --repository "$GITHUB_REPOSITORY" --github-output "$GITHUB_OUTPUT"
@@ -214,7 +226,7 @@ jobs:
           publish_flags=()
           [[ "$PUSH_FORCED" == "true" ]] && publish_flags+=(--forced)
           [[ "$PUSH_DELETED" == "true" ]] && publish_flags+=(--deleted)
-          python tools/release.py publish-push \
+          "$RELEASE_PYTHON" tools/release.py publish-push \
             --before "$BEFORE_SHA" --candidate "$PUSH_SHA" --event-after "$EVENT_AFTER_SHA" \
             --ref "$PUSH_REF" --event "$EVENT_NAME" "${publish_flags[@]}" \
             --repository "$GITHUB_REPOSITORY" --wheel "$wheel" \
