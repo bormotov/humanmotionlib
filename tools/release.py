@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -25,6 +27,49 @@ from urllib.request import Request, urlopen
 _VERSION = re.compile(r"^0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _ARCHIVE_PREFIX = "openspec/changes/archive/"
 _SPEC_PREFIX = "openspec/specs/"
+
+_LOGGER = logging.getLogger("humanmotionlib.release")
+_REDACTED_ARGUMENTS = {"token", "secret", "password", "authorization", "content", "data", "body", "text"}
+
+
+def _safe_argument(name: str, value: object) -> object:
+    """Make function arguments useful in logs without exposing credentials or file/API bodies."""
+    if name.lower() in _REDACTED_ARGUMENTS:
+        return "<redacted>"
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str) and len(value) > 240:
+            return value[:237] + "..."
+        return value
+    if isinstance(value, bytes):
+        return f"<bytes length={len(value)}>"
+    if isinstance(value, dict):
+        return {str(key): _safe_argument(str(key), item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_safe_argument(name, item) for item in value]
+    if isinstance(value, argparse.Namespace):
+        return {key: _safe_argument(key, item) for key, item in vars(value).items()}
+    if isinstance(value, GitHubClient):
+        return {"type": "GitHubClient", "repository": value.repository}
+    return f"<{type(value).__name__}>"
+
+
+def _log_exception(error: BaseException, **context: object) -> None:
+    """Log the handled exception and the enclosing function's declared arguments."""
+    frame = inspect.currentframe()
+    caller = frame.f_back if frame is not None else None
+    if caller is None:
+        _LOGGER.error("Handled %s: %s", type(error).__name__, error)
+        return
+    arg_info = inspect.getargvalues(caller)
+    arguments = {
+        name: _safe_argument(name, caller.f_locals.get(name))
+        for name in arg_info.args if name != "self"
+    }
+    arguments.update({name: _safe_argument(name, value) for name, value in context.items()})
+    _LOGGER.error("%s handled %s: %s; arguments=%s",
+                  caller.f_code.co_name, type(error).__name__, error, arguments)
 
 
 class ReleaseError(RuntimeError):
@@ -54,6 +99,7 @@ def read_version_text(text: str) -> str:
     try:
         version = tomllib.loads(text)["project"]["version"]
     except (KeyError, tomllib.TOMLDecodeError) as error:
+        _log_exception(error)
         raise ReleaseError("pyproject.toml has no valid project.version") from error
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
         raise ReleaseError(f"automatic releases require a valid 0.x.y version, got {version!r}")
@@ -105,6 +151,7 @@ def release_intent(root: Path, before: str, after: str, *, ref: str,
                     "published_version": published_version,
                     "reason": f"version {new} is already published or superseded by {published_version}; CI still runs"}
     except (ReleaseError, OSError, subprocess.CalledProcessError) as error:
+        _log_exception(error)
         return {"eligible": False, "reason": f"cannot establish release intent: {error}; CI still runs"}
     return {"eligible": True, "before_sha": before_sha, "source_sha": after_sha,
             "before_version": old, "version": new,
@@ -118,6 +165,7 @@ def bootstrap_boundary(root: Path) -> tuple[str, str]:
         expected_commit = config["bootstrap_commit"]
         expected_version = config["bootstrap_version"]
     except (OSError, KeyError, tomllib.TOMLDecodeError) as error:
+        _log_exception(error)
         raise ReleaseError(f"cannot read fixed release bootstrap configuration at {config_path}") from error
     if not isinstance(expected_commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", expected_commit):
         raise ReleaseError("bootstrap_commit must be a full lowercase Git object id")
@@ -218,6 +266,7 @@ def build_plan(root: Path, boundary: str | None, target: str) -> dict[str, objec
     try:
         boundary_sha, target_sha = _commit(root, boundary), _commit(root, target)
     except subprocess.CalledProcessError as error:
+        _log_exception(error)
         raise ReleaseError("release boundary or checked push commit is missing") from error
     archives = _new_archives(root, boundary_sha, target_sha)
 
@@ -246,6 +295,7 @@ def build_pushed_release_plan(root: Path, boundary: str, target: str,
     try:
         boundary_sha, target_sha = _commit(root, boundary), _commit(root, target)
     except subprocess.CalledProcessError as error:
+        _log_exception(error)
         raise ReleaseError("release boundary or checked push commit is missing") from error
     if version_at(root, target_sha) != version:
         raise ReleaseError("declared release version does not match the checked push commit")
@@ -318,6 +368,7 @@ class GitHubClient:
                 body = response.read()
                 status = response.status
         except HTTPError as error:
+            _log_exception(error)
             body = error.read()
             status = error.code
             if allow_missing and status == 404:
@@ -333,6 +384,7 @@ class GitHubClient:
         try:
             return status, json.loads(body)
         except json.JSONDecodeError as error:
+            _log_exception(error)
             raise ReleaseError(f"GitHub API returned invalid JSON for {method} {url}") from error
 
     def latest_release(self) -> dict[str, object] | None:
@@ -357,6 +409,7 @@ class GitHubClient:
         return result
 
     def release_for_tag(self, tag: str) -> dict[str, object] | None:
+        _LOGGER.info("GitHub release lookup request tag_name=%r", tag)
         matches: list[dict[str, object]] = []
         page = 1
         while True:
@@ -366,6 +419,8 @@ class GitHubClient:
             for record in records:
                 if not isinstance(record, dict) or not isinstance(record.get("draft"), bool):
                     raise ReleaseError("GitHub returned a malformed release record while looking up a draft")
+                _LOGGER.info("GitHub release lookup response id=%r tag_name=%r draft=%r",
+                             record.get("id"), record.get("tag_name"), record.get("draft"))
                 if record.get("tag_name") == tag:
                     matches.append(record)
             if len(records) < 100:
@@ -377,6 +432,11 @@ class GitHubClient:
 
     def release_by_id(self, release_id: int) -> dict[str, object] | None:
         _, release = self.request(f"/releases/{release_id}", allow_missing=True)
+        if isinstance(release, dict):
+            _LOGGER.info("GitHub release-by-id response id=%r tag_name=%r draft=%r",
+                         release.get("id"), release.get("tag_name"), release.get("draft"))
+        else:
+            _LOGGER.info("GitHub release-by-id response requested_id=%r result=missing", release_id)
         return release if isinstance(release, dict) else None
 
     def release_assets(self, release: dict[str, object]) -> dict[str, dict[str, object]]:
@@ -559,21 +619,28 @@ def _create_or_get_draft(client: GitHubClient, tag: str, candidate: str,
                          title: str, body: str) -> dict[str, object]:
     existing = client.release_for_tag(tag)
     if existing is not None:
+        _LOGGER.info("GitHub release selected existing response id=%r tag_name=%r draft=%r",
+                     existing.get("id"), existing.get("tag_name"), existing.get("draft"))
         if existing.get("tag_name") != tag:
             raise ReleaseError("GitHub returned a release for a different tag")
         if existing.get("draft") is False:
             return existing
         return existing
-    _, release = client.request("/releases", method="POST", payload={
+    payload = {
         "tag_name": tag,
         "target_commitish": candidate,
         "name": title,
         "body": body,
         "draft": True,
         "prerelease": False,
-    })
+    }
+    _LOGGER.info("GitHub release create request tag_name=%r target_commitish=%r draft=%r",
+                 payload["tag_name"], payload["target_commitish"], payload["draft"])
+    _, release = client.request("/releases", method="POST", payload=payload)
     if not isinstance(release, dict):
         raise ReleaseError("GitHub did not confirm release draft creation")
+    _LOGGER.info("GitHub release create response id=%r tag_name=%r draft=%r",
+                 release.get("id"), release.get("tag_name"), release.get("draft"))
     return release
 
 
@@ -712,6 +779,7 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
     try:
         checksum_rows = checksum_path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
+        _log_exception(error)
         raise ReleaseError(f"package workflow checksum evidence is unavailable: {checksum_path}") from error
     if len(checksum_rows) != 1:
         raise ReleaseError("package workflow checksum evidence must contain exactly one wheel")
@@ -845,6 +913,7 @@ def _client_from_args(args: argparse.Namespace) -> GitHubClient:
 
 
 def _main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     intent_parser = subparsers.add_parser("intent", help="evaluate an original push version increase")
@@ -888,6 +957,7 @@ def _main() -> int:
                             f"version {result['version']} is already published or superseded by "
                             f"{published}; CI still runs"))
                 except (ReleaseError, OSError, subprocess.CalledProcessError) as error:
+                    _log_exception(error, args=args)
                     result.update(eligible=False, reason=f"cannot verify published history: {error}; CI still runs")
                     intent_error = True
             if args.github_output is not None:
@@ -909,6 +979,7 @@ def _main() -> int:
                                             args.workflow_url, args.checksum)
             print(json.dumps(result, sort_keys=True))
     except (ReleaseError, OSError, subprocess.CalledProcessError) as error:
+        _log_exception(error, args=locals().get("args"))
         print(f"release helper: {error}", file=sys.stderr)
         return 2
     return 0
