@@ -375,14 +375,9 @@ class GitHubClient:
             raise ReleaseError(f"GitHub returned multiple releases for tag {tag}")
         return matches[0] if matches else None
 
-    def create_tag_ref(self, tag: str, candidate: str) -> None:
-        _, result = self.request("/git/refs", method="POST", payload={
-            "ref": f"refs/tags/{tag}", "sha": candidate,
-        })
-        if (not isinstance(result, dict) or result.get("ref") != f"refs/tags/{tag}"
-                or not isinstance(result.get("object"), dict)
-                or result["object"].get("sha") != candidate):
-            raise ReleaseError(f"GitHub did not confirm exact creation of tag {tag}")
+    def release_by_id(self, release_id: int) -> dict[str, object] | None:
+        _, release = self.request(f"/releases/{release_id}", allow_missing=True)
+        return release if isinstance(release, dict) else None
 
     def release_assets(self, release: dict[str, object]) -> dict[str, dict[str, object]]:
         assets = release.get("assets")
@@ -582,39 +577,86 @@ def _create_or_get_draft(client: GitHubClient, tag: str, candidate: str,
     return release
 
 
-def _verify_remote_tag(root: Path, tag: str, candidate: str) -> None:
-    fetched = subprocess.run(["git", "fetch", "origin", f"+refs/tags/{tag}:refs/tags/{tag}"],
-                             cwd=root, capture_output=True, text=True)
-    if fetched.returncode != 0:
-        raise ReleaseError(f"release tag {tag} could not be verified from origin: {fetched.stderr.strip()}")
-    if _commit(root, f"refs/tags/{tag}") != candidate:
-        raise ReleaseError(f"release tag {tag} does not target the checked commit")
-
-
-def _remote_tag_exists(root: Path, tag: str) -> bool:
+def _remote_tag_commit(root: Path, tag: str) -> str | None:
     result = subprocess.run(["git", "ls-remote", "--tags", "origin",
-                             f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"],
+                             "--refs", f"refs/tags/{tag}"],
                             cwd=root, capture_output=True, text=True)
     if result.returncode != 0:
         raise ReleaseError(f"release tag {tag} could not be checked at origin: {result.stderr.strip()}")
-    return bool(result.stdout.strip())
+    rows = [line.split() for line in result.stdout.splitlines() if line.strip()]
+    if not rows:
+        return None
+    if len(rows) != 1 or len(rows[0]) != 2 or rows[0][1] != f"refs/tags/{tag}":
+        raise ReleaseError(f"origin returned an invalid ref while checking tag {tag}")
+    object_sha = rows[0][0]
+    if not re.fullmatch(r"[0-9a-f]{40,64}", object_sha):
+        raise ReleaseError(f"origin returned an invalid object for release tag {tag}")
+    object_type = subprocess.run(["git", "cat-file", "-t", object_sha], cwd=root,
+                                 capture_output=True, text=True)
+    if object_type.returncode == 0 and object_type.stdout.strip() == "commit":
+        return object_sha
+
+    # Resolve annotated tags through an isolated temporary ref; never overwrite a
+    # local version tag while inspecting the remote.
+    verification_ref = f"refs/codex-release-verification/{tag}"
+    exists = subprocess.run(["git", "show-ref", "--verify", "--quiet", verification_ref],
+                            cwd=root, capture_output=True, text=True)
+    if exists.returncode == 0:
+        raise ReleaseError(f"temporary verification ref already exists for release tag {tag}")
+    fetched = subprocess.run(["git", "fetch", "--no-tags", "origin",
+                              f"refs/tags/{tag}:{verification_ref}"],
+                             cwd=root, capture_output=True, text=True)
+    if fetched.returncode != 0:
+        raise ReleaseError(f"release tag {tag} could not be resolved from origin: {fetched.stderr.strip()}")
+    try:
+        return _commit(root, verification_ref)
+    finally:
+        subprocess.run(["git", "update-ref", "-d", verification_ref], cwd=root,
+                       check=True, capture_output=True, text=True)
 
 
-def _ensure_remote_tag(root: Path, client: GitHubClient, tag: str, candidate: str) -> None:
-    if not _remote_tag_exists(root, tag):
-        client.create_tag_ref(tag, candidate)
-    _verify_remote_tag(root, tag, candidate)
+def _ensure_remote_tag(root: Path, tag: str, candidate: str) -> None:
+    """Create the checked lightweight tag locally and push only that ref."""
+    local = subprocess.run(["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+                           cwd=root, capture_output=True, text=True)
+    local_commit = local.stdout.strip() if local.returncode == 0 else None
+    if local_commit is not None and local_commit != candidate:
+        raise ReleaseError(f"local tag {tag} points to a conflicting commit")
+
+    remote_commit = _remote_tag_commit(root, tag)
+    if remote_commit is not None and remote_commit != candidate:
+        raise ReleaseError(f"remote tag {tag} points to a conflicting commit")
+
+    if local_commit is None:
+        created = subprocess.run(["git", "tag", tag, candidate], cwd=root,
+                                 capture_output=True, text=True)
+        if created.returncode != 0:
+            raise ReleaseError(f"local tag {tag} could not be created: {created.stderr.strip()}")
+
+    if remote_commit is None:
+        pushed = subprocess.run([
+            "git", "-c", "push.followTags=false", "push", "--no-follow-tags", "origin",
+            f"refs/tags/{tag}:refs/tags/{tag}",
+        ], cwd=root, capture_output=True, text=True)
+        if pushed.returncode != 0:
+            raise ReleaseError(f"release tag {tag} push was rejected: {pushed.stderr.strip()}")
+
+    verified = _remote_tag_commit(root, tag)
+    if verified != candidate:
+        raise ReleaseError(f"remote tag {tag} does not target the checked commit")
 
 
 def _validate_release_evidence(release: dict[str, object], plan: dict[str, object],
                                tag: str, candidate: str, wheel_checksum: str,
-                               workflow_url: str | None = None) -> None:
+                               workflow_url: str | None = None,
+                               check_target_commitish: bool = True) -> None:
     """Refuse to adopt a same-tag draft or release without our complete evidence."""
     if release.get("tag_name") != tag:
         raise ReleaseError("GitHub returned a release for a different tag")
     if release.get("name") != f"HumanMotionLib {plan['version']}":
         raise ReleaseError("existing release title does not match the reserved version")
-    if release.get("draft") is True and release.get("target_commitish") != candidate:
+    if (check_target_commitish and release.get("draft") is True
+            and release.get("target_commitish") != candidate):
         raise ReleaseError("existing draft release targets a conflicting commit")
     body = release.get("body")
     if not isinstance(body, str):
@@ -635,17 +677,19 @@ def _validate_release_evidence(release: dict[str, object], plan: dict[str, objec
 
 def _read_verified_draft(client: GitHubClient, tag: str, release_id: int,
                          plan: dict[str, object], candidate: str, checksum: str,
-                         workflow_url: str, wheel_name: str, checksum_bytes: bytes
+                         workflow_url: str, wheel_name: str, checksum_bytes: bytes,
+                         check_target_commitish: bool = True
                          ) -> dict[str, object]:
     """Read a fresh release snapshot and verify its complete immutable evidence."""
-    release = client.release_for_tag(tag)
+    release = client.release_by_id(release_id)
     if release is None:
         raise ReleaseError("release draft disappeared before publication")
     if release.get("id") != release_id:
         raise ReleaseError("release identity changed before publication")
     if release.get("draft") is not True:
         raise ReleaseError("release was no longer a draft before publication")
-    _validate_release_evidence(release, plan, tag, candidate, checksum, workflow_url)
+    _validate_release_evidence(release, plan, tag, candidate, checksum, workflow_url,
+                               check_target_commitish=check_target_commitish)
     assets = client.release_assets(release)
     if set(assets) != {wheel_name, "SHA256SUMS"}:
         raise ReleaseError("draft release asset set changed before publication")
@@ -684,9 +728,7 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
     if local_tag.returncode == 0 and local_tag.stdout.strip() != candidate_sha:
         raise ReleaseError(f"tag {tag} points to a conflicting commit")
     existing = client.release_for_tag(tag)
-    if local_tag.returncode == 0 and existing is None:
-        raise ReleaseError(f"bare tag {tag} already exists without matching managed release evidence")
-    if plan_override is not None and existing is None and _remote_tag_exists(root, tag):
+    if local_tag.returncode == 0 and existing is None and plan_override is None:
         raise ReleaseError(f"bare tag {tag} already exists without matching managed release evidence")
 
     wheel_bytes = wheel_path.read_bytes()
@@ -697,6 +739,10 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
     checksum_bytes = f"{checksum}  {wheel_name}\n".encode("ascii")
     notes = format_release_notes(plan, candidate_sha, workflow_url)
     notes += f"Checked wheel SHA-256: `{checksum}`\n"
+    if plan_override is not None:
+        # GitHub may assign an untagged-* placeholder to a draft when its tag
+        # does not exist yet. Push the exact tag before any release write.
+        _ensure_remote_tag(root, tag, candidate_sha)
     release = _create_or_get_draft(client, tag, candidate_sha, f"HumanMotionLib {plan['version']}", notes)
     if release.get("tag_name") != tag:
         raise ReleaseError("release identity does not match reserved version")
@@ -711,7 +757,8 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
             raise ReleaseError("published release wheel checksum conflicts with the checked artifact")
         if client.asset_bytes(assets["SHA256SUMS"]) != checksum_bytes:
             raise ReleaseError("published SHA256SUMS conflicts with the checked wheel")
-        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url)
+        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url,
+                                   check_target_commitish=plan_override is None)
         return {"published": True, "already_complete": True, "tag": tag, "candidate": candidate_sha,
                 "wheel_sha256": checksum}
 
@@ -728,12 +775,14 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
                 "existing draft wheel checksum differs from the checked candidate "
                 f"(expected {checksum}, found {existing_checksum})"
             )
-        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url)
+        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url,
+                                   check_target_commitish=plan_override is None)
     else:
-        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url)
+        _validate_release_evidence(release, plan, tag, candidate_sha, checksum, workflow_url,
+                                   check_target_commitish=plan_override is None)
         client.request(f"/releases/{release_id}", method="PATCH", payload={"body": notes})
         client.upload_asset(release, wheel_name, wheel_bytes)
-    assets = client.release_assets(client.release_for_tag(tag) or release)
+    assets = client.release_assets(client.release_by_id(release_id) or release)
     if "SHA256SUMS" in assets:
         if client.asset_bytes(assets["SHA256SUMS"]) != checksum_bytes:
             raise ReleaseError("draft SHA256SUMS conflicts with its immutable wheel asset")
@@ -741,21 +790,18 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
         client.upload_asset(release, "SHA256SUMS", checksum_bytes)
 
     release = _read_verified_draft(client, tag, release_id, plan, candidate_sha,
-                                   checksum, workflow_url, wheel_name, checksum_bytes)
-    if plan_override is not None:
-        _ensure_remote_tag(root, client, tag, candidate_sha)
-    release = _read_verified_draft(client, tag, release_id, plan, candidate_sha,
-                                   checksum, workflow_url, wheel_name, checksum_bytes)
+                                   checksum, workflow_url, wheel_name, checksum_bytes,
+                                   check_target_commitish=plan_override is None)
     release_id = release.get("id")
     if not isinstance(release_id, int):
         raise ReleaseError("GitHub release has no numeric identity")
+    if plan_override is not None and _remote_tag_commit(root, tag) != candidate_sha:
+        raise ReleaseError(f"remote tag {tag} does not target the checked commit")
     _, result = client.request(f"/releases/{release_id}", method="PATCH", payload={"draft": False})
     if not isinstance(result, dict) or result.get("draft") is not False:
         raise ReleaseError("GitHub did not confirm publication")
     if plan_override is not None:
-        _verify_remote_tag(root, tag, candidate_sha)
-    if plan_override is not None:
-        final_release = client.release_for_tag(tag)
+        final_release = client.release_by_id(release_id)
         if final_release is None or final_release.get("draft") is not False:
             raise ReleaseError("GitHub did not retain the published release identity")
         final_assets = client.release_assets(final_release)
@@ -765,7 +811,8 @@ def publish_release(root: Path, client: GitHubClient, candidate: str, wheel_path
             raise ReleaseError("published release wheel differs from the checked wheel")
         if client.asset_bytes(final_assets["SHA256SUMS"]) != checksum_bytes:
             raise ReleaseError("published release checksum differs from the checked wheel")
-        _validate_release_evidence(final_release, plan, tag, candidate_sha, checksum, workflow_url)
+        _validate_release_evidence(final_release, plan, tag, candidate_sha, checksum, workflow_url,
+                                   check_target_commitish=False)
     return {"published": True, "already_complete": False, "tag": tag,
             "candidate": candidate_sha, "wheel_sha256": checksum}
 

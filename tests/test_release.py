@@ -325,35 +325,77 @@ class ReleaseSelectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(release.ReleaseError, "malformed release record"):
                     client.published_releases()
 
-    def test_release_tag_creation_posts_an_exact_ref_without_force(self):
-        calls = []
+    def test_release_tag_push_creates_only_exact_local_tag_ref(self):
+        before, candidate, remote, _wheel, _checksum = self._pushed_fixture("exact-tag-push")
+        branches_before = subprocess.run(
+            ["git", "--git-dir", str(remote), "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"],
+            check=True, capture_output=True, text=True).stdout
+
+        release._ensure_remote_tag(self.repo.path, "v0.2.1", candidate)
+
+        self.assertEqual(self.repo.git("rev-parse", "refs/tags/v0.2.1^{commit}"), candidate)
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate)
+        branches_after = subprocess.run(
+            ["git", "--git-dir", str(remote), "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"],
+            check=True, capture_output=True, text=True).stdout
+        self.assertEqual(branches_after, branches_before)
+        self.assertEqual(subprocess.run(
+            ["git", "--git-dir", str(remote), "for-each-ref", "--format=%(refname)", "refs/tags"],
+            check=True, capture_output=True, text=True).stdout.splitlines(), ["refs/tags/v0.2.1"])
+
+    def test_release_tag_push_reuses_same_commit_tag_and_preserves_conflict(self):
+        _before, candidate, remote, _wheel, _checksum = self._pushed_fixture("reuse-tag-push")
+        release._ensure_remote_tag(self.repo.path, "v0.2.1", candidate)
+        release._ensure_remote_tag(self.repo.path, "v0.2.1", candidate)
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate)
+
+        other = self.repo.git("rev-parse", f"{candidate}^")
+        subprocess.run(["git", "--git-dir", str(remote), "update-ref", "refs/tags/v0.2.1", other],
+                       check=True, capture_output=True, text=True)
+        with self.assertRaisesRegex(release.ReleaseError, "remote tag v0.2.1 points to a conflicting commit"):
+            release._ensure_remote_tag(self.repo.path, "v0.2.1", candidate)
+        self.assertEqual(subprocess.run(
+            ["git", "--git-dir", str(remote), "rev-parse", "refs/tags/v0.2.1"],
+            check=True, capture_output=True, text=True).stdout.strip(), other)
+
+    def test_release_lookup_after_draft_creation_uses_release_id(self):
+        requests = []
 
         class Response:
-            status = 201
-            def __init__(self, body):
-                self.body = body
+            status = 200
             def __enter__(self):
                 return self
             def __exit__(self, *args):
                 return False
             def read(self):
-                return self.body
+                return b'{"id":42,"tag_name":"v0.2.1","draft":true}'
 
-        sha = "a" * 40
         def opener(request, timeout):
-            calls.append(request)
-            return Response(json.dumps({
-                "ref": "refs/tags/v0.2.1", "object": {"sha": sha, "type": "commit"},
-            }).encode())
+            requests.append(request)
+            return Response()
 
         client = release.GitHubClient("example/repo", "token", opener=opener)
-        client.create_tag_ref("v0.2.1", sha)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0].method, "POST")
-        self.assertTrue(calls[0].full_url.endswith("/git/refs"))
-        payload = json.loads(calls[0].data)
-        self.assertEqual(payload, {"ref": "refs/tags/v0.2.1", "sha": sha})
-        self.assertNotIn("force", payload)
+        self.assertEqual(client.release_by_id(42)["id"], 42)
+        self.assertEqual(requests[0].method, "GET")
+        self.assertTrue(requests[0].full_url.endswith("/releases/42"))
+
+    def test_rejected_release_tag_push_stops_before_release_writes(self):
+        before, candidate, remote, wheel, checksum = self._pushed_fixture("reject-tag-push")
+        hook = self.repo.path / ".git" / "hooks" / "pre-push"
+        hook.write_text("#!/bin/sh\n"
+                        f"git --git-dir='{remote}' update-ref refs/tags/v0.2.1 '{before}'\n")
+        hook.chmod(0o755)
+        client = FakeGitHub()
+
+        with self.assertRaisesRegex(release.ReleaseError, "tag v0.2.1 push was rejected"):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/600", checksum)
+
+        self.assertIsNone(client.release, "a rejected tag push must precede and prevent draft creation")
+        self.assertEqual(subprocess.run(
+            ["git", "--git-dir", str(remote), "rev-parse", "refs/tags/v0.2.1"],
+            check=True, capture_output=True, text=True).stdout.strip(), before)
 
     def test_release_intent_is_an_explicit_main_push_version_increase(self):
         before = self.repo.base
@@ -578,16 +620,19 @@ class ReleaseSelectionTests(unittest.TestCase):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("positive")
         client = FakeGitHub()
         client.detached_release_reads = True
-        client.on_create_release = lambda _item: self.assertEqual(
-            subprocess.run(["git", "--git-dir", str(remote), "for-each-ref", "refs/tags/v0.2.1"],
-                           check=True, capture_output=True, text=True).stdout, "")
-        client.on_create_tag_ref = lambda tag, sha: subprocess.run(
-            ["git", "--git-dir", str(remote), "update-ref", f"refs/tags/{tag}", sha],
-            check=True, capture_output=True, text=True)
+        client.tag_exists_for_create = lambda tag: release._remote_tag_commit(self.repo.path, tag) == candidate
+        def assert_tag_precedes_draft(_item):
+            self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate)
+            # GitHub may retain this field's default branch value when the tag
+            # already exists; the pushed tag is the release identity.
+            _item["target_commitish"] = "main"
+        client.on_create_release = assert_tag_precedes_draft
         result = release.publish_pushed_release(
             self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
             candidate, False, False, "https://example.invalid/actions/runs/601", checksum)
         self.assertTrue(result["published"])
+        self.assertEqual(client.release["tag_name"], "v0.2.1")
+        self.assertTrue(client.release_by_id_calls, "drafts are re-read using their release ID")
         self.assertFalse(client.release["draft"])
         self.assertEqual(self.repo.git("rev-parse", "refs/tags/v0.2.1"), candidate)
         self.assertEqual(set(client.release["assets"]), {wheel.name, "SHA256SUMS"})
@@ -599,9 +644,6 @@ class ReleaseSelectionTests(unittest.TestCase):
         digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
         checksum.write_text(f"{digest}  {wheel.name}\n", encoding="ascii")
         client = FakeGitHub()
-        client.on_create_tag_ref = lambda tag, sha: subprocess.run(
-            ["git", "--git-dir", str(remote), "update-ref", f"refs/tags/{tag}", sha],
-            check=True, capture_output=True, text=True)
 
         result = release.publish_pushed_release(
             self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
@@ -612,37 +654,72 @@ class ReleaseSelectionTests(unittest.TestCase):
         self.assertEqual(client.release["asset_bytes"]["SHA256SUMS"],
                          f"{digest}  {wheel.name}\n".encode("ascii"))
 
+    def test_publish_pushed_release_resumes_after_tag_and_draft_with_same_checked_wheel(self):
+        before, candidate, remote, wheel, checksum = self._pushed_fixture("tag-draft-retry")
+        client = FakeGitHub(fail_stage="after-draft-create")
+        with self.assertRaisesRegex(release.ReleaseError, "simulated lost draft creation response"):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/607", checksum)
+
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate)
+        self.assertTrue(client.release["draft"])
+        result = release.publish_pushed_release(
+            self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+            candidate, False, False, "https://example.invalid/actions/runs/607", checksum)
+
+        digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+        self.assertTrue(result["published"])
+        self.assertEqual(result["wheel_sha256"], digest)
+        self.assertEqual(client.release["asset_bytes"][wheel.name], wheel.read_bytes())
+        self.assertEqual(client.release["asset_bytes"]["SHA256SUMS"],
+                         f"{digest}  {wheel.name}\n".encode("ascii"))
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate)
+
     def test_publish_pushed_release_does_not_publish_if_remote_tag_races_to_wrong_target(self):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("tag-race")
+        subprocess.run(["git", "--git-dir", str(remote), "update-ref", "refs/tags/v0.2.1", before],
+                       check=True, capture_output=True, text=True)
         client = FakeGitHub()
-        client.on_create_release = lambda item: subprocess.run(
-            ["git", "--git-dir", str(remote), "update-ref", f"refs/tags/{item['tag_name']}", before],
-            check=True, capture_output=True, text=True)
-        with self.assertRaisesRegex(release.ReleaseError, "does not target the checked commit"):
+        with self.assertRaisesRegex(release.ReleaseError, "remote tag v0.2.1 points to a conflicting commit"):
             release.publish_pushed_release(
                 self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
                 candidate, False, False, "https://example.invalid/actions/runs/602", checksum)
-        self.assertIsNotNone(client.release)
-        self.assertTrue(client.release["draft"], "the raced draft must remain unpublished")
-        self.assertEqual(set(client.release["assets"]), {wheel.name, "SHA256SUMS"})
+        self.assertIsNone(client.release, "conflicting remote tag must stop before release writes")
+
+    def test_publish_pushed_release_rechecks_remote_tag_after_upload_before_publishing(self):
+        before, candidate, remote, wheel, checksum = self._pushed_fixture("tag-moves-during-upload")
+        client = FakeGitHub()
+
+        def move_tag_after_wheel_upload(name):
+            if name == wheel.name:
+                subprocess.run(["git", "--git-dir", str(remote), "update-ref",
+                                "refs/tags/v0.2.1", before], check=True, capture_output=True, text=True)
+
+        client.on_upload_asset = move_tag_after_wheel_upload
+        with self.assertRaisesRegex(release.ReleaseError,
+                                    "remote tag v0.2.1 does not target the checked commit"):
+            release.publish_pushed_release(
+                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
+                candidate, False, False, "https://example.invalid/actions/runs/608", checksum)
+        self.assertTrue(client.release["draft"], "a moved tag must leave the release unpublished")
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), before)
 
     def test_same_target_tag_created_after_managed_draft_is_verified_without_rewrite(self):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("same-target-tag-race")
+        subprocess.run(["git", "--git-dir", str(remote), "update-ref", "refs/tags/v0.2.1", candidate],
+                       check=True, capture_output=True, text=True)
         client = FakeGitHub()
-        client.on_create_release = lambda item: subprocess.run(
-            ["git", "--git-dir", str(remote), "update-ref", f"refs/tags/{item['tag_name']}", candidate],
-            check=True, capture_output=True, text=True)
-        create_ref_calls = []
-        client.on_create_tag_ref = lambda tag, sha: create_ref_calls.append((tag, sha))
         result = release.publish_pushed_release(
             self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
             candidate, False, False, "https://example.invalid/actions/runs/603", checksum)
         self.assertTrue(result["published"])
         self.assertFalse(client.release["draft"])
-        self.assertEqual(create_ref_calls, [], "matching existing ref is verified without being rewritten")
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate,
+                         "matching existing ref is reused without being rewritten")
         self.assertEqual(self.repo.git("rev-parse", "refs/tags/v0.2.1"), candidate)
 
-    def test_publish_pushed_release_rejects_draft_mutated_before_tag_creation(self):
+    def test_publish_pushed_release_creates_tag_before_draft_and_keeps_mutated_draft_unpublished(self):
         before, candidate, remote, wheel, checksum = self._pushed_fixture("draft-mutated-before-tag")
         client = FakeGitHub()
 
@@ -657,27 +734,8 @@ class ReleaseSelectionTests(unittest.TestCase):
                 self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
                 candidate, False, False, "https://example.invalid/actions/runs/604", checksum)
         self.assertTrue(client.release["draft"], "changed draft must remain unpublished")
-        self.assertEqual(subprocess.run(
-            ["git", "--git-dir", str(remote), "for-each-ref", "refs/tags/v0.2.1"],
-            check=True, capture_output=True, text=True).stdout, "",
-            "a changed draft must be rejected before creating the release ref")
-
-    def test_publish_pushed_release_rejects_draft_mutated_during_tag_creation(self):
-        before, candidate, remote, wheel, checksum = self._pushed_fixture("draft-mutated-during-tag")
-        client = FakeGitHub()
-
-        def create_ref_then_mutate_draft(tag, sha):
-            subprocess.run(
-                ["git", "--git-dir", str(remote), "update-ref", f"refs/tags/{tag}", sha],
-                check=True, capture_output=True, text=True)
-            client.release["target_commitish"] = before
-
-        client.on_create_tag_ref = create_ref_then_mutate_draft
-        client.detached_release_reads = True
-        with self.assertRaisesRegex(release.ReleaseError, "conflicting commit"):
-            release.publish_pushed_release(
-                self.repo.path, client, before, candidate, "refs/heads/main", "push", wheel,
-                candidate, False, False, "https://example.invalid/actions/runs/605", checksum)
+        self.assertEqual(release._remote_tag_commit(self.repo.path, "v0.2.1"), candidate,
+                         "the local Git tag is pushed before creating a draft")
         self.assertTrue(client.release["draft"], "changed draft must remain unpublished")
         self.assertEqual(set(client.release["assets"]), {wheel.name, "SHA256SUMS"})
 
@@ -1027,8 +1085,9 @@ class FakeGitHub:
         self.fail_stage = fail_stage
         self.published_records = None
         self.on_create_release = None
-        self.on_create_tag_ref = None
         self.detached_release_reads = False
+        self.tag_exists_for_create = None
+        self.release_by_id_calls = []
         self.on_upload_asset = None
 
     def latest_release(self):
@@ -1047,10 +1106,11 @@ class FakeGitHub:
             return copy.deepcopy(self.release) if self.detached_release_reads else self.release
         return None
 
-    def create_tag_ref(self, tag, candidate):
-        self.request("/git/refs", method="POST", payload={
-            "ref": f"refs/tags/{tag}", "sha": candidate,
-        })
+    def release_by_id(self, release_id):
+        self.release_by_id_calls.append(release_id)
+        if self.release is not None and self.release.get("id") == release_id:
+            return copy.deepcopy(self.release) if self.detached_release_reads else self.release
+        return None
 
     def release_assets(self, release_record):
         return release_record["assets"]
@@ -1063,10 +1123,6 @@ class FakeGitHub:
         return self.release["asset_bytes"][asset["name"]]
 
     def request(self, path, *, method="GET", payload=None, **kwargs):
-        if path == "/git/refs" and method == "POST":
-            if self.on_create_tag_ref is not None:
-                self.on_create_tag_ref(payload["ref"].removeprefix("refs/tags/"), payload["sha"])
-            return 201, {"ref": payload["ref"], "object": {"sha": payload["sha"]}}
         if path == "/releases" and method == "POST":
             if self.fail_stage == "draft-create":
                 self.fail_stage = None
@@ -1078,6 +1134,8 @@ class FakeGitHub:
                 "assets": {},
                 "asset_bytes": {},
             }
+            if self.tag_exists_for_create is not None and not self.tag_exists_for_create(payload["tag_name"]):
+                self.release["tag_name"] = "untagged-temporary"
             self.next_id += 1
             if self.on_create_release is not None:
                 self.on_create_release(self.release)

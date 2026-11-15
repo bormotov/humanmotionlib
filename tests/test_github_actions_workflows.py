@@ -191,11 +191,18 @@ class CandidateWorkflowTests(unittest.TestCase):
         self.assertIn("--before", intent["run"])
         self.assertIn("--after", intent["run"])
         self.assertIn("release.py intent", intent["run"])
+        checkout = next(step for step in publish["steps"]
+                        if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(checkout["with"]["fetch-depth"], "0")
+        self.assertEqual(checkout["with"]["persist-credentials"], "true")
         self.assertTrue(any(step.get("if") == "steps.intent.outputs.eligible == 'true'"
                             and step.get("name") == "Publish the tested wheel"
                             for step in publish["steps"]))
         publisher = "\n".join(step.get("run", "") for step in publish["steps"])
         self.assertIn("publish-push", publisher)
+        self.assertIn('"push"', (ROOT / "tools" / "release.py").read_text(encoding="utf-8"))
+        self.assertNotIn("/git/refs", (ROOT / "tools" / "release.py").read_text(encoding="utf-8"))
         self.assertIn("BUILD_WHEEL_SHA256", str(publish))
         self.assertNotIn("reserve", publisher)
         self.assertFalse((WORKFLOWS / "release-pipeline-control.yml").exists())

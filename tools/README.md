@@ -75,10 +75,15 @@ baseline. On a multi-commit push, CI compares the before-push tip to the final
 after-push commit. The
 first post-cutover release attributes accepted archives since the last actual
 published release (or bootstrap) that are present in the checked push snapshot.
-Branch deletion has no release snapshot and cannot request publication. Publication creates
-an immutable `vX.Y.Z` GitHub Release with exactly the checked wheel and
-`SHA256SUMS`; it never publishes to PyPI. Only the publication job receives
-tag and release write permission.
+Branch deletion has no release snapshot and cannot request publication.
+Publication creates an immutable `vX.Y.Z` GitHub Release with exactly the
+checked wheel and `SHA256SUMS`; it never publishes to PyPI. After eligibility
+and artifact checks, the publication job creates the lightweight version tag
+in its checked Git working copy and pushes only `refs/tags/vX.Y.Z` to `origin`
+without force. It then creates or resumes the GitHub Release for that existing
+tag. A rejected tag push stops before any release write. The publication job
+uses the checkout credential for this Git push and is the only job with tag
+and release write permission.
 
 At cutover, inspect existing tags, drafts and releases and confirm that no
 legacy publication run is active or can be rerun with write permission. The
@@ -98,10 +103,13 @@ uv run --python 3.14 --no-project python -c 'import tomllib; print(tomllib.load(
 ```
 
 If a qualifying run fails, rerun that original push's workflow after correcting
-the cause. The rerun retains the pushed commit and can use the original
-successful build artifact. A new push with the same version reruns CI but does
-not inherit the earlier release request. A conflicting tag or unrelated draft
-requires investigation; the workflow never moves tags or replaces assets.
+the cause. GitHub reruns use the original event's commit SHA and ref, so the
+rerun also uses the workflow code from that commit; a workflow fix committed
+later requires a new push to run the updated publisher. A rerun can use the
+original successful build artifact. A new push with the same version reruns CI
+but does not inherit the earlier release request. A conflicting tag or
+unrelated draft requires investigation; the workflow never moves tags or
+replaces assets.
 
 HML's host Python is managed by uv;
 `.python-version` selects CPython 3.14 and `pyproject.toml` constrains it to
